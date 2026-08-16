@@ -9,6 +9,9 @@ class GeneralSettings {
   final bool githubProxyEnabled;
   final bool alwaysOnTop;
   final String titlePosition;
+  final String? downloadDirectory;
+  final int downloadConcurrency;
+  final int downloadChunks;
 
   const GeneralSettings({
     this.watchHistoryEnabled = true,
@@ -16,6 +19,9 @@ class GeneralSettings {
     this.githubProxyEnabled = false,
     this.alwaysOnTop = false,
     this.titlePosition = 'below',
+    this.downloadDirectory,
+    this.downloadConcurrency = 3,
+    this.downloadChunks = 1,
   });
 
   GeneralSettings copyWith({
@@ -24,6 +30,9 @@ class GeneralSettings {
     bool? githubProxyEnabled,
     bool? alwaysOnTop,
     String? titlePosition,
+    String? downloadDirectory,
+    int? downloadConcurrency,
+    int? downloadChunks,
   }) {
     return GeneralSettings(
       watchHistoryEnabled: watchHistoryEnabled ?? this.watchHistoryEnabled,
@@ -31,6 +40,10 @@ class GeneralSettings {
       githubProxyEnabled: githubProxyEnabled ?? this.githubProxyEnabled,
       alwaysOnTop: alwaysOnTop ?? this.alwaysOnTop,
       titlePosition: titlePosition ?? this.titlePosition,
+      downloadDirectory: downloadDirectory ?? this.downloadDirectory,
+      downloadConcurrency:
+          downloadConcurrency ?? this.downloadConcurrency,
+      downloadChunks: downloadChunks ?? this.downloadChunks,
     );
   }
 }
@@ -46,6 +59,9 @@ class GeneralSettingsNotifier extends _$GeneralSettingsNotifier {
       githubProxyEnabled: repository.isGithubProxyEnabled(),
       alwaysOnTop: repository.isAlwaysOnTop(),
       titlePosition: repository.getTitlePosition(),
+      downloadDirectory: repository.getDownloadDirectory(),
+      downloadConcurrency: repository.getDownloadConcurrency(),
+      downloadChunks: repository.getDownloadChunks(),
     );
   }
 
@@ -77,5 +93,23 @@ class GeneralSettingsNotifier extends _$GeneralSettingsNotifier {
     final repository = ref.read(settingsRepositoryProvider);
     await repository.setTitlePosition(position);
     state = state.copyWith(titlePosition: position);
+  }
+
+  Future<void> setDownloadDirectory(String? path) async {
+    final repository = ref.read(settingsRepositoryProvider);
+    await repository.setDownloadDirectory(path);
+    state = state.copyWith(downloadDirectory: path);
+  }
+
+  Future<void> setDownloadConcurrency(int value) async {
+    final repository = ref.read(settingsRepositoryProvider);
+    await repository.setDownloadConcurrency(value);
+    state = state.copyWith(downloadConcurrency: value);
+  }
+
+  Future<void> setDownloadChunks(int value) async {
+    final repository = ref.read(settingsRepositoryProvider);
+    await repository.setDownloadChunks(value);
+    state = state.copyWith(downloadChunks: value);
   }
 }

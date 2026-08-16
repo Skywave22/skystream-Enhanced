@@ -11,14 +11,21 @@ import '../../../../core/utils/responsive_breakpoints.dart';
 import '../../../../core/models/tmdb_details.dart';
 import '../tmdb_details_controller.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
-import '../../../../core/services/notification_service.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
+import '../../../../core/domain/entity/multimedia_item.dart';
+import '../../../stream/presentation/stream_source_picker.dart';
 
 class MovieSeasonsList extends ConsumerStatefulWidget {
   final int movieId;
   final List<TmdbSeason> seasons;
   final Color? textColor;
   final String? source;
+  final String title;
+  final String? posterUrl;
+  final String? bannerUrl;
+  final String? overview;
+  final String? releaseDateFull;
+  final String? imdbId;
 
   const MovieSeasonsList({
     super.key,
@@ -26,6 +33,12 @@ class MovieSeasonsList extends ConsumerStatefulWidget {
     required this.seasons,
     this.textColor,
     this.source,
+    this.title = '',
+    this.posterUrl,
+    this.bannerUrl,
+    this.overview,
+    this.releaseDateFull,
+    this.imdbId,
   });
 
   @override
@@ -351,11 +364,35 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
 
                     return CardsWrapper(
                       onTap: () {
-                        ref
-                            .read(notificationServiceProvider)
-                            .showInfo(
-                              AppLocalizations.of(context)!.selectSourceToPlay,
-                            );
+                        final controller = ref.read(
+                          tmdbDetailsControllerProvider(
+                            widget.movieId,
+                            source: widget.source,
+                          ),
+                        );
+                        final target = MultimediaItem(
+                          title: widget.title,
+                          url: '',
+                          posterUrl: widget.posterUrl ?? '',
+                          bannerUrl: widget.bannerUrl,
+                          description: widget.overview,
+                          contentType: MultimediaContentType.series,
+                          year: int.tryParse((widget.releaseDateFull ?? '').split('-').first),
+                          tmdbId: widget.movieId,
+                          imdbId: widget.imdbId,
+                        );
+                        final episode = Episode(
+                          name: (ep['name'] as String?) ?? 'Episode',
+                          url: '',
+                          season: controller.selectedSeason,
+                          episode: (ep['episode_number'] as int?) ?? 0,
+                        );
+                        StreamSourcePicker.open(
+                          context,
+                          ref,
+                          target,
+                          episode: episode,
+                        );
                       },
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
@@ -600,11 +637,35 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
 
                     return CardsWrapper(
                       onTap: () {
-                        ref
-                            .read(notificationServiceProvider)
-                            .showInfo(
-                              AppLocalizations.of(context)!.selectSourceToPlay,
-                            );
+                        final controller = ref.read(
+                          tmdbDetailsControllerProvider(
+                            widget.movieId,
+                            source: widget.source,
+                          ),
+                        );
+                        final target = MultimediaItem(
+                          title: widget.title,
+                          url: '',
+                          posterUrl: widget.posterUrl ?? '',
+                          bannerUrl: widget.bannerUrl,
+                          description: widget.overview,
+                          contentType: MultimediaContentType.series,
+                          year: int.tryParse((widget.releaseDateFull ?? '').split('-').first),
+                          tmdbId: widget.movieId,
+                          imdbId: widget.imdbId,
+                        );
+                        final episode = Episode(
+                          name: (ep['name'] as String?) ?? 'Episode',
+                          url: '',
+                          season: controller.selectedSeason,
+                          episode: (ep['episode_number'] as int?) ?? 0,
+                        );
+                        StreamSourcePicker.open(
+                          context,
+                          ref,
+                          target,
+                          episode: episode,
+                        );
                       },
                       borderRadius: BorderRadius.circular(8),
                       child: Container(

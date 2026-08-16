@@ -84,7 +84,11 @@ class PlayerBottomSheets {
   }
 
   static bool _isSameStream(StreamResult? a, StreamResult? b) {
-    return a != null && b != null && a.url == b.url && a.source == b.source;
+    return a != null &&
+        b != null &&
+        a.url == b.url &&
+        a.source == b.source &&
+        a.providerName == b.providerName;
   }
 
   static Future<void> _resumeIfNeeded(
@@ -1589,11 +1593,15 @@ class _HotstarSourcesTabState extends State<_HotstarSourcesTab> {
               final selected =
                   widget.selectedStream != null &&
                   widget.selectedStream!.url == stream.url &&
-                  widget.selectedStream!.source == stream.source;
+                  widget.selectedStream!.source == stream.source &&
+                  widget.selectedStream!.providerName == stream.providerName;
               final badge = _badge(stream);
 
               return _HotstarOptionRow(
                 label: stream.source,
+                overline: stream.providerName == 'Unknown'
+                    ? null
+                    : stream.providerName,
                 metadata: selected ? 'Current source' : null,
                 selected: selected,
                 badge: badge != 'Auto' ? badge : null,
@@ -1821,6 +1829,7 @@ class _HotstarOptionColumn extends StatelessWidget {
 
 class _HotstarOptionRow extends StatefulWidget {
   final String label;
+  final String? overline;
   final String? metadata;
   final bool selected;
   final VoidCallback onTap;
@@ -1832,6 +1841,7 @@ class _HotstarOptionRow extends StatefulWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.overline,
     this.metadata,
     this.badge,
   });
@@ -1906,33 +1916,52 @@ class _HotstarOptionRowState extends State<_HotstarOptionRow> {
                 ),
                 SizedBox(width: isCompact ? 10 : 18),
                 Flexible(
-                  child: RichText(
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    text: TextSpan(
-                      text: widget.label,
-                      style: TextStyle(
-                        color: widget.selected
-                            ? HotstarPlayerStyle.primaryText
-                            : HotstarPlayerStyle.mutedText,
-                        fontSize: isCompact ? 15 : 18,
-                        fontWeight: widget.selected
-                            ? FontWeight.w800
-                            : FontWeight.w700,
-                      ),
-                      children: [
-                        if (widget.metadata != null &&
-                            widget.metadata!.trim().isNotEmpty)
-                          TextSpan(
-                            text: '  ${widget.metadata!.trim()}',
-                            style: TextStyle(
-                              color: HotstarPlayerStyle.mutedText,
-                              fontSize: isCompact ? 15 : 18,
-                              fontWeight: FontWeight.w700,
-                            ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.overline != null &&
+                          widget.overline!.trim().isNotEmpty)
+                        Text(
+                          widget.overline!.trim(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: HotstarPlayerStyle.accent,
+                            fontSize: isCompact ? 10 : 11,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.3,
                           ),
-                      ],
-                    ),
+                        ),
+                      RichText(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        text: TextSpan(
+                          text: widget.label,
+                          style: TextStyle(
+                            color: widget.selected
+                                ? HotstarPlayerStyle.primaryText
+                                : HotstarPlayerStyle.mutedText,
+                            fontSize: isCompact ? 15 : 18,
+                            fontWeight: widget.selected
+                                ? FontWeight.w800
+                                : FontWeight.w700,
+                          ),
+                          children: [
+                            if (widget.metadata != null &&
+                                widget.metadata!.trim().isNotEmpty)
+                              TextSpan(
+                                text: '  ${widget.metadata!.trim()}',
+                                style: TextStyle(
+                                  color: HotstarPlayerStyle.mutedText,
+                                  fontSize: isCompact ? 15 : 18,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 if (widget.badge != null) ...[

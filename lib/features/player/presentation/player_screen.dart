@@ -41,12 +41,14 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final MultimediaItem item;
   final String videoUrl;
   final Episode? episode;
+  final List<StreamResult>? preloadedStreams;
 
   const PlayerScreen({
     super.key,
     required this.item,
     required this.videoUrl,
     this.episode,
+    this.preloadedStreams,
   });
 
   @override
@@ -162,6 +164,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         item: widget.item,
         videoUrl: widget.videoUrl,
         episode: widget.episode,
+        preloadedStreams: widget.preloadedStreams,
         videoViewController: _videoViewController,
       );
     });

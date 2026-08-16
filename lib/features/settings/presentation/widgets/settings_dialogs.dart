@@ -6,6 +6,7 @@ import '../../../../shared/widgets/custom_widgets.dart';
 import '../../../../core/services/external_player_service.dart';
 import '../../../../core/network/doh_service.dart';
 import '../../../../core/storage/settings_repository.dart';
+import '../../../../core/services/download_service.dart';
 import '../../../../core/theme/theme_provider.dart';
 import '../../../../core/utils/app_utils.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
@@ -70,6 +71,7 @@ void showDefaultHomeScreenDialog(
     {'label': l10n.explore, 'route': '/explore'},
     {'label': l10n.search, 'route': '/search'},
     {'label': l10n.library, 'route': '/library'},
+    {'label': 'Stream', 'route': '/stream'},
   ];
 
   showDialog<void>(
@@ -160,6 +162,114 @@ void showTitlePositionDialog(
         ),
       ),
     ),
+  );
+}
+
+Future<void> showDownloadSettingsDialog(
+  BuildContext context,
+  WidgetRef ref,
+  GeneralSettings settings,
+) async {
+  int concurrency = settings.downloadConcurrency;
+  int chunks = settings.downloadChunks;
+  String? directory = settings.downloadDirectory;
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Downloads'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.folder_open_rounded),
+                      title: const Text('Download location'),
+                      subtitle: Text(
+                        directory ?? 'System Downloads/Skystream',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: const Icon(Icons.edit),
+                      onTap: () async {
+                        final picked = await ref
+                            .read(downloadServiceProvider)
+                            .pickDownloadDirectory();
+                        if (picked != null) {
+                          setDialogState(() => directory = picked);
+                        }
+                      },
+                    ),
+                    if (directory != null)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            ref
+                                .read(generalSettingsProvider.notifier)
+                                .setDownloadDirectory(null);
+                            setDialogState(() => directory = null);
+                          },
+                          icon: const Icon(Icons.restart_alt),
+                          label: const Text('Reset to default'),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    Text('Queue limit: $concurrency at once'),
+                    Slider(
+                      value: concurrency.toDouble(),
+                      min: 1,
+                      max: 10,
+                      divisions: 9,
+                      label: concurrency.toString(),
+                      onChanged: (v) =>
+                          setDialogState(() => concurrency = v.round()),
+                    ),
+                    Text('Segments per file: $chunks'),
+                    Slider(
+                      value: chunks.toDouble(),
+                      min: 1,
+                      max: 8,
+                      divisions: 7,
+                      label: chunks == 1 ? 'Off' : chunks.toString(),
+                      onChanged: (v) =>
+                          setDialogState(() => chunks = v.round()),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  final notifier = ref.read(generalSettingsProvider.notifier);
+                  await notifier.setDownloadDirectory(directory);
+                  await notifier.setDownloadConcurrency(concurrency);
+                  await notifier.setDownloadChunks(chunks);
+                  await ref.read(downloadServiceProvider).applyQueueSettings(
+                        maxConcurrent: concurrency,
+                        chunks: chunks,
+                      );
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      );
+    },
   );
 }
 

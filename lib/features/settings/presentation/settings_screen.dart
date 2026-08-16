@@ -161,6 +161,24 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: LayoutConstants.spacingLg),
             SettingsGroup(
+              title: l10n.downloads,
+              children: [
+                SettingsTile(
+                  icon: Icons.folder_copy_rounded,
+                  title: 'Download location',
+                  subtitle: generalSettings.downloadDirectory ??
+                      'System Downloads/Skystream',
+                  onTap: () => showDownloadSettingsDialog(
+                    context,
+                    ref,
+                    generalSettings,
+                  ),
+                  isLast: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: LayoutConstants.spacingLg),
+            SettingsGroup(
               title: l10n.player,
               children: [
                 SettingsTile(

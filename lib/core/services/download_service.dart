@@ -10,6 +10,7 @@ import 'package:collection/collection.dart';
 import 'package:permission_handler/permission_handler.dart'
     hide PermissionStatus;
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../domain/entity/multimedia_item.dart';
 import '../router/app_router.dart';
@@ -146,7 +147,20 @@ class DownloadService {
     // 1. Configure the downloader (chainable API)
     await FileDownloader()
         .configure(
-          globalConfig: [(Config.requestTimeout, const Duration(seconds: 100))],
+          globalConfig: [
+            (Config.requestTimeout, const Duration(seconds: 100)),
+            (
+              Config.holdingQueue,
+              (
+                _ref
+                        .read(storageServiceProvider)
+                        .getDownloadConcurrency()
+                        .clamp(1, 10),
+                2,
+                1,
+              ),
+            ),
+          ],
           androidConfig: [(Config.runInForeground, Config.always)],
           iOSConfig: [(Config.excludeFromCloudBackup, Config.always)],
         )
@@ -461,6 +475,40 @@ class DownloadService {
     }
   }
 
+  Future<void> pauseAllDownloads() async {
+    final records = await FileDownloader().database.allRecords();
+    for (final record in records) {
+      if (record.task is DownloadTask &&
+          (record.status == TaskStatus.running ||
+              record.status == TaskStatus.enqueued)) {
+        await pauseDownload(record.task.taskId);
+      }
+    }
+  }
+
+  Future<void> resumeAllDownloads() async {
+    final records = await FileDownloader().database.allRecords();
+    for (final record in records) {
+      if (record.task is DownloadTask && record.status == TaskStatus.paused) {
+        await resumeDownload(record.task.taskId);
+      }
+    }
+  }
+
+  Future<void> applyQueueSettings({
+    required int maxConcurrent,
+    required int chunks,
+  }) async {
+    final storage = _ref.read(storageServiceProvider);
+    await storage.setDownloadConcurrency(maxConcurrent);
+    await storage.setDownloadChunks(chunks);
+    await FileDownloader().configure(
+      globalConfig: [
+        (Config.holdingQueue, (maxConcurrent.clamp(1, 10), 2, 1)),
+      ],
+    );
+  }
+
   Future<DownloadMetadata?> getMetadata(
     String url, {
     Map<String, String>? headers,
@@ -597,46 +645,69 @@ class DownloadService {
     // Path Logic:
     // Android/Desktop: use BaseDirectory.root with absolute path.
     // iOS: use BaseDirectory.applicationDocuments with relative path for sandbox safety.
+    final customDir =
+        _ref.read(storageServiceProvider).getDownloadDirectory();
+    final hasCustomDir = customDir != null && customDir.trim().isNotEmpty;
     BaseDirectory baseDir;
     String taskDirectory;
 
-    if (isIOS) {
+    if (isIOS && !hasCustomDir) {
       baseDir = BaseDirectory.applicationDocuments;
       // On iOS, 'directory' (from getDownloadPath(absolute: false)) is relative: "Skystream/Title"
       taskDirectory = directory;
     } else {
       // Android, Windows, macOS, Linux: use absolute paths with BaseDirectory.root
       baseDir = BaseDirectory.root;
-      if (isAndroid) {
+      if (isAndroid && !hasCustomDir) {
         taskDirectory = p.join(await _getPublicDownloadsPath(), directory);
+      } else if (isIOS && hasCustomDir) {
+        taskDirectory = p.join(customDir.trim(), directory);
       } else {
-        // Desktop: directory is already absolute (e.g. /Users/akash/Downloads/Skystream/Title)
+        // Desktop / custom: directory is already absolute.
         taskDirectory = directory;
       }
     }
 
-    final task = DownloadTask(
-      url: url,
-      filename: filename,
-      displayName: filename,
-      baseDirectory: baseDir,
-      directory: taskDirectory,
-      headers: headers ?? {},
-      updates: Updates.statusAndProgress,
-      retries: 3, // Align with example
-      allowPause: true,
-      metaData: trackingUrl ?? url,
-    );
+    final chunks = _ref
+        .read(storageServiceProvider)
+        .getDownloadChunks()
+        .clamp(1, 8);
+    final DownloadTask task = chunks > 1
+        ? ParallelDownloadTask(
+            url: url,
+            filename: filename,
+            displayName: filename,
+            baseDirectory: baseDir,
+            directory: taskDirectory,
+            headers: headers ?? {},
+            updates: Updates.statusAndProgress,
+            retries: 3,
+            allowPause: true,
+            chunks: chunks,
+            metaData: trackingUrl ?? url,
+          )
+        : DownloadTask(
+            url: url,
+            filename: filename,
+            displayName: filename,
+            baseDirectory: baseDir,
+            directory: taskDirectory,
+            headers: headers ?? {},
+            updates: Updates.statusAndProgress,
+            retries: 3, // Align with example
+            allowPause: true,
+            metaData: trackingUrl ?? url,
+          );
 
     if (kDebugMode) debugPrint('[DownloadService] Enqueuing task...');
 
     // Create the directory if it doesn't exist
     final String fullDirPath;
-    if (isIOS) {
+    if (isIOS && !hasCustomDir) {
       final docsDir = await getApplicationDocumentsDirectory();
       fullDirPath = p.join(docsDir.path, taskDirectory);
     } else {
-      // Android/Desktop: taskDirectory is already absolute
+      // Android/Desktop/custom iOS: taskDirectory is already absolute
       fullDirPath = taskDirectory;
     }
 
@@ -662,6 +733,20 @@ class DownloadService {
     return success;
   }
 
+  Future<String?> pickDownloadDirectory() async {
+    final selected = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Select download folder',
+    );
+    if (selected == null || selected.trim().isEmpty) return null;
+    final cleaned = selected.trim();
+    await _ref.read(storageServiceProvider).setDownloadDirectory(cleaned);
+    final dir = Directory(cleaned);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return cleaned;
+  }
+
   Future<String> getDownloadPath(
     MultimediaItem? item, {
     Episode? episode,
@@ -674,13 +759,23 @@ class DownloadService {
         item?.title.replaceAll(RegExp(r'[^\w\s-]'), '').trim() ?? "Unknown";
 
     String path;
+    final customDir = _ref.read(storageServiceProvider).getDownloadDirectory();
     final publicDir = await _getPublicDownloadsPath();
+    final hasCustomDir = customDir != null && customDir.trim().isNotEmpty;
+    final baseRoot = hasCustomDir ? customDir.trim() : publicDir;
 
-    if (Platform.isAndroid || Platform.isIOS) {
+    if (Platform.isIOS && !hasCustomDir) {
       path = p.join("Skystream", sanitizedTitle);
       if (absolute) {
-        path = p.join(publicDir, path);
+        path = p.join(baseRoot, path);
       }
+    } else if (Platform.isAndroid && !hasCustomDir) {
+      path = p.join("Skystream", sanitizedTitle);
+      if (absolute) {
+        path = p.join(baseRoot, path);
+      }
+    } else if (hasCustomDir) {
+      path = p.join(baseRoot, "Skystream", sanitizedTitle);
     } else {
       path = p.join(dir.path, "Skystream", sanitizedTitle);
     }

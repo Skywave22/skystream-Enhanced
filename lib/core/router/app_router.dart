@@ -5,6 +5,7 @@ import 'package:skystream/features/home/presentation/home_screen.dart';
 import 'package:skystream/features/search/presentation/search_screen.dart';
 import '../../features/explore/presentation/explore_screen.dart';
 import 'package:skystream/features/library/presentation/library_screen.dart';
+import 'package:skystream/features/stream/presentation/stream_screen.dart';
 import 'package:skystream/features/settings/presentation/settings_screen.dart';
 import '../../features/extensions/screens/extensions_screen.dart';
 import '../../features/settings/presentation/developer_options_screen.dart';
@@ -36,6 +37,9 @@ part 'app_router.g.dart';
     ),
     TypedStatefulShellBranch<LibraryBranchData>(
       routes: [TypedGoRoute<LibraryRoute>(path: '/library')],
+    ),
+    TypedStatefulShellBranch<StreamBranchData>(
+      routes: [TypedGoRoute<StreamRoute>(path: '/stream')],
     ),
     TypedStatefulShellBranch<SettingsBranchData>(
       routes: [
@@ -106,6 +110,17 @@ class LibraryRoute extends GoRouteData with $LibraryRoute {
       const LibraryScreen();
 }
 
+class StreamBranchData extends StatefulShellBranchData {
+  const StreamBranchData();
+}
+
+class StreamRoute extends GoRouteData with $StreamRoute {
+  const StreamRoute();
+  @override
+  Widget build(BuildContext context, GoRouterState state) =>
+      const StreamScreen();
+}
+
 class SettingsBranchData extends StatefulShellBranchData {
   const SettingsBranchData();
 }
@@ -162,10 +177,15 @@ class PlayerRouteExtra {
     required this.item,
     required this.videoUrl,
     this.episode,
+    this.preloadedStreams,
   });
   final MultimediaItem item;
   final String videoUrl;
   final Episode? episode;
+
+  /// Cross-plugin stream links aggregated before opening the player. When
+  /// present, the player does not call loadStreams again for this item/episode.
+  final List<StreamResult>? preloadedStreams;
 }
 
 class ViewAllRouteExtra {
@@ -248,6 +268,7 @@ class PlayerRoute extends GoRouteData with $PlayerRoute {
       item: $extra.item,
       videoUrl: $extra.videoUrl,
       episode: $extra.episode,
+      preloadedStreams: $extra.preloadedStreams,
     );
   }
 }

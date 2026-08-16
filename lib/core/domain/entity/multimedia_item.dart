@@ -559,6 +559,10 @@ class Episode {
 class StreamResult {
   final String url;
   final String source;
+
+  /// Display name of the plugin/provider that produced this stream. It is shown
+  /// in the player source list and used by cross-provider source switching.
+  final String providerName;
   final Map<String, String>? headers;
   final List<SubtitleFile>? subtitles;
   final String? drmKid;
@@ -568,6 +572,7 @@ class StreamResult {
   const StreamResult({
     required this.url,
     required this.source,
+    this.providerName = 'Unknown',
     this.headers,
     this.subtitles,
     this.drmKid,
@@ -575,9 +580,35 @@ class StreamResult {
     this.licenseUrl,
   });
 
+  String get displaySource =>
+      providerName.trim().isEmpty ? source : '$providerName · $source';
+
+  StreamResult copyWith({
+    String? url,
+    String? source,
+    String? providerName,
+    Map<String, String>? headers,
+    List<SubtitleFile>? subtitles,
+    String? drmKid,
+    String? drmKey,
+    String? licenseUrl,
+  }) {
+    return StreamResult(
+      url: url ?? this.url,
+      source: source ?? this.source,
+      providerName: providerName ?? this.providerName,
+      headers: headers ?? this.headers,
+      subtitles: subtitles ?? this.subtitles,
+      drmKid: drmKid ?? this.drmKid,
+      drmKey: drmKey ?? this.drmKey,
+      licenseUrl: licenseUrl ?? this.licenseUrl,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'url': url,
     'source': source,
+    'providerName': providerName,
     'headers': headers,
     'subtitles': subtitles?.map((x) => x.toJson()).toList(),
     'drmKid': drmKid,
@@ -589,6 +620,7 @@ class StreamResult {
     return StreamResult(
       url: (json['url'] as String?) ?? '',
       source: (json['source'] as String?) ?? 'Unknown',
+      providerName: (json['providerName'] as String?) ?? 'Unknown',
       headers: json['headers'] != null
           ? Map<String, String>.from(json['headers'] as Map)
           : null,

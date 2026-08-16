@@ -24,8 +24,34 @@ class DownloadsTab extends ConsumerStatefulWidget {
 
 class _DownloadsTabState extends ConsumerState<DownloadsTab>
     with AutomaticKeepAliveClientMixin {
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = <String>{};
+
   @override
   bool get wantKeepAlive => true;
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (!_selectedIds.add(id)) _selectedIds.remove(id);
+      if (_selectedIds.isEmpty) _selectionMode = false;
+    });
+  }
+
+  void _selectAll(List<DownloadItem> downloads) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds
+        ..clear()
+        ..addAll(downloads.map((e) => e.id));
+    });
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selectedIds.clear();
+      _selectionMode = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,11 +95,28 @@ class _DownloadsTabState extends ConsumerState<DownloadsTab>
           grouped[key]!.add(item);
         }
 
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-          itemCount: keys.length,
-          separatorBuilder: (context, index) => const SizedBox(height: 16),
-          itemBuilder: (context, index) {
+        return Column(
+          children: [
+            _DownloadsToolbar(
+              selectionMode: _selectionMode,
+              selectedCount: _selectedIds.length,
+              onPauseAll: () => ref.read(downloadsProvider.notifier).pauseAll(),
+              onResumeAll: () => ref.read(downloadsProvider.notifier).resumeAll(),
+              onSelectAll: () => _selectAll(downloads),
+              onDeleteSelected: () async {
+                await ref
+                    .read(downloadsProvider.notifier)
+                    .deleteSelected(Set.from(_selectedIds));
+                _clearSelection();
+              },
+              onCancelSelection: _clearSelection,
+            ),
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                itemCount: keys.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 16),
+                itemBuilder: (context, index) {
             final key = keys[index];
             final groupItems = grouped[key]!;
 
@@ -91,14 +134,23 @@ class _DownloadsTabState extends ConsumerState<DownloadsTab>
                 progress: displayProgress,
                 status: displayStatus,
                 progressData: progressData,
+                selectionMode: _selectionMode,
+                isSelected: _selectedIds.contains(download.id),
+                onSelect: () => _toggleSelection(download.id),
               );
             } else {
               return _GroupedDownloadTile(
                 items: groupItems,
                 activeProgress: activeProgress,
+                selectionMode: _selectionMode,
+                selectedIds: _selectedIds,
+                onSelect: _toggleSelection,
               );
             }
-          },
+                },
+              ),
+            ),
+          ],
         );
       },
       loading: () => const Center(child: AppLoadingIndicator()),
@@ -111,10 +163,16 @@ class _DownloadsTabState extends ConsumerState<DownloadsTab>
 class _GroupedDownloadTile extends ConsumerWidget {
   final List<DownloadItem> items;
   final Map<String, DownloadProgressData> activeProgress;
+  final bool selectionMode;
+  final Set<String> selectedIds;
+  final void Function(String id) onSelect;
 
   const _GroupedDownloadTile({
     required this.items,
     required this.activeProgress,
+    required this.selectionMode,
+    required this.selectedIds,
+    required this.onSelect,
   });
 
   @override
@@ -241,6 +299,9 @@ class _GroupedDownloadTile extends ConsumerWidget {
                   status: displayStatus,
                   progressData: progressData,
                   isInsideGroup: true,
+                  selectionMode: selectionMode,
+                  isSelected: selectedIds.contains(download.id),
+                  onSelect: () => onSelect(download.id),
                 ),
               ),
               if (!isLast)
@@ -293,6 +354,9 @@ class _DownloadItemTile extends ConsumerWidget {
   final TaskStatus status;
   final DownloadProgressData? progressData;
   final bool isInsideGroup;
+  final bool selectionMode;
+  final bool isSelected;
+  final VoidCallback? onSelect;
 
   const _DownloadItemTile({
     required this.item,
@@ -300,6 +364,9 @@ class _DownloadItemTile extends ConsumerWidget {
     required this.status,
     this.progressData,
     this.isInsideGroup = false,
+    this.selectionMode = false,
+    this.isSelected = false,
+    this.onSelect,
   });
 
   @override
@@ -314,6 +381,14 @@ class _DownloadItemTile extends ConsumerWidget {
     final content = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (selectionMode)
+          Padding(
+            padding: const EdgeInsets.only(right: 8, top: 40),
+            child: Checkbox(
+              value: isSelected,
+              onChanged: (_) => onSelect?.call(),
+            ),
+          ),
         // Poster
         ClipRRect(
           borderRadius: BorderRadius.circular(LayoutConstants.radiusMd),
@@ -480,7 +555,10 @@ class _DownloadItemTile extends ConsumerWidget {
     );
 
     final tile = InkWell(
-      onTap: isDone ? () => _playLocalFile(context, ref, l10n) : null,
+      onLongPress: onSelect,
+      onTap: selectionMode
+          ? onSelect
+          : (isDone ? () => _playLocalFile(context, ref, l10n) : null),
       borderRadius: BorderRadius.circular(LayoutConstants.radiusLg),
       child: content,
     );
@@ -590,6 +668,73 @@ class _DownloadItemTile extends ConsumerWidget {
             },
             child: Text(l10n.delete, style: const TextStyle(color: Colors.red)),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DownloadsToolbar extends StatelessWidget {
+  final bool selectionMode;
+  final int selectedCount;
+  final VoidCallback onPauseAll;
+  final VoidCallback onResumeAll;
+  final VoidCallback onSelectAll;
+  final VoidCallback onDeleteSelected;
+  final VoidCallback onCancelSelection;
+
+  const _DownloadsToolbar({
+    required this.selectionMode,
+    required this.selectedCount,
+    required this.onPauseAll,
+    required this.onResumeAll,
+    required this.onSelectAll,
+    required this.onDeleteSelected,
+    required this.onCancelSelection,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Row(
+        children: [
+          if (selectionMode) ...[
+            IconButton(
+              onPressed: onCancelSelection,
+              icon: const Icon(Icons.close),
+              tooltip: 'Cancel selection',
+            ),
+            const SizedBox(width: 4),
+            Text('$selectedCount selected'),
+            const Spacer(),
+            IconButton(
+              onPressed: selectedCount > 0 ? onDeleteSelected : null,
+              icon: const Icon(Icons.delete_outline),
+              color: Theme.of(context).colorScheme.error,
+              tooltip: 'Delete selected',
+            ),
+          ] else ...[
+            const Icon(Icons.queue_rounded, size: 18),
+            const SizedBox(width: 8),
+            const Text('Download queue'),
+            const Spacer(),
+            IconButton(
+              onPressed: onPauseAll,
+              icon: const Icon(Icons.pause_circle_outline),
+              tooltip: 'Pause all',
+            ),
+            IconButton(
+              onPressed: onResumeAll,
+              icon: const Icon(Icons.play_circle_outline),
+              tooltip: 'Resume all',
+            ),
+            IconButton(
+              onPressed: onSelectAll,
+              icon: const Icon(Icons.checklist_rtl),
+              tooltip: 'Select',
+            ),
+          ],
         ],
       ),
     );

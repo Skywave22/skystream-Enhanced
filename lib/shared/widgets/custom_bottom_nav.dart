@@ -44,6 +44,11 @@ class CustomBottomNavBar extends StatelessWidget {
         selectedIcon: Icons.video_library,
         label: localizations.library,
       ),
+      const _BottomNavDestination(
+        icon: Icons.live_tv_outlined,
+        selectedIcon: Icons.live_tv,
+        label: 'Stream',
+      ),
       _BottomNavDestination(
         icon: Icons.settings_outlined,
         selectedIcon: Icons.settings,

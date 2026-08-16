@@ -405,6 +405,7 @@ class PlayerController extends Notifier<PlayerState> {
   late MultimediaItem _item;
   late String _videoUrl;
   Episode? _episode;
+  List<StreamResult>? _preloadedStreams;
   Timer? _torrentPollTimer;
   bool _isPolling = false;
   bool _isInitialized = false;
@@ -721,7 +722,7 @@ class PlayerController extends Notifier<PlayerState> {
       for (int i = 0; i < streams.length; i++)
         SourceAttemptEntry(
           index: i,
-          label: streams[i].source,
+          label: streams[i].displaySource,
           status: i == activeIndex
               ? (activeStatus ?? SourceAttemptStatus.pending)
               : SourceAttemptStatus.pending,
@@ -817,6 +818,7 @@ class PlayerController extends Notifier<PlayerState> {
     required MultimediaItem item,
     required String videoUrl,
     Episode? episode,
+    List<StreamResult>? preloadedStreams,
     VideoController? videoViewController,
   }) async {
     state = const PlayerState(); // Resets all fields including errorMessage
@@ -833,6 +835,9 @@ class PlayerController extends Notifier<PlayerState> {
     _videoViewController = videoViewController;
     _videoUrl = videoUrl;
     _episode = episode;
+    _preloadedStreams = preloadedStreams == null || preloadedStreams.isEmpty
+        ? null
+        : List<StreamResult>.from(preloadedStreams);
     _pendingResumeSeekPosition = null;
     _isApplyingPendingResumeSeek = false;
     _userAddedExternalSubtitles.clear();
@@ -1950,7 +1955,8 @@ class PlayerController extends Notifier<PlayerState> {
         state = state.copyWith(streamSubtitle: "Fetching sources...");
         if (await _handleFallbackTorrent()) return;
 
-        final rawStreams = await activeProvider.loadStreams(_videoUrl);
+        final rawStreams = _preloadedStreams ?? await activeProvider.loadStreams(_videoUrl);
+        _preloadedStreams = null;
         if (!_isCurrentSourceSession(sourceSessionId)) return;
         if (rawStreams.isNotEmpty) {
           // Filter then sort streams by quality preference based on network type.
@@ -2049,6 +2055,7 @@ class PlayerController extends Notifier<PlayerState> {
       final stream = StreamResult(
         url: _videoUrl,
         source: isTorrent ? "Torrent" : "Video",
+        providerName: _item.provider ?? "Local",
         headers: {},
       );
 
@@ -2065,6 +2072,7 @@ class PlayerController extends Notifier<PlayerState> {
       final stream = StreamResult(
         url: _videoUrl,
         source: "Torrent",
+        providerName: _item.provider ?? "Torrent",
         headers: {},
       );
       state = state.copyWith(streams: [stream], currentStreamIndex: 0);
@@ -2753,8 +2761,9 @@ class PlayerController extends Notifier<PlayerState> {
     }
 
     final stream = state.streams[index];
-    final rawProviderName =
-        _item.provider ?? ref.read(activeProviderProvider)?.name ?? "Unknown";
+    final rawProviderName = stream.providerName.isNotEmpty
+        ? stream.providerName
+        : (_item.provider ?? ref.read(activeProviderProvider)?.name ?? "Unknown");
     final providerName = _getProviderDisplayName(rawProviderName);
     final subtitles = _effectiveExternalSubtitles(stream.subtitles);
     final attemptTotal = state.sourceAttempts.isEmpty
@@ -2778,7 +2787,7 @@ class PlayerController extends Notifier<PlayerState> {
     state = state.copyWith(
       currentStreamIndex: index,
       currentStream: stream,
-      streamSubtitle: "$providerName - ${stream.source}",
+      streamSubtitle: "$providerName - ${stream.displaySource}",
       externalSubtitles: subtitles,
       isLive:
           _item.contentType == MultimediaContentType.livestream ||
@@ -2791,7 +2800,7 @@ class PlayerController extends Notifier<PlayerState> {
     if (manualSelection && _hasConfirmedPlaybackFrame) {
       _enterRuntimePhase(
         kind: PlaybackUiPhaseKind.switchingSource,
-        detail: "Switching to ${stream.source}...",
+        detail: "Switching to ${stream.displaySource}...",
       );
     } else {
       _enterStartupPhase(
@@ -2829,7 +2838,7 @@ class PlayerController extends Notifier<PlayerState> {
         return;
       }
       state = state.copyWith(
-        streamSubtitle: "$providerName - ${stream.source}",
+        streamSubtitle: "$providerName - ${stream.displaySource}",
         isLive: resolvedIsLive,
         isSeekable: !useVideoView,
       );
@@ -3039,7 +3048,9 @@ class PlayerController extends Notifier<PlayerState> {
   }) async {
     final matchingIndex = state.streams.indexWhere(
       (candidate) =>
-          candidate.url == stream.url && candidate.source == stream.source,
+          candidate.url == stream.url &&
+          candidate.source == stream.source &&
+          candidate.providerName == stream.providerName,
     );
     if (!isRevert) {
       state = state.copyWith(
@@ -3056,8 +3067,9 @@ class PlayerController extends Notifier<PlayerState> {
       _manualSelectionPending = true;
     }
 
-    final rawPName =
-        _item.provider ?? ref.read(activeProviderProvider)?.name ?? 'Unknown';
+    final rawPName = stream.providerName.isNotEmpty
+        ? stream.providerName
+        : (_item.provider ?? ref.read(activeProviderProvider)?.name ?? 'Unknown');
     final pName = _getProviderDisplayName(rawPName);
 
     // Capture current position before we switch engines/streams.
@@ -3068,7 +3080,7 @@ class PlayerController extends Notifier<PlayerState> {
 
     _enterRuntimePhase(
       kind: PlaybackUiPhaseKind.switchingSource,
-      detail: "Switching to ${stream.source}...",
+      detail: "Switching to ${stream.displaySource}...",
     );
 
     try {
@@ -3093,7 +3105,7 @@ class PlayerController extends Notifier<PlayerState> {
         externalSubtitles: subtitles,
         isLive: resolvedIsLive,
         isSeekable: !useVideoView,
-        streamSubtitle: "$pName - ${stream.source}",
+        streamSubtitle: "$pName - ${stream.displaySource}",
       );
 
       if (playUrl.contains("index=")) {
@@ -3294,6 +3306,7 @@ class PlayerController extends Notifier<PlayerState> {
         final newStream = StreamResult(
           url: url,
           source: "Torrent ($fileLabel)",
+          providerName: _item.provider ?? "Torrent",
           headers: {},
         );
         unawaited(changeStream(newStream, resetPosition: true));
