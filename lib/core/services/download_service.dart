@@ -734,7 +734,7 @@ class DownloadService {
   }
 
   Future<String?> pickDownloadDirectory() async {
-    final selected = await FilePicker.platform.getDirectoryPath(
+    final selected = await FilePicker.getDirectoryPath(
       dialogTitle: 'Select download folder',
     );
     if (selected == null || selected.trim().isEmpty) return null;

@@ -39,7 +39,7 @@
 #### ⚙️ Poster Customization & Extension Settings (PR #74 by @arranoust & PR #84 by @Fares669)
 - **Poster Title Positioning** – Added customizable title placement options (top, bottom, overlay) for multimedia poster cards.
 - **Redesigned Extension Settings** – New dedicated plugin settings screen supporting conditional and script-defined plugin parameters, dynamic loading, and improved runtime cache handling.
-- 
+
 ---
 
 ### 🐞 *Bug Fixes & System Stability*

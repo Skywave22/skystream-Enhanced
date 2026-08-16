@@ -9,6 +9,7 @@ import '../../../core/extensions/extension_manager.dart';
 import '../../../core/router/app_router.dart';
 import '../data/stream_aggregator.dart';
 import '../data/stream_browser_provider.dart' show streamAggregatorProvider;
+import '../data/stream_source.dart';
 
 class StreamSourcePicker extends ConsumerStatefulWidget {
   final MultimediaItem target;

@@ -193,21 +193,21 @@ class DownloadsNotifier extends _$DownloadsNotifier {
   }
 
   Future<void> pauseAll() async {
-    final items = state.valueOrNull ?? const <DownloadItem>[];
+    final items = state.value ?? const <DownloadItem>[];
     for (final item in items) {
       await ref.read(downloadServiceProvider).pauseDownload(item.task.taskId);
     }
   }
 
   Future<void> resumeAll() async {
-    final items = state.valueOrNull ?? const <DownloadItem>[];
+    final items = state.value ?? const <DownloadItem>[];
     for (final item in items) {
       await ref.read(downloadServiceProvider).resumeDownload(item.task.taskId);
     }
   }
 
   Future<void> deleteSelected(Set<String> ids) async {
-    final items = state.valueOrNull ?? const <DownloadItem>[];
+    final items = state.value ?? const <DownloadItem>[];
     final selected = items.where((item) => ids.contains(item.id)).toList();
     await removeDownloads(selected);
   }

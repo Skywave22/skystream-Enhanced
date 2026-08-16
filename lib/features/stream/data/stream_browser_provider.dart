@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/network/dio_client_provider.dart';
 import '../../../core/services/tmdb_service.dart';
 import 'stream_aggregator.dart';
@@ -38,17 +39,19 @@ class StreamBrowserState {
   }
 }
 
-class StreamBrowserNotifier extends StateNotifier<StreamBrowserState> {
-  StreamBrowserNotifier(this.ref) : super(const StreamBrowserState()) {
-    load();
+class StreamBrowserNotifier extends Notifier<StreamBrowserState> {
+  @override
+  StreamBrowserState build() {
+    // Kick off loading after build completes so we never mutate state
+    // while the notifier is still initializing.
+    Future.microtask(load);
+    return const StreamBrowserState();
   }
-
-  final Ref ref;
 
   Future<void> load() async {
     final service = ref.read(tmdbClientProvider);
-    unawaitedLoadMovies(service);
-    unawaitedLoadSeries(service);
+    unawaited(unawaitedLoadMovies(service));
+    unawaited(unawaitedLoadSeries(service));
   }
 
   Future<void> unawaitedLoadMovies(TmdbService service) async {
@@ -75,6 +78,6 @@ class StreamBrowserNotifier extends StateNotifier<StreamBrowserState> {
 }
 
 final streamBrowserProvider =
-    StateNotifierProvider<StreamBrowserNotifier, StreamBrowserState>((ref) {
-      return StreamBrowserNotifier(ref);
-    });
+    NotifierProvider<StreamBrowserNotifier, StreamBrowserState>(
+      StreamBrowserNotifier.new,
+    );
