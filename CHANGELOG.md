@@ -1,3 +1,22 @@
+# Changelogs - Unreleased
+
+### ✨ *New Features & Enhancements*
+
+#### 🆕 Cross-Plugin "Stream" Tab
+- New **Stream** navigation destination next to Library (desktop/TV sidebar and mobile bottom bar), backed by TMDB (trending movies + popular TV shows).
+- Opening a movie or TV episode aggregates streaming links from **all installed plugins** into a single source picker. Titles are matched strictly by TMDB/IMDb ID, falling back to normalized title + media type + year — plugins that don't have the title contribute no links.
+- Aggregated links are passed into the player; the in-player **Sources** panel lists every link and supports switching across plugins.
+- Each source shows the originating plugin name as a small label.
+
+#### ⬇️ Downloads
+- **Download location** setting with a native folder picker; the chosen path is used when saving and locating files.
+- **Queue limit** (1–10 concurrent downloads) via a native holding queue.
+- **Segments per file** (1–8) using `ParallelDownloadTask` to accelerate large downloads.
+- **Pause all** and **Resume all** controls in the Downloads tab.
+- Multi-**select** mode (long-press / checklist) with **Delete selected**, alongside the existing per-item pause/resume/delete.
+
+---
+
 # Changelogs - v2.7.6
 
 ### ✨ *New Features & Enhancements*

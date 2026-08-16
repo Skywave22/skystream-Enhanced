@@ -167,6 +167,36 @@ class StorageService {
         as String;
   }
 
+  Future<void> setDownloadDirectory(String? path) async {
+    if (path == null || path.trim().isEmpty) {
+      await _settingsBox.delete('download_directory');
+    } else {
+      await _settingsBox.put('download_directory', path);
+    }
+  }
+
+  String? getDownloadDirectory() {
+    return _settingsBox.get('download_directory') as String?;
+  }
+
+  Future<void> setDownloadConcurrency(int value) async {
+    await _settingsBox.put('download_concurrency', value.clamp(1, 10));
+  }
+
+  int getDownloadConcurrency() {
+    return (_settingsBox.get('download_concurrency', defaultValue: 3) as int)
+        .clamp(1, 10);
+  }
+
+  Future<void> setDownloadChunks(int value) async {
+    await _settingsBox.put('download_chunks', value.clamp(1, 8));
+  }
+
+  int getDownloadChunks() {
+    return (_settingsBox.get('download_chunks', defaultValue: 1) as int)
+        .clamp(1, 8);
+  }
+
   Future<void> setTitlePosition(String position) async {
     await _settingsBox.put('title_position', position);
   }

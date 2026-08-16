@@ -19,6 +19,7 @@ import '../data/lightweight_details_provider.dart';
 import 'widgets/movie_trailers_carousel.dart';
 import 'widgets/movie_production_companies.dart';
 import 'widgets/movie_seasons_list.dart';
+import '../../stream/presentation/stream_source_picker.dart';
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../shared/widgets/shimmer_placeholder.dart';
 
@@ -252,12 +253,28 @@ class _TmdbMovieDetailsScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 60),
+            if (isMovie)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: FilledButton.icon(
+                  onPressed: () =>
+                      StreamSourcePicker.open(context, ref, data),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Play from plugins'),
+                ),
+              ),
             if (!isMovie) ...[
               MovieSeasonsList(
                 movieId: widget.movieId,
                 seasons: seasons,
                 textColor: textColor,
                 source: widget.source,
+                title: data.title,
+                posterUrl: data.posterUrl,
+                bannerUrl: data.bannerUrl,
+                overview: data.overview,
+                releaseDateFull: data.releaseDateFull,
+                imdbId: data.imdbId,
               ),
             ],
             if (isHeavyLoading || cast.isNotEmpty) ...[
@@ -557,7 +574,17 @@ class _TmdbMovieDetailsScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Source Search (Provider Integration)
+                // Cross-plugin stream launcher + provider results
+                if (isMovie)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: FilledButton.icon(
+                      onPressed: () =>
+                          StreamSourcePicker.open(context, ref, data),
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: const Text('Play from plugins'),
+                    ),
+                  ),
                 ProviderSearchSection(
                   query: title,
                   parentMediaType: isMovie ? 'movie' : 'tv',
@@ -769,6 +796,12 @@ class _TmdbMovieDetailsScreenState
                     movieId: widget.movieId,
                     seasons: data.seasons,
                     source: widget.source,
+                    title: data.title,
+                    posterUrl: data.posterUrl,
+                    bannerUrl: data.bannerUrl,
+                    overview: data.overview,
+                    releaseDateFull: data.releaseDateFull,
+                    imdbId: data.imdbId,
                   ),
                 ],
 

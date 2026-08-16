@@ -20,7 +20,7 @@ final isDpadActiveProvider = NotifierProvider<DpadActiveNotifier, bool>(
 );
 
 /// Number of destinations rendered by [AppSidebar].
-const int kSidebarDestinationCount = 5;
+const int kSidebarDestinationCount = 6;
 
 /// Piecewise linear mapping for the container size (distance -150 to 150 maps to 40 to 80 to 40)
 double calculateContainerSize(double distance) {
@@ -132,6 +132,7 @@ class _AppSidebarState extends ConsumerState<AppSidebar> {
       (Icons.search, Icons.search, l10n.search),
       (Icons.explore_outlined, Icons.explore, l10n.explore),
       (Icons.video_library_outlined, Icons.video_library, l10n.library),
+      (Icons.live_tv_outlined, Icons.live_tv, 'Stream'),
       (Icons.settings_outlined, Icons.settings, l10n.settings),
     ];
     assert(
@@ -148,7 +149,7 @@ class _AppSidebarState extends ConsumerState<AppSidebar> {
 
     // Static unscaled Y coordinates of the item centers for calculating distance
     // Top padding = 16.0, Item base size = 40.0, Gap = 16.0
-    const unscaledCenters = [36.0, 92.0, 148.0, 204.0, 260.0];
+    const unscaledCenters = [36.0, 92.0, 148.0, 204.0, 260.0, 316.0];
 
     // Outer container colors matching bg-gray-50 / dark:bg-neutral-900 verbatim
     final dockBgColor = isDark
