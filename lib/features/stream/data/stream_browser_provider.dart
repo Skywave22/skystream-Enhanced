@@ -90,9 +90,9 @@ class StreamBrowserNotifier extends Notifier<StreamBrowserState> {
     // people hunting for a bug in the wrong place.
     if (TmdbConfig.apiKey.isEmpty) {
       const err = StreamCatalogException(
-        'TMDB API key is missing from this build.\n'
-        'Rebuild with --dart-define-from-file=dart-defines.json '
-        '(or set the TMDB_API_KEY secret in CI).',
+        'No TMDB API key configured.\n\n'
+        'Open Settings > General > TMDB API key and paste a free key '
+        'from themoviedb.org to enable Stream.',
       );
       final trace = StackTrace.current;
       state = state.copyWith(

@@ -1,10 +1,14 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../../../shared/widgets/custom_widgets.dart';
 import '../../../../core/services/external_player_service.dart';
+import '../../../../core/config/tmdb_config.dart';
+import '../../../../core/network/dio_client_provider.dart';
 import '../../../../core/network/doh_service.dart';
+import '../../../stream/data/stream_browser_provider.dart';
 import '../../../../core/storage/settings_repository.dart';
 import '../../../../core/services/download_service.dart';
 import '../../../../core/theme/theme_provider.dart';
@@ -2343,6 +2347,175 @@ void showMaxVolumeDialog(
             ),
           ],
         ),
+      );
+    },
+  );
+}
+
+/// Lets the user paste their own TMDB API key.
+///
+/// Why this exists: the key is normally baked in at build time via
+/// `--dart-define=TMDB_API_KEY`, which comes from a CI secret. When that
+/// secret is unset the APK ships with an empty key and every TMDB-backed
+/// screen (Stream, Explore, Details) silently has nothing to show. This
+/// dialog gives users a way out without rebuilding the app.
+///
+/// The key is validated against the live API before saving so a typo is
+/// caught here rather than surfacing as an empty grid later.
+void showTmdbApiKeyDialog(BuildContext context, WidgetRef ref) {
+  final l10n = AppLocalizations.of(context)!;
+  final current = ref.read(generalSettingsProvider).tmdbApiKey;
+  final controller = TextEditingController(text: current);
+
+  showDialog<void>(
+    context: context,
+    builder: (ctx) {
+      var isChecking = false;
+      String? errorText;
+
+      return StatefulBuilder(
+        builder: (context, setState) {
+          Future<void> save() async {
+            final key = controller.text.trim();
+
+            // Empty is a legitimate input: it clears the override and falls
+            // back to the build-time key.
+            if (key.isEmpty) {
+              await ref
+                  .read(generalSettingsProvider.notifier)
+                  .setTmdbApiKey('');
+              if (ctx.mounted) Navigator.pop<void>(ctx);
+              return;
+            }
+
+            setState(() {
+              isChecking = true;
+              errorText = null;
+            });
+
+            var valid = false;
+            try {
+              final dio = ref.read(dioClientProvider);
+              final res = await dio.get<Map<String, dynamic>>(
+                '${TmdbConfig.baseUrl}/authentication',
+                queryParameters: {'api_key': key},
+                options: Options(
+                  validateStatus: (s) => s != null && s < 500,
+                  receiveTimeout: const Duration(seconds: 15),
+                ),
+              );
+              valid = res.statusCode == 200;
+            } catch (_) {
+              // Network failure is not the same as a bad key; fall through to
+              // the generic message so an offline user isn't told their key
+              // is wrong.
+              valid = false;
+            }
+
+            if (!ctx.mounted) return;
+
+            if (!valid) {
+              setState(() {
+                isChecking = false;
+                errorText =
+                    'Could not verify this key. Check the key and your '
+                    'connection, then try again.';
+              });
+              return;
+            }
+
+            await ref
+                .read(generalSettingsProvider.notifier)
+                .setTmdbApiKey(key);
+
+            // Force the TMDB-backed screens to refetch with the new key.
+            ref.invalidate(streamBrowserProvider);
+
+            if (ctx.mounted) Navigator.pop<void>(ctx);
+          }
+
+          return AlertDialog(
+            surfaceTintColor: Colors.transparent,
+            title: const Text('TMDB API key'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Stream and Explore use TMDB for posters, titles and '
+                    'search. Paste a free API key to enable them.',
+                  ),
+                  const SizedBox(height: 12),
+                  CustomTextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: 'API key (v3 auth)',
+                      hintText: 'e.g. 0123456789abcdef0123456789abcdef',
+                      errorText: errorText,
+                      prefixIcon: const Icon(Icons.vpn_key_rounded, size: 20),
+                    ),
+                    keyboardType: TextInputType.text,
+                  ),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () => launchUrl(
+                      Uri.parse(
+                        'https://www.themoviedb.org/settings/api',
+                      ),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.open_in_new_rounded, size: 16),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'Get a free key from themoviedb.org',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (isChecking) ...[
+                    const SizedBox(height: 16),
+                    const Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 10),
+                        Text('Verifying key...'),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed:
+                    isChecking ? null : () => Navigator.pop<void>(ctx),
+                child: Text(l10n.cancel),
+              ),
+              TextButton(
+                onPressed: isChecking ? null : save,
+                child: Text(l10n.save),
+              ),
+            ],
+          );
+        },
       );
     },
   );

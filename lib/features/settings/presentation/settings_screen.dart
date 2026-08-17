@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/config/tmdb_config.dart';
 import '../../../core/utils/layout_constants.dart';
 import '../../../core/utils/responsive_breakpoints.dart';
 import '../../../core/providers/device_info_provider.dart';
@@ -119,6 +120,16 @@ class SettingsScreen extends ConsumerWidget {
                       .setWatchHistoryEnabled(
                         !generalSettings.watchHistoryEnabled,
                       ),
+                ),
+                SettingsTile(
+                  icon: Icons.vpn_key_rounded,
+                  title: 'TMDB API key',
+                  subtitle: generalSettings.tmdbApiKey.isNotEmpty
+                      ? 'Custom key saved'
+                      : (TmdbConfig.buildTimeApiKey.isNotEmpty
+                            ? 'Using built-in key'
+                            : 'Not set — Stream and Explore need this'),
+                  onTap: () => showTmdbApiKeyDialog(context, ref),
                 ),
                 SettingsTile(
                   icon: Icons.home_rounded,

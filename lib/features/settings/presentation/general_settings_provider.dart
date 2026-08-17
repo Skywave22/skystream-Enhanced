@@ -1,4 +1,5 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../../../core/config/tmdb_config.dart';
 import '../../../core/storage/settings_repository.dart';
 
 part 'general_settings_provider.g.dart';
@@ -13,6 +14,10 @@ class GeneralSettings {
   final int downloadConcurrency;
   final int downloadChunks;
 
+  /// User-supplied TMDB API key. Empty means "fall back to the build-time
+  /// `--dart-define=TMDB_API_KEY` value" (which may itself be empty).
+  final String tmdbApiKey;
+
   const GeneralSettings({
     this.watchHistoryEnabled = true,
     this.defaultHomeScreen = '/home',
@@ -22,6 +27,7 @@ class GeneralSettings {
     this.downloadDirectory,
     this.downloadConcurrency = 3,
     this.downloadChunks = 1,
+    this.tmdbApiKey = '',
   });
 
   GeneralSettings copyWith({
@@ -33,6 +39,7 @@ class GeneralSettings {
     String? downloadDirectory,
     int? downloadConcurrency,
     int? downloadChunks,
+    String? tmdbApiKey,
   }) {
     return GeneralSettings(
       watchHistoryEnabled: watchHistoryEnabled ?? this.watchHistoryEnabled,
@@ -44,6 +51,7 @@ class GeneralSettings {
       downloadConcurrency:
           downloadConcurrency ?? this.downloadConcurrency,
       downloadChunks: downloadChunks ?? this.downloadChunks,
+      tmdbApiKey: tmdbApiKey ?? this.tmdbApiKey,
     );
   }
 }
@@ -62,6 +70,7 @@ class GeneralSettingsNotifier extends _$GeneralSettingsNotifier {
       downloadDirectory: repository.getDownloadDirectory(),
       downloadConcurrency: repository.getDownloadConcurrency(),
       downloadChunks: repository.getDownloadChunks(),
+      tmdbApiKey: repository.getTmdbApiKey(),
     );
   }
 
@@ -105,6 +114,17 @@ class GeneralSettingsNotifier extends _$GeneralSettingsNotifier {
     final repository = ref.read(settingsRepositoryProvider);
     await repository.setDownloadConcurrency(value);
     state = state.copyWith(downloadConcurrency: value);
+  }
+
+  /// Persists a user-supplied TMDB key and mirrors it into [TmdbConfig] so
+  /// in-flight screens pick it up without an app restart. Passing an empty
+  /// string clears the override and reverts to the build-time key.
+  Future<void> setTmdbApiKey(String value) async {
+    final trimmed = value.trim();
+    final repository = ref.read(settingsRepositoryProvider);
+    await repository.setTmdbApiKey(trimmed);
+    TmdbConfig.setUserApiKey(trimmed);
+    state = state.copyWith(tmdbApiKey: trimmed);
   }
 
   Future<void> setDownloadChunks(int value) async {
