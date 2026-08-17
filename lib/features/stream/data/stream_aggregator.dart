@@ -11,6 +11,11 @@ class StreamAggregateResult {
   final List<AggregatedStream> streams;
   final List<String> searchedProviders;
   final List<String> readyProviders;
+
+  /// Providers that finished (successfully or not). Used to drive a real
+  /// progress bar instead of an indeterminate spinner.
+  final int completedCount;
+  final int totalCount;
   final bool isLoading;
   final String? error;
 
@@ -18,14 +23,21 @@ class StreamAggregateResult {
     this.streams = const [],
     this.searchedProviders = const [],
     this.readyProviders = const [],
+    this.completedCount = 0,
+    this.totalCount = 0,
     this.isLoading = false,
     this.error,
   });
+
+  double get progress =>
+      totalCount == 0 ? 0 : (completedCount / totalCount).clamp(0.0, 1.0);
 
   StreamAggregateResult copyWith({
     List<AggregatedStream>? streams,
     List<String>? searchedProviders,
     List<String>? readyProviders,
+    int? completedCount,
+    int? totalCount,
     bool? isLoading,
     String? error,
   }) {
@@ -33,6 +45,8 @@ class StreamAggregateResult {
       streams: streams ?? this.streams,
       searchedProviders: searchedProviders ?? this.searchedProviders,
       readyProviders: readyProviders ?? this.readyProviders,
+      completedCount: completedCount ?? this.completedCount,
+      totalCount: totalCount ?? this.totalCount,
       isLoading: isLoading ?? this.isLoading,
       error: error,
     );
@@ -43,6 +57,14 @@ class StreamAggregateResult {
 /// streaming links for each matching provider. Matches are strict by TMDB/IMDb
 /// ID when available, otherwise normalized title + media type + year.
 class StreamAggregator {
+  /// Plugins are queried concurrently, but not unboundedly — some plugins do
+  /// heavy JS/webview work and firing 20 at once can starve the isolate on
+  /// low-end devices.
+  static const int _maxConcurrent = 4;
+
+  /// A single plugin that hangs must not hold up the whole sheet.
+  static const Duration _perProviderTimeout = Duration(seconds: 25);
+
   static double _titleSimilarity(String a, String b) {
     final wa = _words(a);
     final wb = _words(b);
@@ -84,7 +106,8 @@ class StreamAggregator {
     }
 
     final titleOk =
-        candidate.title.trim().toLowerCase() == target.title.trim().toLowerCase();
+        candidate.title.trim().toLowerCase() ==
+        target.title.trim().toLowerCase();
     if (!titleOk && _titleSimilarity(target.title, candidate.title) < 0.72) {
       return false;
     }
@@ -113,35 +136,42 @@ class StreamAggregator {
     return exact;
   }
 
+  /// Best links first: resolution desc, then HDR, then adaptive manifests.
+  static void _sortStreams(List<AggregatedStream> streams) {
+    streams.sort((a, b) {
+      final byQuality = b.qualityScore.compareTo(a.qualityScore);
+      if (byQuality != 0) return byQuality;
+      if (a.isHdr != b.isHdr) return a.isHdr ? -1 : 1;
+      if (a.isAdaptive != b.isAdaptive) return a.isAdaptive ? -1 : 1;
+      return a.providerName.compareTo(b.providerName);
+    });
+  }
+
   Stream<StreamAggregateResult> aggregateForMovie({
     required ExtensionManager manager,
     required MultimediaItem target,
-  }) async* {
-    yield* _aggregate(manager: manager, target: target, episode: null);
-  }
+  }) =>
+      _aggregate(manager: manager, target: target, episode: null);
 
   Stream<StreamAggregateResult> aggregateForEpisode({
     required ExtensionManager manager,
     required MultimediaItem target,
     required Episode episode,
-  }) async* {
-    yield* _aggregate(manager: manager, target: target, episode: episode);
-  }
+  }) =>
+      _aggregate(manager: manager, target: target, episode: episode);
 
   Stream<StreamAggregateResult> _aggregate({
     required ExtensionManager manager,
     required MultimediaItem target,
     required Episode? episode,
   }) async* {
-    final providers = manager
-        .getAllProviders()
-        .where((p) {
-          if (!p.hasSearch) return false;
-          final liveOnly = p.supportedTypes.isNotEmpty &&
-              p.supportedTypes.every((t) => t == ProviderType.livestream);
-          return !liveOnly;
-        })
-        .toList();
+    final providers = manager.getAllProviders().where((p) {
+      if (!p.hasSearch) return false;
+      final liveOnly =
+          p.supportedTypes.isNotEmpty &&
+          p.supportedTypes.every((t) => t == ProviderType.livestream);
+      return !liveOnly;
+    }).toList();
 
     if (providers.isEmpty) {
       yield const StreamAggregateResult(
@@ -154,40 +184,56 @@ class StreamAggregator {
     final searched = <String>[];
     final ready = <String>[];
     final seen = <String>{};
+    var completed = 0;
 
-    yield StreamAggregateResult(
-      streams: streams,
-      searchedProviders: searched,
-      readyProviders: ready,
-      isLoading: true,
-    );
+    // Emissions are pushed through a controller so that concurrent workers can
+    // report progress the moment they finish, rather than in provider order.
+    final updates = StreamController<StreamAggregateResult>();
 
-    for (final provider in providers) {
-      searched.add(provider.name);
-      yield StreamAggregateResult(
+    StreamAggregateResult snapshot({bool loading = true}) {
+      _sortStreams(streams);
+      return StreamAggregateResult(
         streams: List.of(streams),
         searchedProviders: List.of(searched),
         readyProviders: List.of(ready),
-        isLoading: true,
+        completedCount: completed,
+        totalCount: providers.length,
+        isLoading: loading,
       );
+    }
+
+    Future<void> runOne(SkyStreamProvider provider) async {
+      searched.add(provider.name);
+      if (!updates.isClosed) updates.add(snapshot());
 
       try {
-        final query = target.title;
-        final results = await provider.search(query);
+        final results = await provider
+            .search(target.title)
+            .timeout(_perProviderTimeout);
         final match = _pickBest(target, results);
-        if (match == null) continue;
+        if (match == null) return;
 
-        final details = await provider.getDetails(match.url);
+        final details = await provider
+            .getDetails(match.url)
+            .timeout(_perProviderTimeout);
+
         final providerStreams = episode == null
-            ? await provider.loadStreams(details.url)
-            : await _loadEpisodeStreams(provider, details, episode);
+            ? await provider.loadStreams(details.url).timeout(
+                _perProviderTimeout,
+              )
+            : await _loadEpisodeStreams(
+                provider,
+                details,
+                episode,
+              ).timeout(_perProviderTimeout);
 
-        if (providerStreams.isEmpty) continue;
+        if (providerStreams.isEmpty) return;
         ready.add(provider.name);
 
         for (final raw in providerStreams) {
           final tagged = raw.copyWith(
-            providerName: raw.providerName == 'Unknown' || raw.providerName.isEmpty
+            providerName:
+                raw.providerName == 'Unknown' || raw.providerName.isEmpty
                 ? provider.name
                 : raw.providerName,
             source: raw.source == 'Auto' ? 'Source' : raw.source,
@@ -210,25 +256,47 @@ class StreamAggregator {
             ),
           );
         }
-        yield StreamAggregateResult(
-          streams: List.of(streams),
-          searchedProviders: List.of(searched),
-          readyProviders: List.of(ready),
-          isLoading: true,
-        );
+        if (!updates.isClosed) updates.add(snapshot());
       } catch (error) {
+        // One bad plugin shouldn't sink the sheet; it just contributes nothing.
         if (kDebugMode) {
           debugPrint('[StreamAggregator] ${provider.name}: $error');
         }
+      } finally {
+        completed++;
+        if (!updates.isClosed) updates.add(snapshot());
       }
     }
 
+    // Fixed-size worker pool over the provider queue.
+    unawaited(() async {
+      final queue = List.of(providers);
+      final workers = List.generate(
+        providers.length < _maxConcurrent ? providers.length : _maxConcurrent,
+        (_) => Future(() async {
+          while (queue.isNotEmpty) {
+            await runOne(queue.removeAt(0));
+          }
+        }),
+      );
+      await Future.wait(workers);
+      if (!updates.isClosed) await updates.close();
+    }());
+
+    yield snapshot();
+    yield* updates.stream;
+
+    _sortStreams(streams);
     yield StreamAggregateResult(
       streams: streams,
       searchedProviders: searched,
       readyProviders: ready,
+      completedCount: completed,
+      totalCount: providers.length,
       isLoading: false,
-      error: streams.isEmpty ? 'No streaming links found in installed plugins.' : null,
+      error: streams.isEmpty
+          ? 'No streaming links found in installed plugins.'
+          : null,
     );
   }
 
