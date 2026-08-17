@@ -257,7 +257,9 @@ Future<void> showDownloadSettingsDialog(
                   await notifier.setDownloadDirectory(directory);
                   await notifier.setDownloadConcurrency(concurrency);
                   await notifier.setDownloadChunks(chunks);
-                  await ref.read(downloadServiceProvider).applyQueueSettings(
+                  await ref
+                      .read(downloadServiceProvider)
+                      .applyQueueSettings(
                         maxConcurrent: concurrency,
                         chunks: chunks,
                       );
@@ -964,9 +966,9 @@ void showClearCacheDialog(BuildContext context, WidgetRef ref) {
             await ref.read(settingsRepositoryProvider).clearImageVideoCache();
             ref.invalidate(cacheSizeProvider);
             if (callerContext.mounted) {
-              ScaffoldMessenger.of(callerContext).showSnackBar(
-                SnackBar(content: Text(l10n.cacheCleared)),
-              );
+              ScaffoldMessenger.of(
+                callerContext,
+              ).showSnackBar(SnackBar(content: Text(l10n.cacheCleared)));
             }
           },
           style: TextButton.styleFrom(
@@ -2090,6 +2092,256 @@ void showSubSourceAuthDialog(
               ),
             ],
           ),
+        ),
+      );
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HDR / tone-mapping + volume boost
+// ---------------------------------------------------------------------------
+
+String hdrModeLabel(HdrMode mode) => switch (mode) {
+  HdrMode.auto => 'Auto',
+  HdrMode.passthrough => 'HDR passthrough',
+  HdrMode.toneMapSdr => 'Tone-map to SDR',
+};
+
+String hdrModeDescription(HdrMode mode) => switch (mode) {
+  HdrMode.auto => 'Let the player decide. Safest default.',
+  HdrMode.passthrough =>
+    'Send HDR metadata straight to the screen so an HDR display switches into '
+        'HDR mode. Use on phones/TVs with a real HDR panel.',
+  HdrMode.toneMapSdr =>
+    'Convert HDR into SDR. Use this if HDR videos look washed out, grey or '
+        'too dark on a normal (SDR) screen.',
+};
+
+void showHdrModeDialog(
+  BuildContext context,
+  WidgetRef ref,
+  PlayerSettings settings,
+) {
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      surfaceTintColor: Colors.transparent,
+      title: const Text('HDR mode'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RadioGroup<HdrMode>(
+              groupValue: settings.hdrMode,
+              onChanged: (val) {
+                if (val == null) return;
+                ref.read(playerSettingsProvider.notifier).setHdrMode(val);
+                Navigator.pop<void>(ctx);
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: HdrMode.values.map((m) {
+                  return ListTile(
+                    title: Text(hdrModeLabel(m)),
+                    subtitle: Text(hdrModeDescription(m)),
+                    isThreeLine: m != HdrMode.auto,
+                    leading: Radio<HdrMode>(value: m),
+                    onTap: () {
+                      ref.read(playerSettingsProvider.notifier).setHdrMode(m);
+                      Navigator.pop<void>(ctx);
+                    },
+                  );
+                }).toList(),
+              ),
+            ),
+            const Divider(height: 24),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 18,
+                    color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Applies to the built-in player only. Takes effect on the '
+                      'next video you start.',
+                      style: Theme.of(ctx).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+void showToneMapDialog(
+  BuildContext context,
+  WidgetRef ref,
+  PlayerSettings settings,
+) {
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      surfaceTintColor: Colors.transparent,
+      title: const Text('Tone-mapping curve'),
+      content: SingleChildScrollView(
+        child: RadioGroup<ToneMapCurve>(
+          groupValue: settings.toneMapCurve,
+          onChanged: (val) {
+            if (val == null) return;
+            ref.read(playerSettingsProvider.notifier).setToneMapCurve(val);
+            Navigator.pop<void>(ctx);
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: ToneMapCurve.values.map((c) {
+              return ListTile(
+                title: Text(c.label),
+                leading: Radio<ToneMapCurve>(value: c),
+                onTap: () {
+                  ref.read(playerSettingsProvider.notifier).setToneMapCurve(c);
+                  Navigator.pop<void>(ctx);
+                },
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+void showTargetPeakDialog(
+  BuildContext context,
+  WidgetRef ref,
+  PlayerSettings settings,
+) {
+  // 0 is a sentinel for "auto-detect from the display".
+  const presets = <int, String>{
+    0: 'Auto-detect (recommended)',
+    203: '203 nits — SDR reference',
+    400: '400 nits — entry HDR',
+    600: '600 nits — HDR600',
+    1000: '1000 nits — typical HDR10',
+    1500: '1500 nits — high-end',
+    4000: '4000 nits — mastering',
+  };
+
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      surfaceTintColor: Colors.transparent,
+      title: const Text('Display peak brightness'),
+      content: SingleChildScrollView(
+        child: RadioGroup<int>(
+          groupValue: presets.containsKey(settings.hdrTargetPeak)
+              ? settings.hdrTargetPeak
+              : 0,
+          onChanged: (val) {
+            if (val == null) return;
+            ref.read(playerSettingsProvider.notifier).setHdrTargetPeak(val);
+            Navigator.pop<void>(ctx);
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: presets.entries.map((e) {
+              return ListTile(
+                title: Text(e.value),
+                leading: Radio<int>(value: e.key),
+                onTap: () {
+                  ref
+                      .read(playerSettingsProvider.notifier)
+                      .setHdrTargetPeak(e.key);
+                  Navigator.pop<void>(ctx);
+                },
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+void showMaxVolumeDialog(
+  BuildContext context,
+  WidgetRef ref,
+  PlayerSettings settings,
+) {
+  showDialog<void>(
+    context: context,
+    builder: (ctx) {
+      var value = settings.maxVolumePercent.toDouble().clamp(100.0, 200.0);
+      return StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          surfaceTintColor: Colors.transparent,
+          title: const Text('Maximum volume'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${value.round()}%',
+                style: Theme.of(ctx).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Slider(
+                value: value,
+                min: 100,
+                max: 200,
+                divisions: 10,
+                label: '${value.round()}%',
+                onChanged: (v) => setState(() => value = v),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 18,
+                    color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Above 100% the built-in player amplifies the audio. '
+                      'Loud settings can distort quiet recordings and are not '
+                      'available on the ExoPlayer/AVPlayer engine.',
+                      style: Theme.of(ctx).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop<void>(ctx),
+              child: Text(AppLocalizations.of(ctx)!.cancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                ref
+                    .read(playerSettingsProvider.notifier)
+                    .setMaxVolumePercent(value.round());
+                Navigator.pop<void>(ctx);
+              },
+              child: Text(AppLocalizations.of(ctx)!.save),
+            ),
+          ],
         ),
       );
     },

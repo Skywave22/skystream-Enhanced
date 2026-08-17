@@ -4037,6 +4037,9 @@ class PlayerController extends Notifier<PlayerState> {
         await native.setProperty('hwdec', 'no');
       }
 
+      // 0b. HDR / tone-mapping.
+      await _applyHdrProperties(native, settings);
+
       // RC3: disable TLS cert verification for VOD too (was previously only
       // set on the live path). The libmpv builds differ per platform — the
       // shinchiro Windows build and the bundled macOS build ship
@@ -4665,6 +4668,68 @@ class PlayerController extends Notifier<PlayerState> {
     return (_player.state.volume / 100).clamp(0.0, 2.0);
   }
 
+  /// Applies the user's HDR preference to libmpv.
+  ///
+  /// [HdrMode.auto] deliberately writes nothing so behaviour is byte-identical
+  /// to before this setting existed — that keeps the default path safe on
+  /// devices where forcing colour properties would regress playback.
+  ///
+  /// Every property is set individually and failures are swallowed per-call:
+  /// `target-colorspace-hint` and the `gpu-next`-only options don't exist on
+  /// every libmpv build we ship (Android/Windows/macOS/Linux all differ), and
+  /// one unknown property must not abort the rest of the setup.
+  Future<void> _applyHdrProperties(
+    NativePlayer native,
+    PlayerSettings? settings,
+  ) async {
+    final mode = settings?.hdrMode ?? HdrMode.auto;
+    if (mode == HdrMode.auto) return;
+
+    Future<void> trySet(String key, String value) async {
+      try {
+        await native.setProperty(key, value);
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('[Player] HDR property $key=$value unsupported: $error');
+        }
+      }
+    }
+
+    switch (mode) {
+      case HdrMode.auto:
+        return;
+
+      case HdrMode.passthrough:
+        // Forward the source colorspace so a real HDR panel switches modes.
+        await trySet('target-colorspace-hint', 'yes');
+        await trySet(
+          'hdr-compute-peak',
+          (settings?.hdrComputePeak ?? true) ? 'yes' : 'no',
+        );
+        final peak = settings?.hdrTargetPeak ?? 0;
+        await trySet('target-peak', peak > 0 ? '$peak' : 'auto');
+
+      case HdrMode.toneMapSdr:
+        // Map HDR into SDR range — fixes the washed-out look on SDR panels.
+        await trySet('target-colorspace-hint', 'no');
+        await trySet(
+          'tone-mapping',
+          (settings?.toneMapCurve ?? ToneMapCurve.auto).mpvValue,
+        );
+        await trySet('tone-mapping-mode', 'auto');
+        await trySet('gamut-mapping-mode', 'perceptual');
+        await trySet(
+          'hdr-compute-peak',
+          (settings?.hdrComputePeak ?? true) ? 'yes' : 'no',
+        );
+        final sdrPeak = settings?.hdrTargetPeak ?? 0;
+        await trySet('target-peak', sdrPeak > 0 ? '$sdrPeak' : 'auto');
+        if (settings?.inverseToneMapping ?? false) {
+          await trySet('inverse-tone-mapping', 'yes');
+        }
+    }
+  }
+
   Future<void> _setSystemVolumeLevel(double value) async {
     try {
       await FlutterVolumeController.setVolume(value.clamp(0.0, 1.0));
@@ -4690,8 +4755,19 @@ class PlayerController extends Notifier<PlayerState> {
     return value;
   }
 
+  /// Upper bound for [setVolumeLevel], as a 0..2 multiplier.
+  ///
+  /// ExoPlayer/AVPlayer can't amplify past the source level, so boost is
+  /// engine-gated; on mpv the ceiling follows the user's setting (100–200%).
+  double get _maxVolumeLevel {
+    if (!state.supportsVolumeBoost) return 1.0;
+    final percent =
+        ref.read(playerSettingsProvider).asData?.value.maxVolumePercent ?? 200;
+    return (percent / 100).clamp(1.0, 2.0);
+  }
+
   Future<double> setVolumeLevel(double value) async {
-    final target = value.clamp(0.0, state.supportsVolumeBoost ? 2.0 : 1.0);
+    final target = value.clamp(0.0, _maxVolumeLevel);
 
     if (target > 0) {
       _lastNonZeroVolumeLevel = target;

@@ -150,10 +150,19 @@ class SkyStreamPlayerControlsState
           getDuration: () => _duration,
           getPosition: () => _position,
           canSeek: () => ref.read(playerControllerProvider).canSeek,
-          getMaxVolumeLevel: () =>
-              ref.read(playerControllerProvider).supportsVolumeBoost
-              ? 2.0
-              : 1.0,
+          getMaxVolumeLevel: () {
+            if (!ref.read(playerControllerProvider).supportsVolumeBoost) {
+              return 1.0;
+            }
+            final percent =
+                ref
+                    .read(playerSettingsProvider)
+                    .asData
+                    ?.value
+                    .maxVolumePercent ??
+                200;
+            return (percent / 100).clamp(1.0, 2.0);
+          },
           onInteraction: () {
             if (!_isVisible) {
               setState(() => _isVisible = true);

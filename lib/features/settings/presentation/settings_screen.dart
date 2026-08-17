@@ -166,13 +166,11 @@ class SettingsScreen extends ConsumerWidget {
                 SettingsTile(
                   icon: Icons.folder_copy_rounded,
                   title: 'Download location',
-                  subtitle: generalSettings.downloadDirectory ??
+                  subtitle:
+                      generalSettings.downloadDirectory ??
                       'System Downloads/Skystream',
-                  onTap: () => showDownloadSettingsDialog(
-                    context,
-                    ref,
-                    generalSettings,
-                  ),
+                  onTap: () =>
+                      showDownloadSettingsDialog(context, ref, generalSettings),
                   isLast: true,
                 ),
               ],
@@ -307,6 +305,79 @@ class SettingsScreen extends ConsumerWidget {
                   onTap: () => ref
                       .read(playerSettingsProvider.notifier)
                       .setHardwareDecoding(!playerSettings.hardwareDecoding),
+                ),
+                SettingsTile(
+                  icon: Icons.hdr_on_rounded,
+                  title: 'HDR mode',
+                  subtitle: switch (playerSettings.hdrMode) {
+                    HdrMode.auto => 'Auto (let the player decide)',
+                    HdrMode.passthrough => 'HDR passthrough — for HDR displays',
+                    HdrMode.toneMapSdr => 'Tone-map to SDR — for SDR displays',
+                  },
+                  onTap: () => showHdrModeDialog(context, ref, playerSettings),
+                ),
+                if (playerSettings.hdrMode != HdrMode.auto) ...[
+                  if (playerSettings.hdrMode == HdrMode.toneMapSdr)
+                    SettingsTile(
+                      icon: Icons.tonality_rounded,
+                      title: 'Tone-mapping curve',
+                      subtitle: playerSettings.toneMapCurve.label,
+                      onTap: () =>
+                          showToneMapDialog(context, ref, playerSettings),
+                    ),
+                  SettingsTile(
+                    icon: Icons.brightness_high_rounded,
+                    title: 'Display peak brightness',
+                    subtitle: playerSettings.hdrTargetPeak <= 0
+                        ? 'Auto-detect'
+                        : '${playerSettings.hdrTargetPeak} nits',
+                    onTap: () =>
+                        showTargetPeakDialog(context, ref, playerSettings),
+                  ),
+                  SettingsTile(
+                    icon: Icons.auto_graph_rounded,
+                    title: 'Dynamic peak detection',
+                    subtitle: playerSettings.hdrComputePeak
+                        ? 'On — better highlights, more GPU'
+                        : 'Off — lighter on the GPU',
+                    trailing: Switch(
+                      value: playerSettings.hdrComputePeak,
+                      onChanged: (val) => ref
+                          .read(playerSettingsProvider.notifier)
+                          .setHdrComputePeak(val),
+                    ),
+                    onTap: () => ref
+                        .read(playerSettingsProvider.notifier)
+                        .setHdrComputePeak(!playerSettings.hdrComputePeak),
+                  ),
+                  if (playerSettings.hdrMode == HdrMode.toneMapSdr)
+                    SettingsTile(
+                      icon: Icons.wb_sunny_rounded,
+                      title: 'Boost SDR to HDR',
+                      subtitle: playerSettings.inverseToneMapping
+                          ? 'On — expands SDR into HDR range'
+                          : 'Off (recommended)',
+                      trailing: Switch(
+                        value: playerSettings.inverseToneMapping,
+                        onChanged: (val) => ref
+                            .read(playerSettingsProvider.notifier)
+                            .setInverseToneMapping(val),
+                      ),
+                      onTap: () => ref
+                          .read(playerSettingsProvider.notifier)
+                          .setInverseToneMapping(
+                            !playerSettings.inverseToneMapping,
+                          ),
+                    ),
+                ],
+                SettingsTile(
+                  icon: Icons.volume_up_rounded,
+                  title: 'Maximum volume',
+                  subtitle: playerSettings.maxVolumePercent <= 100
+                      ? '100% (no boost)'
+                      : '${playerSettings.maxVolumePercent}% — boost enabled',
+                  onTap: () =>
+                      showMaxVolumeDialog(context, ref, playerSettings),
                 ),
                 SettingsTile(
                   icon: Icons.wifi_rounded,
@@ -578,7 +649,8 @@ String _formatBytes(int bytes) {
     size /= 1024;
     unitIndex++;
   }
-  final value =
-      unitIndex == 0 ? size.toStringAsFixed(0) : size.toStringAsFixed(1);
+  final value = unitIndex == 0
+      ? size.toStringAsFixed(0)
+      : size.toStringAsFixed(1);
   return '$value ${units[unitIndex]}';
 }
