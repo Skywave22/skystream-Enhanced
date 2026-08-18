@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/addons/data/addon_repository.dart';
+import '../../../../core/addons/data/debrid_service.dart';
 import '../../../../core/addons/models/addon_manifest.dart';
 
 /// One-tap starter add-ons: catalogs, streams and subtitles, so a fresh
@@ -251,6 +252,8 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
             ],
           ),
           const SizedBox(height: 20),
+          const _DebridCard(),
+          const SizedBox(height: 20),
           Text(
             'Installed (${state.addons.length})',
             style: theme.textTheme.titleSmall?.copyWith(
@@ -438,6 +441,185 @@ class _AddonTile extends StatelessWidget {
                     child: Text('Configure in browser'),
                   ),
                 const PopupMenuItem(value: 'remove', child: Text('Remove')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Debrid account card.
+///
+/// Add-ons that already embed a debrid token in their configured URL keep
+/// working untouched; this is for everything else — it turns torrent results
+/// into instant HTTPS links, and silently falls back to peer-to-peer streaming
+/// when a torrent isn't cached.
+class _DebridCard extends ConsumerStatefulWidget {
+  const _DebridCard();
+
+  @override
+  ConsumerState<_DebridCard> createState() => _DebridCardState();
+}
+
+class _DebridCardState extends ConsumerState<_DebridCard> {
+  final TextEditingController _keyController = TextEditingController();
+  DebridProvider _provider = DebridProvider.none;
+  bool _saving = false;
+  bool _initialised = false;
+
+  @override
+  void dispose() {
+    _keyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _saving = true);
+    try {
+      final username = await ref
+          .read(debridSettingsProvider.notifier)
+          .save(_provider, _keyController.text);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            _provider == DebridProvider.none
+                ? 'Debrid disabled'
+                : 'Connected to ${_provider.label}'
+                      '${username == null ? '' : ' as $username'}',
+          ),
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text('Debrid error: $error')));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final config = ref.watch(debridSettingsProvider);
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    // Seed the fields once the stored config has loaded.
+    if (!_initialised && !config.isLoading) {
+      _initialised = true;
+      _provider = config.provider;
+      _keyController.text = config.apiKey;
+    }
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.flash_on_rounded, color: cs.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Debrid (optional)',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (config.username != null)
+                  Chip(
+                    avatar: const Icon(Icons.check_rounded, size: 16),
+                    label: Text(config.username!),
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Play torrent results as instant direct links. Not cached? '
+              'SkyStream falls back to peer-to-peer streaming automatically.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<DebridProvider>(
+              initialValue: _provider,
+              decoration: const InputDecoration(
+                labelText: 'Provider',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                for (final provider in DebridProvider.values)
+                  DropdownMenuItem(
+                    value: provider,
+                    child: Text(provider.label),
+                  ),
+              ],
+              onChanged: (value) =>
+                  setState(() => _provider = value ?? DebridProvider.none),
+            ),
+            if (_provider != DebridProvider.none) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: _keyController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'API key',
+                  hintText: 'Paste your API key',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+            if (config.error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                config.error!,
+                style: theme.textTheme.bodySmall?.copyWith(color: cs.error),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                FilledButton.icon(
+                  onPressed: _saving ? null : () => unawaited(_save()),
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.link_rounded),
+                  label: Text(
+                    _provider == DebridProvider.none ? 'Disable' : 'Connect',
+                  ),
+                ),
+                if (config.isConfigured) ...[
+                  const SizedBox(width: 10),
+                  TextButton(
+                    onPressed: _saving
+                        ? null
+                        : () async {
+                            await ref
+                                .read(debridSettingsProvider.notifier)
+                                .clear();
+                            if (!context.mounted) return;
+                            setState(() {
+                              _provider = DebridProvider.none;
+                              _keyController.clear();
+                            });
+                          },
+                    child: const Text('Remove'),
+                  ),
+                ],
               ],
             ),
           ],

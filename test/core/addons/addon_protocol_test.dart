@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/addons/data/addon_stream_service.dart';
+import 'package:skystream/core/addons/data/debrid_service.dart';
 import 'package:skystream/core/addons/models/addon_manifest.dart';
 import 'package:skystream/core/addons/models/addon_stream_source.dart';
 
@@ -326,6 +327,87 @@ void main() {
       );
       expect(track, isNotNull);
       expect(track!.label, 'Urdu');
+    });
+  });
+
+  group('DebridService parsing', () {
+    test('picks the largest video file, skipping samples and extras', () {
+      final id = DebridService.pickBestFileId(const [
+        {'id': 1, 'path': '/Show/readme.txt', 'bytes': 10},
+        {'id': 2, 'path': '/Show/sample.mkv', 'bytes': 50000000},
+        {'id': 3, 'path': '/Show/S01E01.mkv', 'bytes': 900000000},
+        {'id': 4, 'path': '/Show/S01E02.mkv', 'bytes': 1900000000},
+      ]);
+      expect(id, 4);
+    });
+
+    test('honours a preferred filename from the add-on', () {
+      final id = DebridService.pickBestFileId(
+        const [
+          {'id': 3, 'path': '/Show/S01E01.mkv', 'bytes': 900000000},
+          {'id': 4, 'path': '/Show/S01E02.mkv', 'bytes': 1900000000},
+        ],
+        preferredFilename: 'S01E01.mkv',
+      );
+      expect(id, 3);
+    });
+
+    test('returns null when a torrent holds no video', () {
+      final id = DebridService.pickBestFileId(const [
+        {'id': 1, 'path': '/pack/notes.nfo', 'bytes': 1000},
+      ]);
+      expect(id, isNull);
+    });
+
+    test('AllDebrid: only a ready magnet yields a link, biggest wins', () {
+      expect(
+        DebridService.parseAllDebridReadyLink(const {
+          'status': 'success',
+          'data': {
+            'magnets': {
+              'status': 'Downloading',
+              'links': [
+                {'link': 'https://a', 'size': 10},
+              ],
+            },
+          },
+        }),
+        isNull,
+      );
+
+      expect(
+        DebridService.parseAllDebridReadyLink(const {
+          'status': 'success',
+          'data': {
+            'magnets': {
+              'status': 'Ready',
+              'links': [
+                {'link': 'https://small', 'size': 100, 'filename': 'a.mkv'},
+                {'link': 'https://sample', 'size': 900, 'filename': 'sample.mkv'},
+                {'link': 'https://big', 'size': 800, 'filename': 'b.mkv'},
+              ],
+            },
+          },
+        }),
+        'https://big',
+      );
+    });
+
+    test('AllDebrid: an error payload yields nothing', () {
+      expect(
+        DebridService.parseAllDebridReadyLink(const {
+          'status': 'error',
+          'error': {'message': 'bad key'},
+        }),
+        isNull,
+      );
+    });
+
+    test('provider ids round-trip for storage', () {
+      expect(DebridProvider.fromId('real-debrid'), DebridProvider.realDebrid);
+      expect(DebridProvider.fromId('alldebrid'), DebridProvider.allDebrid);
+      expect(DebridProvider.fromId(null), DebridProvider.none);
+      expect(DebridProvider.fromId('nonsense'), DebridProvider.none);
     });
   });
 }

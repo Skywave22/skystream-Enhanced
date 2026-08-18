@@ -5,6 +5,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../services/torrent_service.dart';
 import '../models/addon_stream_source.dart';
+import 'debrid_service.dart';
 
 part 'addon_playback_resolver.g.dart';
 
@@ -16,11 +17,13 @@ class ResolvedAddonPlayback {
   final String url;
   final Map<String, String>? headers;
   final bool viaTorrent;
+  final bool viaDebrid;
 
   const ResolvedAddonPlayback({
     required this.url,
     this.headers,
     this.viaTorrent = false,
+    this.viaDebrid = false,
   });
 }
 
@@ -56,6 +59,29 @@ class AddonPlaybackResolver {
         if (magnet == null) {
           throw const AddonPlaybackException('Torrent link is incomplete.');
         }
+
+        // A debrid account turns a torrent into an instant HTTPS link. If the
+        // torrent isn't cached there (null) or the call fails, fall through to
+        // peer-to-peer streaming rather than failing the playback.
+        if (_ref.read(debridSettingsProvider).isConfigured) {
+          try {
+            final link = await _ref
+                .read(debridServiceProvider)
+                .resolveMagnet(
+                  magnet,
+                  preferredFilename: stream.filename,
+                  onStatus: onStatus,
+                );
+            if (link != null) {
+              return ResolvedAddonPlayback(url: link.url, viaDebrid: true);
+            }
+            onStatus?.call('Not cached on debrid — using peers…');
+          } catch (error) {
+            if (kDebugMode) debugPrint('[AddonPlaybackResolver] debrid: $error');
+            onStatus?.call('Debrid unavailable — using peers…');
+          }
+        }
+
         onStatus?.call('Starting torrent engine…');
         final torrent = TorrentService();
         final playUrl = await torrent.getStreamUrl(magnet);
