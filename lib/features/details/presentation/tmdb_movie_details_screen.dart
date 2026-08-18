@@ -19,7 +19,8 @@ import '../data/lightweight_details_provider.dart';
 import 'widgets/movie_trailers_carousel.dart';
 import 'widgets/movie_production_companies.dart';
 import 'widgets/movie_seasons_list.dart';
-import '../../stream/presentation/stream_source_picker.dart';
+import '../../sources/presentation/unified_sources_sheet.dart';
+import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../shared/widgets/shimmer_placeholder.dart';
 
@@ -256,12 +257,7 @@ class _TmdbMovieDetailsScreenState
             if (isMovie)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
-                child: FilledButton.icon(
-                  onPressed: () =>
-                      StreamSourcePicker.open(context, ref, data),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Play from plugins'),
-                ),
+                child: _SourceActionButtons(item: data, imdbId: data.imdbId),
               ),
             if (!isMovie) ...[
               MovieSeasonsList(
@@ -578,12 +574,7 @@ class _TmdbMovieDetailsScreenState
                 if (isMovie)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: FilledButton.icon(
-                      onPressed: () =>
-                          StreamSourcePicker.open(context, ref, data),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('Play from plugins'),
-                    ),
+                    child: _SourceActionButtons(item: data, imdbId: data.imdbId),
                   ),
                 ProviderSearchSection(
                   query: title,
@@ -1002,6 +993,51 @@ class _TmdbMovieDetailsScreenState
           ),
         ],
       ),
+    );
+  }
+}
+
+
+/// "Play" / "Download" pair shown on TMDB details.
+///
+/// Both open the same unified sheet — plugins *and* Stremio add-ons are
+/// searched for this exact title, links are quality-sorted and tested, and
+/// each row can be played or downloaded.
+class _SourceActionButtons extends StatelessWidget {
+  final MultimediaItem item;
+  final String? imdbId;
+
+  const _SourceActionButtons({required this.item, this.imdbId});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: () => UnifiedSourcesSheet.open(
+              context,
+              item,
+              imdbId: imdbId,
+            ),
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('Play'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => UnifiedSourcesSheet.open(
+              context,
+              item,
+              imdbId: imdbId,
+              mode: SourcesMode.download,
+            ),
+            icon: const Icon(Icons.download_rounded),
+            label: const Text('Download'),
+          ),
+        ),
+      ],
     );
   }
 }

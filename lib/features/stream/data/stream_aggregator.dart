@@ -60,10 +60,33 @@ class StreamAggregator {
   /// Plugins are queried concurrently, but not unboundedly — some plugins do
   /// heavy JS/webview work and firing 20 at once can starve the isolate on
   /// low-end devices.
-  static const int _maxConcurrent = 4;
+  static const int _maxConcurrent = 6;
 
   /// A single plugin that hangs must not hold up the whole sheet.
   static const Duration _perProviderTimeout = Duration(seconds: 25);
+
+  /// Finished aggregations are memoized briefly so reopening the sheet (or
+  /// bouncing back from the player) is instant instead of re-scraping every
+  /// plugin. Short TTL keeps expiring links honest.
+  static const Duration _memoTtl = Duration(minutes: 5);
+  final Map<String, _MemoEntry> _memo = {};
+
+  static String _memoKey(MultimediaItem target, Episode? episode) {
+    final base =
+        '${target.tmdbId ?? target.imdbId ?? target.title}|${target.contentType}';
+    if (episode == null) return base;
+    return '$base|s${episode.season}e${episode.episode}';
+  }
+
+  StreamAggregateResult? _readMemo(String key) {
+    final entry = _memo[key];
+    if (entry == null) return null;
+    if (entry.expiresAt.isBefore(DateTime.now())) {
+      _memo.remove(key);
+      return null;
+    }
+    return entry.result;
+  }
 
   static double _titleSimilarity(String a, String b) {
     final wa = _words(a);
@@ -165,6 +188,13 @@ class StreamAggregator {
     required MultimediaItem target,
     required Episode? episode,
   }) async* {
+    final memoKey = _memoKey(target, episode);
+    final memoized = _readMemo(memoKey);
+    if (memoized != null && memoized.streams.isNotEmpty) {
+      yield memoized;
+      return;
+    }
+
     final providers = manager.getAllProviders().where((p) {
       if (!p.hasSearch) return false;
       final liveOnly =
@@ -287,7 +317,7 @@ class StreamAggregator {
     yield* updates.stream;
 
     _sortStreams(streams);
-    yield StreamAggregateResult(
+    final finalResult = StreamAggregateResult(
       streams: streams,
       searchedProviders: searched,
       readyProviders: ready,
@@ -298,6 +328,13 @@ class StreamAggregator {
           ? 'No streaming links found in installed plugins.'
           : null,
     );
+    if (streams.isNotEmpty) {
+      _memo[memoKey] = _MemoEntry(
+        finalResult,
+        DateTime.now().add(_memoTtl),
+      );
+    }
+    yield finalResult;
   }
 
   Future<List<StreamResult>> _loadEpisodeStreams(
@@ -324,4 +361,10 @@ class StreamAggregator {
         : episode;
     return provider.loadStreams(target.url);
   }
+}
+
+class _MemoEntry {
+  final StreamAggregateResult result;
+  final DateTime expiresAt;
+  const _MemoEntry(this.result, this.expiresAt);
 }

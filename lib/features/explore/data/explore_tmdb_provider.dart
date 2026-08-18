@@ -78,7 +78,7 @@ Future<List<TmdbGenre>> genres(Ref ref) async {
   return merged;
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<MultimediaItem>> trendingMovies(Ref ref) async {
   final service = ref.watch(tmdbServiceProvider);
   final lang = ref.watch(languageProvider);
@@ -91,7 +91,7 @@ Future<List<MultimediaItem>> trendingMovies(Ref ref) async {
   );
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<MultimediaItem>> popularMovies(Ref ref) async {
   final service = ref.watch(tmdbServiceProvider);
   final lang = ref.watch(languageProvider);
@@ -104,7 +104,7 @@ Future<List<MultimediaItem>> popularMovies(Ref ref) async {
   );
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<MultimediaItem>> nowPlayingMovies(Ref ref) async {
   final service = ref.watch(tmdbServiceProvider);
   final lang = ref.watch(languageProvider);
@@ -117,7 +117,7 @@ Future<List<MultimediaItem>> nowPlayingMovies(Ref ref) async {
   );
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<MultimediaItem>> topRatedMovies(Ref ref) async {
   final service = ref.watch(tmdbServiceProvider);
   final lang = ref.watch(languageProvider);
@@ -130,7 +130,7 @@ Future<List<MultimediaItem>> topRatedMovies(Ref ref) async {
   );
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<MultimediaItem>> popularTV(Ref ref) async {
   final service = ref.watch(tmdbServiceProvider);
   final lang = ref.watch(languageProvider);
@@ -143,7 +143,7 @@ Future<List<MultimediaItem>> popularTV(Ref ref) async {
   );
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<MultimediaItem>> topRatedTV(Ref ref) async {
   final service = ref.watch(tmdbServiceProvider);
   final lang = ref.watch(languageProvider);
@@ -156,7 +156,7 @@ Future<List<MultimediaItem>> topRatedTV(Ref ref) async {
   );
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<MultimediaItem>> onTheAirTV(Ref ref) async {
   final service = ref.watch(tmdbServiceProvider);
   final lang = ref.watch(languageProvider);
@@ -169,7 +169,7 @@ Future<List<MultimediaItem>> onTheAirTV(Ref ref) async {
   );
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<MultimediaItem>> airingTodayTV(Ref ref) async {
   final service = ref.watch(tmdbServiceProvider);
   final lang = ref.watch(languageProvider);
@@ -182,7 +182,7 @@ Future<List<MultimediaItem>> airingTodayTV(Ref ref) async {
   );
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<MultimediaItem>> exploreHeroMovie(Ref ref) async {
   final service = ref.watch(tmdbServiceProvider);
   final lang = ref.watch(languageProvider);
