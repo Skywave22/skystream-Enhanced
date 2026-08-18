@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/addons/data/addon_playback_resolver.dart';
@@ -310,9 +311,14 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
       if (!mounted || _disposed) return;
 
       if (!_current.isPlayable) {
+        // Deep links can't be played in-app — open the service instead.
+        final uri = Uri.tryParse(resolved.url);
+        if (uri != null) {
+          unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+        }
         setState(() {
           _resolving = false;
-          _error = 'This source opens outside the app:\n${resolved.url}';
+          _error = 'Opened outside the app:\n${resolved.url}';
         });
         return;
       }

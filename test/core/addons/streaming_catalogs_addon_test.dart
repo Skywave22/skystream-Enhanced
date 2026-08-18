@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skystream/core/addons/data/addon_stream_service.dart';
 import 'package:skystream/core/addons/models/addon_manifest.dart';
 import 'package:skystream/core/addons/models/addon_meta.dart';
+import 'package:skystream/core/addons/models/addon_stream_source.dart';
 
 /// Regression tests built from the real payloads of the Streaming Catalogs
 /// add-on (github.com/rleroi/Stremio-Streaming-Catalogs-Addon): a catalog-only
@@ -115,5 +117,49 @@ void main() {
       'series',
     ]);
     expect(restored.enabled, isTrue);
+  });
+
+  test('it declares no stream resource, so it can never return links', () {
+    final manifest = AddonManifest.fromJson(manifestJson);
+
+    expect(manifest.hasResource('stream'), isFalse);
+    // Nothing to ask: the stream service skips add-ons without the resource.
+    expect(
+      AddonStreamService.streamProvidersOf([
+        ManagedAddon(
+          manifestUrl: 'https://host.example/manifest.json',
+          manifest: manifest,
+          addedAt: DateTime.utc(2026),
+        ),
+      ]),
+      isEmpty,
+    );
+  });
+
+  test('deep-link streams (WatchHub style) are recognised, not dropped', () {
+    final stream = AddonStreamSource.fromJson(
+      const {
+        'name': 'Amazon Video',
+        'title': 'Rent, Buy',
+        'externalUrl': 'https://app.primevideo.com/detail?gti=amzn1.dv.gti.x',
+      },
+      addonId: 'org.stremio.watchhub',
+      addonName: 'WatchHub',
+    );
+
+    expect(stream.kind, AddonStreamKind.external);
+    expect(stream.isExternal, isTrue);
+    expect(stream.isPlayable, isFalse);
+    expect(stream.launchUrl, startsWith('https://app.primevideo.com'));
+  });
+
+  test('YouTube streams resolve to a watch URL', () {
+    final stream = AddonStreamSource.fromJson(
+      const {'name': 'Trailer', 'ytId': 'abc123'},
+      addonId: 'x',
+      addonName: 'X',
+    );
+    expect(stream.isExternal, isTrue);
+    expect(stream.launchUrl, 'https://www.youtube.com/watch?v=abc123');
   });
 }

@@ -26,6 +26,9 @@ class AddonPreset {
   });
 }
 
+/// Curated starters. The mix matters: a catalog add-on to browse, a torrent
+/// add-on for links, a deep-link add-on for the streaming services themselves,
+/// and subtitles.
 const List<AddonPreset> kAddonPresets = [
   AddonPreset(
     name: 'Cinemeta',
@@ -46,10 +49,28 @@ const List<AddonPreset> kAddonPresets = [
     icon: Icons.subtitles_rounded,
   ),
   AddonPreset(
-    name: 'Public Domain Movies',
-    description: 'Free, legal classics',
-    url: 'https://public-domain-movies.now.sh/manifest.json',
-    icon: Icons.local_movies_rounded,
+    name: 'WatchHub',
+    description: 'Where to watch: Netflix, Prime, Plex… (opens the service)',
+    url: 'https://watchhub.strem.io/manifest.json',
+    icon: Icons.open_in_new_rounded,
+  ),
+  AddonPreset(
+    name: 'MediaFusion',
+    description: 'Streams from many sources, debrid-friendly',
+    url: 'https://mediafusion.elfhosted.com/manifest.json',
+    icon: Icons.hub_rounded,
+  ),
+  AddonPreset(
+    name: 'Comet',
+    description: 'Torrent + debrid streams',
+    url: 'https://comet.elfhosted.com/manifest.json',
+    icon: Icons.bolt_outlined,
+  ),
+  AddonPreset(
+    name: 'Streaming Catalogs',
+    description: 'Netflix, Disney+, HBO… catalogs (browse only, no streams)',
+    url: 'https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/manifest.json',
+    icon: Icons.grid_view_rounded,
   ),
 ];
 

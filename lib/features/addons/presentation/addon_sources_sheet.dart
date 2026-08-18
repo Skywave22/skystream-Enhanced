@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/addons/data/addon_playback_launcher.dart';
 import '../../../core/addons/data/addon_repository.dart';
@@ -62,6 +63,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
   bool _disposed = false;
   bool _showDetails = false;
   bool _hdOnly = false;
+  _KindFilter _kind = _KindFilter.all;
   String? _debridStatus;
 
   @override
@@ -100,9 +102,20 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
         });
   }
 
-  List<AddonStreamSource> get _visible => _result.streams
-      .where((s) => !_hdOnly || s.qualityScore >= 1080)
-      .toList(growable: false);
+  List<AddonStreamSource> get _visible => _result.streams.where((s) {
+    if (_hdOnly && s.qualityScore < 1080) return false;
+    return switch (_kind) {
+      _KindFilter.all => true,
+      _KindFilter.direct => s.isDirect,
+      _KindFilter.torrent => s.isTorrent,
+      _KindFilter.external => s.isExternal,
+    };
+  }).toList(growable: false);
+
+  /// Rows that can actually be handed to a player (everything except deep
+  /// links into other apps).
+  List<AddonStreamSource> get _playable =>
+      _visible.where((s) => s.isPlayable).toList(growable: false);
 
   /// Plays through the app's built-in player by default — it brings quality
   /// filtering, source switching, subtitle and track menus, gestures, HDR,
@@ -113,8 +126,15 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
     AddonStreamSource stream, {
     AddonPlayerChoice? forceChoice,
   }) async {
+    // Deep links (WatchHub & friends) open the streaming service instead of
+    // the player — that is the only thing those add-ons can do.
+    if (stream.isExternal) {
+      await _openExternally(stream);
+      return;
+    }
+
     final choice = forceChoice ?? ref.read(addonPlayerPreferenceProvider);
-    final ordered = _visible;
+    final ordered = _playable;
 
     if (choice == AddonPlayerChoice.addon) {
       final index = ordered.indexOf(stream);
@@ -173,7 +193,15 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
 
     final converter = ref.read(addonStreamConverterProvider);
     final streams = converter.toStreamResults(ordered, selected: selected);
-    if (streams.isEmpty || !mounted) return;
+    if (!mounted) return;
+    if (streams.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This source has no playable link.'),
+        ),
+      );
+      return;
+    }
 
     Navigator.of(context).pop();
     unawaited(
@@ -189,6 +217,28 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
         ),
       ).push<void>(context),
     );
+  }
+
+  Future<void> _openExternally(AddonStreamSource stream) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final target = stream.launchUrl;
+    final uri = target == null ? null : Uri.tryParse(target);
+    if (uri == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('This source has no usable link.')),
+      );
+      return;
+    }
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Could not open ${stream.headline}.')),
+        );
+      }
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not open: $error')));
+    }
   }
 
   Future<void> _download(AddonStreamSource stream) async {
@@ -380,6 +430,17 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 children: [
+                  for (final filter in _KindFilter.values)
+                    if (filter == _KindFilter.all ||
+                        _result.streams.any(filter.matches))
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(filter.label),
+                          selected: _kind == filter,
+                          onSelected: (_) => setState(() => _kind = filter),
+                        ),
+                      ),
                   FilterChip(
                     label: const Text('1080p+'),
                     selected: _hdOnly,
@@ -405,8 +466,15 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
                                   ),
                                   const SizedBox(height: 12),
                                   Text(
-                                    _result.error ??
-                                        'No add-on returned links for this title.',
+                                    _result.streams.isNotEmpty
+                                        ? 'No links match this filter. '
+                                              'Try "All".'
+                                        : _result.error ??
+                                              'No add-on returned links for '
+                                                  'this title. Install a '
+                                                  'stream add-on such as '
+                                                  'Torrentio, MediaFusion or '
+                                                  'WatchHub.',
                                     textAlign: TextAlign.center,
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       color: cs.onSurfaceVariant,
@@ -617,6 +685,8 @@ class _SourceRow extends StatelessWidget {
                           _Tag(text: 'TORRENT', color: cs.primary),
                         if (stream.isCachedDebrid)
                           const _Tag(text: 'CACHED', color: Colors.green),
+                        if (stream.isExternal)
+                          _Tag(text: 'OPENS APP', color: cs.secondary),
                         if (isBest) _Tag(text: 'BEST', color: cs.primary),
                       ],
                     ),
@@ -668,9 +738,13 @@ class _SourceRow extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: 'Play',
+                tooltip: stream.isExternal ? 'Open' : 'Play',
                 onPressed: onPlay,
-                icon: const Icon(Icons.play_arrow_rounded),
+                icon: Icon(
+                  stream.isExternal
+                      ? Icons.open_in_new_rounded
+                      : Icons.play_arrow_rounded,
+                ),
               ),
               IconButton(
                 tooltip: stream.isDirect
@@ -712,4 +786,23 @@ class _Tag extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// Source kinds a user can filter by.
+enum _KindFilter {
+  all('All'),
+  direct('Direct'),
+  torrent('Torrent'),
+  external('Opens app');
+
+  const _KindFilter(this.label);
+  final String label;
+
+  bool matches(AddonStreamSource stream) => switch (this) {
+    _KindFilter.all => true,
+    _KindFilter.direct => stream.isDirect,
+    _KindFilter.torrent => stream.isTorrent,
+    _KindFilter.external => stream.isExternal,
+  };
 }

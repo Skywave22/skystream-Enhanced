@@ -216,6 +216,18 @@ class AddonStreamSource {
   bool get isDirect => kind == AddonStreamKind.direct;
   bool get isPlayable => isTorrent || isDirect;
 
+  /// Deep links into a streaming service or YouTube (WatchHub, JustWatch-style
+  /// add-ons). They can't be played in-app, but they must still *do* something
+  /// when tapped — opening the service is the whole point of those add-ons.
+  bool get isExternal =>
+      kind == AddonStreamKind.external || kind == AddonStreamKind.youtube;
+
+  String? get launchUrl => switch (kind) {
+    AddonStreamKind.external => externalUrl,
+    AddonStreamKind.youtube => 'https://www.youtube.com/watch?v=$ytId',
+    _ => null,
+  };
+
   String get _text => [
     name ?? '',
     title ?? '',

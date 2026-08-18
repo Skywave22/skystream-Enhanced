@@ -121,6 +121,13 @@ class AddonStreamService {
   static const int _maxConcurrent = 6;
   static const Duration _perRequestTimeout = Duration(seconds: 18);
 
+  /// Add-ons that can answer a `/stream` request at all. Catalog-only add-ons
+  /// (Streaming Catalogs, Trakt lists…) are never asked.
+  static List<ManagedAddon> streamProvidersOf(List<ManagedAddon> addons) =>
+      addons
+          .where((a) => a.manifest?.hasResource('stream') ?? false)
+          .toList(growable: false);
+
   static int _compare(AddonStreamSource a, AddonStreamSource b) {
     final byScore = b.score.compareTo(a.score);
     if (byScore != 0) return byScore;
@@ -135,9 +142,7 @@ class AddonStreamService {
     bool forceRefresh = false,
     CancelToken? cancelToken,
   }) async* {
-    final providers = addons
-        .where((a) => a.manifest?.hasResource('stream') ?? false)
-        .toList();
+    final providers = streamProvidersOf(addons);
 
     if (providers.isEmpty) {
       yield const AddonStreamProgress(
