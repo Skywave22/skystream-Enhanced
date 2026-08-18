@@ -6,6 +6,10 @@ import 'package:skystream/features/search/presentation/search_screen.dart';
 import '../../features/explore/presentation/explore_screen.dart';
 import 'package:skystream/features/library/presentation/library_screen.dart';
 import 'package:skystream/features/addons/presentation/addons_screen.dart';
+import 'package:skystream/features/addons/presentation/addon_detail_screen.dart';
+import 'package:skystream/features/addons/presentation/addon_player_screen.dart';
+import '../addons/data/addon_stream_service.dart';
+import '../addons/models/addon_stream_source.dart';
 import 'package:skystream/features/settings/presentation/settings_screen.dart';
 import '../../features/extensions/screens/extensions_screen.dart';
 import '../../features/settings/presentation/developer_options_screen.dart';
@@ -269,6 +273,58 @@ class PlayerRoute extends GoRouteData with $PlayerRoute {
       videoUrl: $extra.videoUrl,
       episode: $extra.episode,
       preloadedStreams: $extra.preloadedStreams,
+    );
+  }
+}
+
+
+/// Payload for the add-on player. The candidate list travels with the route so
+/// switching source in-player needs no refetch.
+class AddonPlayerRouteExtra {
+  const AddonPlayerRouteExtra({
+    required this.item,
+    required this.request,
+    required this.streams,
+    this.episode,
+    this.initialIndex = 0,
+  });
+  final MultimediaItem item;
+  final AddonStreamRequest request;
+  final List<AddonStreamSource> streams;
+  final Episode? episode;
+  final int initialIndex;
+}
+
+@TypedGoRoute<AddonDetailRoute>(path: '/addon-detail')
+class AddonDetailRoute extends GoRouteData with $AddonDetailRoute {
+  const AddonDetailRoute({
+    required this.type,
+    required this.id,
+    this.addonUrl,
+  });
+  final String type;
+  final String id;
+  final String? addonUrl;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return AddonDetailScreen(type: type, id: id, addonUrl: addonUrl);
+  }
+}
+
+@TypedGoRoute<AddonPlayerRoute>(path: '/addon-player')
+class AddonPlayerRoute extends GoRouteData with $AddonPlayerRoute {
+  const AddonPlayerRoute({required this.$extra});
+  final AddonPlayerRouteExtra $extra;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return AddonPlayerScreen(
+      item: $extra.item,
+      episode: $extra.episode,
+      request: $extra.request,
+      streams: $extra.streams,
+      initialIndex: $extra.initialIndex,
     );
   }
 }

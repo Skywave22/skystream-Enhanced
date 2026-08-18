@@ -1,56 +1,485 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
-/// Add-ons destination.
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/addons/data/addon_repository.dart';
+import '../../../core/addons/models/addon_meta.dart';
+import '../../../core/router/app_router.dart';
+import 'addon_providers.dart';
+import 'widgets/addon_manage_view.dart';
+
+/// Add-ons destination — catalogs, management and discovery.
 ///
-/// This tab is the home of the Stremio add-on system. It is intentionally
-/// isolated from the plugin/extension pipeline: nothing here reads installed
-/// plugins, and no plugin code path can feed content into it.
-///
-/// Right now it only hosts the empty state — install/manage, catalogs and
-/// add-on powered playback land here next.
-class AddonsScreen extends StatelessWidget {
+/// Everything on this screen is served by installed Stremio add-ons. The
+/// plugin/extension system is never consulted here.
+class AddonsScreen extends ConsumerStatefulWidget {
   const AddonsScreen({super.key});
+
+  @override
+  ConsumerState<AddonsScreen> createState() => _AddonsScreenState();
+}
+
+class _AddonsScreenState extends ConsumerState<AddonsScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
+  String _query = '';
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onQueryChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (mounted) setState(() => _query = value.trim());
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Add-ons')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
-          child: Padding(
-            padding: const EdgeInsets.all(28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Add-ons'),
+          bottom: TabBar(
+            indicatorSize: TabBarIndicatorSize.label,
+            labelColor: theme.colorScheme.primary,
+            unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+            indicatorColor: theme.colorScheme.primary,
+            tabs: const [
+              Tab(text: 'Catalogs'),
+              Tab(text: 'My add-ons'),
+              Tab(text: 'Discover'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            _CatalogsTab(
+              query: _query,
+              controller: _searchController,
+              onQueryChanged: _onQueryChanged,
+            ),
+            const AddonManageView(),
+            const _DiscoverTab(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CatalogsTab extends ConsumerWidget {
+  final String query;
+  final TextEditingController controller;
+  final ValueChanged<String> onQueryChanged;
+
+  const _CatalogsTab({
+    required this.query,
+    required this.controller,
+    required this.onQueryChanged,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(addonRepositoryProvider);
+    final theme = Theme.of(context);
+    final hasStreamAddon = state.enabled.any(
+      (a) => a.manifest?.hasResource('stream') ?? false,
+    );
+    final hasCatalogAddon = state.enabled.any(
+      (a) => a.manifest?.hasResource('catalog') ?? false,
+    );
+
+    if (!state.isLoading && state.enabled.isEmpty) {
+      return _EmptyHint(
+        icon: Icons.dashboard_customize_outlined,
+        title: 'No add-ons yet',
+        message:
+            'Open "My add-ons" and install Cinemeta for catalogs and Torrentio '
+            'for streams — two taps and this tab fills up.',
+      );
+    }
+
+    return Column(
+      children: [
+        if (!state.isLoading && !hasStreamAddon)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
               children: [
                 Icon(
-                  Icons.dashboard_customize_outlined,
-                  size: 56,
-                  color: cs.primary,
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: theme.colorScheme.onTertiaryContainer,
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'Add-ons',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Stremio-style add-ons will live here — catalogs, metadata, '
-                  'streams and subtitles served straight from the add-ons you '
-                  'install. Plugins are not involved in this section.',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurfaceVariant,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'None of your add-ons provide streams yet — install one '
+                    '(e.g. Torrentio) to play anything.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: TextField(
+            controller: controller,
+            onChanged: onQueryChanged,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Search your add-ons…',
+              prefixIcon: const Icon(Icons.search_rounded),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              isDense: true,
+            ),
+          ),
+        ),
+        Expanded(
+          child: query.length >= 2
+              ? _SearchResults(query: query)
+              : hasCatalogAddon
+              ? const _CatalogRows()
+              : _EmptyHint(
+                  icon: Icons.grid_view_rounded,
+                  title: 'No catalog add-on',
+                  message:
+                      'Install a catalog add-on such as Cinemeta to browse '
+                      'titles here. Stream-only add-ons still work for playback.',
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CatalogRows extends ConsumerWidget {
+  const _CatalogRows();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rowsAsync = ref.watch(addonCatalogRowsProvider);
+
+    return rowsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text('Could not load catalogs: $error'),
+        ),
+      ),
+      data: (rows) {
+        if (rows.isEmpty) {
+          return const _EmptyHint(
+            icon: Icons.inbox_outlined,
+            title: 'Nothing to browse',
+            message: 'Your add-ons published no browsable catalogs.',
+          );
+        }
+        return RefreshIndicator(
+          onRefresh: () async {
+            ref.invalidate(addonCatalogRowsProvider);
+            await ref.read(addonCatalogRowsProvider.future);
+          },
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 90),
+            itemCount: rows.length,
+            itemBuilder: (context, index) {
+              final row = rows[index];
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Text(
+                      row.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    height: 214,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: row.items.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 10),
+                      itemBuilder: (context, i) => AddonPosterCard(
+                        item: row.items[i],
+                        addonUrl: row.addon.manifestUrl,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SearchResults extends ConsumerWidget {
+  final String query;
+  const _SearchResults({required this.query});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final resultsAsync = ref.watch(addonSearchProvider(query));
+
+    return resultsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, _) => Center(child: Text('Search failed: $error')),
+      data: (items) {
+        if (items.isEmpty) {
+          return const Center(child: Text('Nothing found in your add-ons.'));
+        }
+        return GridView.builder(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 90),
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 140,
+            childAspectRatio: 0.55,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+          ),
+          itemCount: items.length,
+          itemBuilder: (context, index) => AddonPosterCard(
+            item: items[index],
+            addonUrl: null,
+            width: double.infinity,
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Poster tile for catalog rows and search results.
+class AddonPosterCard extends StatelessWidget {
+  final AddonMetaPreview item;
+  final String? addonUrl;
+  final double width;
+
+  const AddonPosterCard({
+    super.key,
+    required this.item,
+    required this.addonUrl,
+    this.width = 124,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: width == double.infinity ? null : width,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => AddonDetailRoute(
+          type: item.type,
+          id: item.id,
+          addonUrl: addonUrl,
+        ).push<void>(context),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: item.poster == null
+                    ? ColoredBox(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        child: const Center(child: Icon(Icons.movie_outlined)),
+                      )
+                    : CachedNetworkImage(
+                        imageUrl: item.poster!,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        // Decode at display size — this is what keeps the
+                        // image cache (and RAM) small.
+                        memCacheWidth: 320,
+                        errorWidget: (_, _, _) => ColoredBox(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: const Center(
+                            child: Icon(Icons.broken_image_outlined),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              item.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (item.releaseInfo != null)
+              Text(
+                item.releaseInfo!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoverTab extends ConsumerWidget {
+  const _DiscoverTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final directoryAsync = ref.watch(communityAddonsProvider);
+    final installed = ref.watch(addonRepositoryProvider).addons;
+    final installedIds = installed.map((a) => a.id).toSet();
+
+    return directoryAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text('Could not load the add-on directory: $error'),
+        ),
+      ),
+      data: (entries) {
+        if (entries.isEmpty) {
+          return const _EmptyHint(
+            icon: Icons.travel_explore_rounded,
+            title: 'Directory unavailable',
+            message:
+                'You can still paste a manifest URL in the "My add-ons" tab.',
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
+          itemCount: entries.length,
+          itemBuilder: (context, index) {
+            final entry = entries[index];
+            final isInstalled = installedIds.contains(entry.manifest.id);
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                leading: entry.manifest.logoUrl != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: CachedNetworkImage(
+                          imageUrl: entry.manifest.logoUrl!,
+                          width: 38,
+                          height: 38,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 96,
+                          errorWidget: (_, _, _) =>
+                              const Icon(Icons.extension_rounded),
+                        ),
+                      )
+                    : const Icon(Icons.extension_rounded),
+                title: Text(entry.manifest.name),
+                subtitle: Text(
+                  entry.manifest.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: isInstalled
+                    ? const Icon(
+                        Icons.check_circle_rounded,
+                        color: Colors.green,
+                      )
+                    : IconButton(
+                        tooltip: 'Install',
+                        icon: const Icon(Icons.add_circle_outline_rounded),
+                        onPressed: () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          try {
+                            await ref
+                                .read(addonRepositoryProvider.notifier)
+                                .install(entry.transportUrl);
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text('Installed ${entry.manifest.name}'),
+                              ),
+                            );
+                          } catch (error) {
+                            messenger.showSnackBar(
+                              SnackBar(content: Text('Install failed: $error')),
+                            );
+                          }
+                        },
+                      ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _EmptyHint extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+
+  const _EmptyHint({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 52, color: theme.colorScheme.primary),
+            const SizedBox(height: 14),
+            Text(title, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
       ),
     );
