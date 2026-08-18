@@ -81,6 +81,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   BoxFit _fit = BoxFit.contain;
   Timer? _chromeTimer;
   bool _resumeApplied = false;
+  bool _disposed = false;
 
   AddonStream get _current => widget.streams.isEmpty
       ? const AddonStream(addonId: '', addonName: 'Add-on')
@@ -146,6 +147,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
 
   @override
   void dispose() {
+    _disposed = true;
     _saveProgress();
     _errorSub?.cancel();
     _torrentTimer?.cancel();
