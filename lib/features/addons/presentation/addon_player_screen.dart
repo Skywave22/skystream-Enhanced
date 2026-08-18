@@ -14,7 +14,6 @@ import '../../../core/addons/data/addon_stream_service.dart';
 import '../../../core/addons/data/addon_subtitle_service.dart';
 import '../../../core/addons/models/addon_stream_source.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
-import '../../../core/extensions/providers.dart' show torrentServiceProvider;
 import '../../../core/models/torrent_status.dart';
 import '../../../core/services/torrent_service.dart';
 import '../../../core/storage/history_repository.dart';
@@ -78,7 +77,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   void initState() {
     super.initState();
     MediaKit.ensureInitialized();
-    _torrent = ref.read(torrentServiceProvider);
+    _torrent = TorrentService();
     _history = ref.read(historyRepositoryProvider);
     _index = widget.initialIndex.clamp(
       0,

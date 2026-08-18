@@ -3,14 +3,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../extensions/providers.dart' show torrentServiceProvider;
+import '../../services/torrent_service.dart';
 import '../models/addon_stream_source.dart';
 
 part 'addon_playback_resolver.g.dart';
 
 @Riverpod(keepAlive: true)
 AddonPlaybackResolver addonPlaybackResolver(Ref ref) =>
-    AddonPlaybackResolver(ref);
+    const AddonPlaybackResolver();
 
 class ResolvedAddonPlayback {
   final String url;
@@ -38,9 +38,7 @@ class AddonPlaybackException implements Exception {
 ///   torrent server, honouring `fileIdx` for season packs
 /// * `ytId` / `externalUrl` → returned for the caller to open externally
 class AddonPlaybackResolver {
-  AddonPlaybackResolver(this._ref);
-
-  final Ref _ref;
+  const AddonPlaybackResolver();
 
   Future<ResolvedAddonPlayback> resolve(
     AddonStreamSource stream, {
@@ -59,7 +57,7 @@ class AddonPlaybackResolver {
           throw const AddonPlaybackException('Torrent link is incomplete.');
         }
         onStatus?.call('Starting torrent engine…');
-        final torrent = _ref.read(torrentServiceProvider);
+        final torrent = TorrentService();
         final playUrl = await torrent.getStreamUrl(magnet);
         if (playUrl == null) {
           throw const AddonPlaybackException(
