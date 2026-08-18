@@ -6,6 +6,7 @@ import '../../../core/addons/addon_manager.dart';
 import '../../../core/addons/models/addon_meta.dart';
 import '../../../core/addons/models/stremio_addon.dart';
 import '../../../core/addons/services/addon_client.dart';
+import '../../../core/addons/services/builtin_addons.dart';
 
 part 'addon_catalog_providers.g.dart';
 
@@ -28,6 +29,29 @@ class AddonCatalogRow {
   String get key => '${addon.id}|${definition.uniqueKey}';
 }
 
+/// Add-ons that can serve catalogs, falling back to built-in Cinemeta when the
+/// user has only installed stream add-ons. Keeps the Add-ons tab useful with
+/// zero configuration and without ever touching the plugin system.
+List<InstalledAddon> _catalogSources(List<InstalledAddon> enabled) {
+  final withCatalogs = enabled
+      .where((a) => a.manifest.hasResource('catalog'))
+      .toList();
+  if (withCatalogs.isNotEmpty) return withCatalogs;
+  return [BuiltInAddons.cinemeta];
+}
+
+List<InstalledAddon> _metaSources(List<InstalledAddon> enabled, String type) {
+  final withMeta = enabled
+      .where((a) => a.manifest.supports('meta', type))
+      .toList();
+  if (withMeta.isNotEmpty) return withMeta;
+  final anyMeta = enabled
+      .where((a) => a.manifest.hasResource('meta'))
+      .toList();
+  if (anyMeta.isNotEmpty) return anyMeta;
+  return [BuiltInAddons.cinemeta];
+}
+
 /// Loads every browsable catalog of every enabled add-on **in parallel**.
 ///
 /// Rows are capped per add-on so a mega-add-on with 30 catalogs can't turn the
@@ -35,12 +59,12 @@ class AddonCatalogRow {
 /// minutes so revisits are instant.
 @riverpod
 Future<List<AddonCatalogRow>> addonHomeCatalogs(Ref ref) async {
-  final addons = ref.watch(addonManagerProvider).enabled;
+  final enabled = ref.watch(addonManagerProvider).enabled;
   final client = ref.watch(addonClientProvider);
+  final sources = _catalogSources(enabled);
 
   final requests = <Future<AddonCatalogRow?>>[];
-  for (final addon in addons) {
-    if (!addon.manifest.hasResource('catalog')) continue;
+  for (final addon in sources) {
     var perAddon = 0;
     for (final catalog in addon.manifest.catalogs) {
       if (catalog.requiresSearch || catalog.requiresOtherExtra) continue;
@@ -77,12 +101,12 @@ Future<List<AddonMetaPreview>> addonSearch(Ref ref, String query) async {
   final trimmed = query.trim();
   if (trimmed.length < 2) return const [];
 
-  final addons = ref.watch(addonManagerProvider).enabled;
+  final enabled = ref.watch(addonManagerProvider).enabled;
   final client = ref.watch(addonClientProvider);
+  final sources = _catalogSources(enabled);
 
   final requests = <Future<List<AddonMetaPreview>>>[];
-  for (final addon in addons) {
-    if (!addon.manifest.hasResource('catalog')) continue;
+  for (final addon in sources) {
     for (final catalog in addon.manifest.catalogs) {
       if (!catalog.supportsSearch) continue;
       requests.add(() async {
@@ -115,8 +139,8 @@ Future<List<AddonMetaPreview>> addonSearch(Ref ref, String query) async {
   return out;
 }
 
-/// Full meta for one catalog entry. Falls back to any installed add-on that
-/// can answer `meta` for the type/id when the origin add-on cannot.
+/// Full meta for one catalog entry. Tries the add-on the item came from first,
+/// then any other meta add-on, then built-in Cinemeta for IMDb ids.
 @riverpod
 Future<AddonMeta?> addonMetaDetails(
   Ref ref,
@@ -124,16 +148,16 @@ Future<AddonMeta?> addonMetaDetails(
   String id, {
   String? preferredAddonId,
 }) async {
-  final manager = ref.watch(addonManagerProvider.notifier);
-  ref.watch(addonManagerProvider);
+  final enabled = ref.watch(addonManagerProvider).enabled;
   final client = ref.watch(addonClientProvider);
 
-  final candidates = manager.providersFor('meta', type, id);
-  if (candidates.isEmpty) return null;
-
+  final candidates = _metaSources(enabled, type);
   final ordered = [
     ...candidates.where((a) => a.id == preferredAddonId),
     ...candidates.where((a) => a.id != preferredAddonId),
+    if (id.startsWith('tt') &&
+        !candidates.any((a) => a.id == BuiltInAddons.cinemeta.id))
+      BuiltInAddons.cinemeta,
   ];
 
   for (final addon in ordered) {

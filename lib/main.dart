@@ -14,6 +14,7 @@ import 'core/storage/storage_service.dart';
 import 'core/network/doh_service.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'core/utils/app_utils.dart';
+import 'core/utils/memory_tuning.dart';
 import 'features/extensions/providers/extensions_controller.dart';
 import 'features/extensions/widgets/extensions_sync_bridge.dart';
 import 'core/providers/update_provider.dart';
@@ -24,7 +25,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 import 'core/providers/locale_provider.dart';
 import 'core/network/cloudflare_bypass.dart';
-import 'package:dpad/dpad.dart';
 import 'core/config/tmdb_config.dart';
 import 'core/providers/device_info_provider.dart';
 import 'shared/widgets/loading_indicator.dart';
@@ -34,12 +34,11 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
 
-  // Cap Flutter's image cache. Default is 1000 entries / 100 MB which is too
-  // generous for low-RAM TVs and even most phones — decoded TMDB posters fill
-  // it quickly. Tighter limits force earlier eviction and keep raster smooth.
-  PaintingBinding.instance.imageCache
-    ..maximumSize = 200
-    ..maximumSizeBytes = 50 * 1024 * 1024; // 50 MB
+  // Cap Flutter's image cache. Default is 1000 entries / 100 MB which is far
+  // too generous — decoded posters fill it instantly and the desktop build
+  // then idles hundreds of megabytes above where it needs to be.
+  // See [MemoryTuning] for the per-platform budgets.
+  MemoryTuning.applyImageCacheLimits();
 
   // Silence logs in release mode
   if (kReleaseMode) {
@@ -175,11 +174,13 @@ class MyApp extends ConsumerStatefulWidget {
   ConsumerState<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends ConsumerState<MyApp> with WindowListener {
+class _MyAppState extends ConsumerState<MyApp>
+    with WindowListener, WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
     FocusManager.instance.addEarlyKeyEventHandler(_handleEarlyKeyEvent);
+    WidgetsBinding.instance.addObserver(this);
     if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
       windowManager.addListener(this);
     }
@@ -193,10 +194,19 @@ class _MyAppState extends ConsumerState<MyApp> with WindowListener {
   @override
   void dispose() {
     FocusManager.instance.removeEarlyKeyEventHandler(_handleEarlyKeyEvent);
+    WidgetsBinding.instance.removeObserver(this);
     if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
       windowManager.removeListener(this);
     }
     super.dispose();
+  }
+
+  /// The OS is asking for memory back (common on Windows when other apps
+  /// balloon): drop every cache that can be rebuilt from disk/network.
+  @override
+  void didHaveMemoryPressure() {
+    MemoryTuning.releaseDroppableMemory();
+    super.didHaveMemoryPressure();
   }
 
   KeyEventResult _handleEarlyKeyEvent(KeyEvent event) {

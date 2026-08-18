@@ -94,37 +94,47 @@ class _CatalogsTab extends ConsumerWidget {
     final addons = ref.watch(addonManagerProvider);
     final theme = Theme.of(context);
 
-    if (!addons.isLoading && addons.enabled.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.dashboard_customize_outlined,
-                size: 52,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(height: 14),
-              Text('No add-ons enabled', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 6),
-              Text(
-                'Install add-ons in the "My add-ons" tab to browse their '
-                'catalogs and stream from them.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    final hasStreamAddon = addons.enabled.any(
+      (a) => a.manifest.hasResource('stream'),
+    );
 
     return Column(
       children: [
+        // Catalogs still work with the built-in Cinemeta fallback, but nothing
+        // is playable until a stream add-on is installed — say so instead of
+        // letting the user hit an empty sources sheet.
+        if (!addons.isLoading && !hasStreamAddon)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: theme.colorScheme.onTertiaryContainer,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    addons.enabled.isEmpty
+                        ? 'Browsing built-in Cinemeta catalogs. Install a stream '
+                              'add-on (e.g. Torrentio) in "My add-ons" to play.'
+                        : 'None of your add-ons provide streams yet — install one '
+                              'that lists the "stream" resource to play titles.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: TextField(

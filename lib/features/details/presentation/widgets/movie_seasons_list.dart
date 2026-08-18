@@ -14,7 +14,7 @@ import '../tmdb_details_controller.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../../core/domain/entity/multimedia_item.dart';
-import '../../../sources/presentation/unified_sources_sheet.dart';
+import '../../../sources/presentation/plugin_sources_sheet.dart';
 
 class MovieSeasonsList extends ConsumerStatefulWidget {
   final int movieId;
@@ -389,11 +389,10 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                           episode: (ep['episode_number'] as int?) ?? 0,
                         );
                         unawaited(
-                          UnifiedSourcesSheet.open(
+                          PluginSourcesSheet.open(
                             context,
                             target,
                             episode: episode,
-                            imdbId: widget.imdbId,
                           ),
                         );
                       },
@@ -664,11 +663,10 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                           episode: (ep['episode_number'] as int?) ?? 0,
                         );
                         unawaited(
-                          UnifiedSourcesSheet.open(
+                          PluginSourcesSheet.open(
                             context,
                             target,
                             episode: episode,
-                            imdbId: widget.imdbId,
                           ),
                         );
                       },

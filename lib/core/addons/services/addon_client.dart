@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../network/dio_client_provider.dart';
+import '../../utils/memory_tuning.dart';
 import '../models/addon_meta.dart';
 import '../models/addon_stream.dart';
 import '../models/stremio_addon.dart';
@@ -25,7 +27,7 @@ class _TtlCache {
   final Map<String, _CacheEntry> _entries = {};
   final Map<String, Future<Object?>> _inFlight = {};
 
-  static const int maxEntries = 220;
+  static final int maxEntries = MemoryTuning.addonCacheEntries();
 
   T? read<T>(String key) {
     final entry = _entries[key];
@@ -119,6 +121,13 @@ class AddonClient {
     validateStatus: (status) => status != null && status < 500,
   );
 
+  /// Stremio ids contain colons (`tt0944947:1:5`) and must survive into the
+  /// path. `Uri.encodeComponent` escapes them to `%3A`, which several popular
+  /// add-ons (Torrentio among them) answer with a 404 — so the colon is put
+  /// back after encoding everything else.
+  static String _encodeId(String id) =>
+      Uri.encodeComponent(id).replaceAll('%3A', ':');
+
   Future<Map<String, dynamic>?> _getJson(
     String url, {
     Duration timeout = _fastTimeout,
@@ -129,7 +138,30 @@ class AddonClient {
       options: _options(timeout),
       cancelToken: cancelToken,
     );
-    final data = response.data;
+    final status = response.statusCode ?? 0;
+
+    // 404 is the protocol's way of saying "I have nothing for this id".
+    if (status == 404) return null;
+    if (status < 200 || status >= 300) {
+      throw AddonException('HTTP $status from ${Uri.parse(url).host}');
+    }
+
+    var data = response.data;
+    // Some add-ons serve JSON with a text/plain content type, which leaves Dio
+    // with a String instead of a decoded map.
+    if (data is String) {
+      final trimmed = data.trimLeft();
+      if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        throw const AddonException(
+          'Add-on returned a non-JSON response (blocked or offline?).',
+        );
+      }
+      try {
+        data = jsonDecode(data);
+      } catch (_) {
+        throw const AddonException('Add-on returned malformed JSON.');
+      }
+    }
     if (data is Map) return Map<String, dynamic>.from(data);
     return null;
   }
@@ -178,7 +210,7 @@ class AddonClient {
     CancelToken? cancelToken,
   }) async {
     final url =
-        '${addon.baseUrl}/catalog/$type/${Uri.encodeComponent(id)}'
+        '${addon.baseUrl}/catalog/$type/${_encodeId(id)}'
         '${_extraSegment(extra)}.json';
     final key = 'catalog:$url';
     if (forceRefresh) _cache.invalidatePrefix(key);
@@ -211,7 +243,7 @@ class AddonClient {
     bool forceRefresh = false,
     CancelToken? cancelToken,
   }) async {
-    final url = '${addon.baseUrl}/meta/$type/${Uri.encodeComponent(id)}.json';
+    final url = '${addon.baseUrl}/meta/$type/${_encodeId(id)}.json';
     final key = 'meta:$url';
     if (forceRefresh) _cache.invalidatePrefix(key);
 
@@ -234,7 +266,7 @@ class AddonClient {
     bool forceRefresh = false,
     CancelToken? cancelToken,
   }) async {
-    final url = '${addon.baseUrl}/stream/$type/${Uri.encodeComponent(id)}.json';
+    final url = '${addon.baseUrl}/stream/$type/${_encodeId(id)}.json';
     final key = 'stream:$url';
     if (forceRefresh) _cache.invalidatePrefix(key);
 
@@ -269,7 +301,7 @@ class AddonClient {
     CancelToken? cancelToken,
   }) async {
     final url =
-        '${addon.baseUrl}/subtitles/$type/${Uri.encodeComponent(id)}'
+        '${addon.baseUrl}/subtitles/$type/${_encodeId(id)}'
         '${_extraSegment(extra)}.json';
 
     return _cache.run('subs:$url', subtitleTtl, () async {

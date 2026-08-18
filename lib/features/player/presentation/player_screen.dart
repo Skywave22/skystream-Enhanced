@@ -17,6 +17,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/domain/entity/multimedia_item.dart';
 import '../../../../core/providers/device_info_provider.dart';
+import '../../../../core/utils/memory_tuning.dart';
 import '../../../../features/settings/presentation/player_settings_provider.dart';
 import 'widgets/skystream_player_controls.dart';
 import 'widgets/hotstar_player_style.dart';
@@ -109,10 +110,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     WakelockPlus.enable();
 
-    // Initialize player with larger buffer for torrent streaming
+    // Buffer size is platform-tuned: torrent playback wants a big read-ahead
+    // window, plain HTTP/HLS does not, and the desktop build should not hold
+    // 128 MB of demuxer cache for a file it can re-request instantly.
     _player = Player(
-      configuration: const PlayerConfiguration(
-        bufferSize: 128 * 1024 * 1024, // 128MB
+      configuration: PlayerConfiguration(
+        bufferSize: MemoryTuning.playerBufferBytes(
+          torrent:
+              widget.videoUrl.startsWith('magnet:') ||
+              widget.videoUrl.contains('/stream?link='),
+        ),
       ),
     );
 
@@ -122,7 +129,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       native.setProperty('network-timeout', '120');
       native.setProperty('force-seekable', 'yes');
       // Increase metadata probing depth to match VLC (resolves missing language tags)
-      native.setProperty('demuxer-lavf-probesize', '33554432'); // 32MB
+      native.setProperty(
+        'demuxer-lavf-probesize',
+        '${MemoryTuning.demuxerProbeSizeBytes()}',
+      );
       // 30s covers the worst-case HLS segment duration; shorter values cause
       // mpv to miss video tracks in streams with 30s segments.
       native.setProperty('demuxer-lavf-analyzeduration', '30');

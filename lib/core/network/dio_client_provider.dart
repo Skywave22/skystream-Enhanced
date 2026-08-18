@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../utils/memory_tuning.dart';
 import 'doh_service.dart';
 import 'http_defaults.dart';
 
@@ -103,10 +104,8 @@ Dio dioClient(Ref ref) {
 /// Only GETs to a small allow-list of metadata hosts are cached, for a short
 /// TTL, so stream resolution and plugin traffic are never affected.
 class MetadataCacheInterceptor extends Interceptor {
-  MetadataCacheInterceptor({
-    this.ttl = const Duration(minutes: 10),
-    this.maxEntries = 200,
-  });
+  MetadataCacheInterceptor({this.ttl = const Duration(minutes: 10), int? maxEntries})
+    : maxEntries = maxEntries ?? MemoryTuning.metadataCacheEntries();
 
   final Duration ttl;
   final int maxEntries;

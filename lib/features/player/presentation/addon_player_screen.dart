@@ -17,6 +17,7 @@ import '../../../core/models/torrent_status.dart';
 import '../../../core/services/torrent_service.dart';
 import '../../../core/storage/history_repository.dart';
 import '../../../core/utils/file_size_formatter.dart';
+import '../../../core/utils/memory_tuning.dart';
 
 /// Dedicated player for Stremio add-on sources.
 ///
@@ -83,10 +84,16 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
     );
 
     _player = Player(
-      configuration: const PlayerConfiguration(
-        // Torrent streams arrive out of order; a large buffer keeps playback
-        // smooth while the engine fills gaps.
-        bufferSize: 64 * 1024 * 1024,
+      configuration: PlayerConfiguration(
+        // Torrent streams arrive out of order and want a bigger window; direct
+        // links do not. Sized per platform so the Windows build stays lean.
+        bufferSize: MemoryTuning.playerBufferBytes(
+          torrent: widget.streams.isNotEmpty &&
+              widget.streams[widget.initialIndex.clamp(
+                0,
+                widget.streams.length - 1,
+              )].isTorrent,
+        ),
         title: 'SkyStream Add-ons',
       ),
     );
@@ -133,6 +140,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
     unawaited(_player.dispose());
     if (_usedTorrent) unawaited(_torrent.stop());
     unawaited(WakelockPlus.disable());
+    MemoryTuning.releaseDroppableMemory();
     if (Platform.isAndroid || Platform.isIOS) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       unawaited(

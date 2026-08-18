@@ -4,14 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/addons/models/addon_meta.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
-import '../../sources/presentation/unified_sources_sheet.dart';
+import '../../sources/presentation/addon_sources_sheet.dart';
+import '../../sources/presentation/source_sheet_widgets.dart';
 import 'addon_catalog_providers.dart';
 
 /// Detail page for a catalog entry coming from a Stremio add-on.
 ///
-/// Play/Download both open the unified sources sheet, so an add-on title can
-/// be served by add-on streams *and* by installed plugins — whichever has the
-/// better link wins.
+/// Everything on this page is add-on powered: metadata comes from a `meta`
+/// add-on and Play/Download open the add-on sources sheet. No plugin is
+/// involved anywhere in this flow.
 class AddonDetailScreen extends ConsumerStatefulWidget {
   final String type;
   final String id;
@@ -115,8 +116,6 @@ class _Body extends StatelessWidget {
   });
 
   MultimediaItem get _item => meta.toMultimediaItem();
-
-  String? get _imdbId => meta.id.startsWith('tt') ? meta.id.split(':').first : null;
 
   @override
   Widget build(BuildContext context) {
@@ -230,10 +229,11 @@ class _Body extends StatelessWidget {
                     children: [
                       Expanded(
                         child: FilledButton.icon(
-                          onPressed: () => UnifiedSourcesSheet.open(
+                          onPressed: () => AddonSourcesSheet.open(
                             context,
-                            _item,
-                            imdbId: _imdbId,
+                            item: _item,
+                            type: meta.type,
+                            contentId: meta.id,
                           ),
                           icon: const Icon(Icons.play_arrow_rounded),
                           label: const Text('Play'),
@@ -242,10 +242,11 @@ class _Body extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => UnifiedSourcesSheet.open(
+                          onPressed: () => AddonSourcesSheet.open(
                             context,
-                            _item,
-                            imdbId: _imdbId,
+                            item: _item,
+                            type: meta.type,
+                            contentId: meta.id,
                             mode: SourcesMode.download,
                           ),
                           icon: const Icon(Icons.download_rounded),
@@ -332,21 +333,25 @@ class _Body extends StatelessWidget {
                     IconButton(
                       tooltip: 'Play',
                       icon: const Icon(Icons.play_arrow_rounded),
-                      onPressed: () => UnifiedSourcesSheet.open(
+                      onPressed: () => AddonSourcesSheet.open(
                         context,
-                        _item,
+                        item: _item,
+                        type: meta.type,
+                        contentId: meta.id,
+                        videoId: video.id,
                         episode: episode,
-                        imdbId: _imdbId,
                       ),
                     ),
                     IconButton(
                       tooltip: 'Download',
                       icon: const Icon(Icons.download_rounded),
-                      onPressed: () => UnifiedSourcesSheet.open(
+                      onPressed: () => AddonSourcesSheet.open(
                         context,
-                        _item,
+                        item: _item,
+                        type: meta.type,
+                        contentId: meta.id,
+                        videoId: video.id,
                         episode: episode,
-                        imdbId: _imdbId,
                         mode: SourcesMode.download,
                       ),
                     ),

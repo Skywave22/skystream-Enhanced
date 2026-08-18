@@ -19,7 +19,8 @@ import '../data/lightweight_details_provider.dart';
 import 'widgets/movie_trailers_carousel.dart';
 import 'widgets/movie_production_companies.dart';
 import 'widgets/movie_seasons_list.dart';
-import '../../sources/presentation/unified_sources_sheet.dart';
+import '../../sources/presentation/plugin_sources_sheet.dart';
+import '../../sources/presentation/source_sheet_widgets.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../shared/widgets/shimmer_placeholder.dart';
@@ -257,7 +258,7 @@ class _TmdbMovieDetailsScreenState
             if (isMovie)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
-                child: _SourceActionButtons(item: data, imdbId: data.imdbId),
+                child: _SourceActionButtons(item: data),
               ),
             if (!isMovie) ...[
               MovieSeasonsList(
@@ -574,7 +575,7 @@ class _TmdbMovieDetailsScreenState
                 if (isMovie)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: _SourceActionButtons(item: data, imdbId: data.imdbId),
+                    child: _SourceActionButtons(item: data),
                   ),
                 ProviderSearchSection(
                   query: title,
@@ -1000,14 +1001,15 @@ class _TmdbMovieDetailsScreenState
 
 /// "Play" / "Download" pair shown on TMDB details.
 ///
-/// Both open the same unified sheet — plugins *and* Stremio add-ons are
-/// searched for this exact title, links are quality-sorted and tested, and
-/// each row can be played or downloaded.
+/// Both open the plugin sources sheet: every installed plugin — the same set
+/// listed under "Available Sources · BETA" — is searched for this exact
+/// title, links are quality-sorted and link-tested, and each row can be
+/// played or downloaded. Stremio add-ons are deliberately not involved: they
+/// have their own tab, sheet and player.
 class _SourceActionButtons extends StatelessWidget {
   final MultimediaItem item;
-  final String? imdbId;
 
-  const _SourceActionButtons({required this.item, this.imdbId});
+  const _SourceActionButtons({required this.item});
 
   @override
   Widget build(BuildContext context) {
@@ -1015,11 +1017,7 @@ class _SourceActionButtons extends StatelessWidget {
       children: [
         Expanded(
           child: FilledButton.icon(
-            onPressed: () => UnifiedSourcesSheet.open(
-              context,
-              item,
-              imdbId: imdbId,
-            ),
+            onPressed: () => PluginSourcesSheet.open(context, item),
             icon: const Icon(Icons.play_arrow_rounded),
             label: const Text('Play'),
           ),
@@ -1027,10 +1025,9 @@ class _SourceActionButtons extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: () => UnifiedSourcesSheet.open(
+            onPressed: () => PluginSourcesSheet.open(
               context,
               item,
-              imdbId: imdbId,
               mode: SourcesMode.download,
             ),
             icon: const Icon(Icons.download_rounded),
