@@ -1945,7 +1945,11 @@ class PlayerController extends Notifier<PlayerState> {
     if (await _handleSpecialProviders()) return;
 
     final activeProvider = _resolveProvider();
-    if (activeProvider == null) {
+    final hasPreloadedStreams =
+        _preloadedStreams != null && _preloadedStreams!.isNotEmpty;
+    // Preloaded links (add-on sources, cross-plugin aggregation) are already
+    // resolved, so no plugin provider is required to play them.
+    if (activeProvider == null && !hasPreloadedStreams) {
       state = state.copyWith(errorMessage: "No provider selected.");
       return;
     }
@@ -1955,7 +1959,8 @@ class PlayerController extends Notifier<PlayerState> {
         state = state.copyWith(streamSubtitle: "Fetching sources...");
         if (await _handleFallbackTorrent()) return;
 
-        final rawStreams = _preloadedStreams ?? await activeProvider.loadStreams(_videoUrl);
+        final rawStreams =
+            _preloadedStreams ?? await activeProvider!.loadStreams(_videoUrl);
         _preloadedStreams = null;
         if (!_isCurrentSourceSession(sourceSessionId)) return;
         if (rawStreams.isNotEmpty) {

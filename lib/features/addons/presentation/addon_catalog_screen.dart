@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/addons/data/addon_client.dart';
 import '../../../core/addons/data/addon_repository.dart';
+import '../../../core/addons/data/builtin_addons.dart';
 import '../../../core/addons/models/addon_manifest.dart';
 import '../../../core/addons/models/addon_meta.dart';
 import 'addons_screen.dart' show AddonPosterCard;
@@ -69,6 +70,10 @@ class _AddonCatalogScreenState extends ConsumerState<AddonCatalogScreen> {
   ManagedAddon? get _addon {
     for (final addon in ref.read(addonRepositoryProvider).addons) {
       if (addon.manifestUrl == widget.addonUrl) return addon;
+    }
+    // Rows can come from the built-in Cinemeta fallback.
+    if (widget.addonUrl == BuiltInAddons.cinemetaUrl) {
+      return BuiltInAddons.cinemeta;
     }
     return null;
   }

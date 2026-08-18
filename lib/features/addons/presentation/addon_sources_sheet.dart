@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/addons/data/addon_playback_launcher.dart';
 import '../../../core/addons/data/addon_repository.dart';
 import '../../../core/addons/data/addon_stream_service.dart';
+import '../../../core/addons/data/debrid_service.dart';
 import '../../../core/addons/models/addon_meta.dart';
 import '../../../core/addons/models/addon_stream_source.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
@@ -60,6 +62,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
   bool _disposed = false;
   bool _showDetails = false;
   bool _hdOnly = false;
+  String? _debridStatus;
 
   @override
   void initState() {
@@ -101,19 +104,88 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
       .where((s) => !_hdOnly || s.qualityScore >= 1080)
       .toList(growable: false);
 
-  void _play(AddonStreamSource stream) {
+  /// Plays through the app's built-in player by default — it brings quality
+  /// filtering, source switching, subtitle and track menus, gestures, HDR,
+  /// external-player hand-off, history and tracker sync. The lightweight
+  /// add-on player stays available (long-press a row, or make it the default
+  /// in My add-ons).
+  Future<void> _play(
+    AddonStreamSource stream, {
+    AddonPlayerChoice? forceChoice,
+  }) async {
+    final choice = forceChoice ?? ref.read(addonPlayerPreferenceProvider);
     final ordered = _visible;
-    final index = ordered.indexOf(stream);
+
+    if (choice == AddonPlayerChoice.addon) {
+      final index = ordered.indexOf(stream);
+      Navigator.of(context).pop();
+      unawaited(
+        AddonPlayerRoute(
+          $extra: AddonPlayerRouteExtra(
+            item: widget.item,
+            episode: widget.episode,
+            request: widget.request,
+            streams: ordered,
+            initialIndex: index < 0 ? 0 : index,
+            playlist: widget.playlist,
+          ),
+        ).push<void>(context),
+      );
+      return;
+    }
+
+    // With a debrid account configured, the chosen torrent becomes a direct
+    // link before the player sees it. Not cached? The magnet is passed through
+    // and the player's own torrent engine takes over.
+    var selected = stream;
+    if (stream.isTorrent && ref.read(debridSettingsProvider).isConfigured) {
+      setState(() => _debridStatus = 'Checking debrid…');
+      try {
+        final link = await ref
+            .read(debridServiceProvider)
+            .resolveMagnet(
+              stream.magnetUri ?? '',
+              preferredFilename: stream.filename,
+              onStatus: (status) {
+                if (mounted) setState(() => _debridStatus = status);
+              },
+            );
+        if (link != null) {
+          selected = AddonStreamSource(
+            addonId: stream.addonId,
+            addonName: stream.addonName,
+            url: link.url,
+            name: stream.name,
+            title: stream.title,
+            description: stream.description,
+            videoSize: link.sizeBytes ?? stream.videoSize,
+            filename: link.filename ?? stream.filename,
+            bingeGroup: stream.bingeGroup,
+            subtitles: stream.subtitles,
+          );
+        }
+      } catch (_) {
+        // Fall through to the magnet.
+      } finally {
+        if (mounted) setState(() => _debridStatus = null);
+      }
+    }
+
+    final converter = ref.read(addonStreamConverterProvider);
+    final streams = converter.toStreamResults(ordered, selected: selected);
+    if (streams.isEmpty || !mounted) return;
+
     Navigator.of(context).pop();
     unawaited(
-      AddonPlayerRoute(
-        $extra: AddonPlayerRouteExtra(
+      PlayerRoute(
+        $extra: PlayerRouteExtra(
           item: widget.item,
-          episode: widget.episode,
-          request: widget.request,
-          streams: ordered,
-          initialIndex: index < 0 ? 0 : index,
-          playlist: widget.playlist,
+          videoUrl: converter.videoUrlFor(
+            contentId: widget.request.contentId,
+            videoId: widget.request.videoId,
+          ),
+          episode: converter.episodeFor(widget.episode, widget.request.videoId),
+          preloadedStreams: streams,
         ),
       ).push<void>(context),
     );
@@ -279,6 +351,28 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
                 ],
               ),
             ),
+            if (_debridStatus != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _debridStatus!,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             if (_showDetails) _details(theme, cs),
             SizedBox(
               height: 42,
@@ -353,7 +447,17 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
                         stream: visible[index],
                         isBest: index == 0,
                         autofocus: index == 0,
-                        onPlay: () => _play(visible[index]),
+                        onPlay: () => unawaited(_play(visible[index])),
+                        onPlayAlternate: () => unawaited(
+                          _play(
+                            visible[index],
+                            forceChoice:
+                                ref.read(addonPlayerPreferenceProvider) ==
+                                    AddonPlayerChoice.addon
+                                ? AddonPlayerChoice.builtIn
+                                : AddonPlayerChoice.addon,
+                          ),
+                        ),
                         onDownload: () => unawaited(_download(visible[index])),
                       ),
                     ),
@@ -428,12 +532,14 @@ class _SourceRow extends StatelessWidget {
   final bool isBest;
   final bool autofocus;
   final VoidCallback onPlay;
+  final VoidCallback onPlayAlternate;
   final VoidCallback onDownload;
 
   const _SourceRow({
     required this.stream,
     required this.isBest,
     required this.onPlay,
+    required this.onPlayAlternate,
     required this.onDownload,
     this.autofocus = false,
   });
@@ -464,6 +570,7 @@ class _SourceRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onPlay,
+        onLongPress: onPlayAlternate,
         autofocus: autofocus,
         focusColor: cs.primary.withValues(alpha: 0.22),
         borderRadius: BorderRadius.circular(16),

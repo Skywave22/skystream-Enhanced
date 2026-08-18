@@ -13,8 +13,8 @@ import 'widgets/addon_manage_view.dart';
 
 /// Add-ons destination — catalogs, management and discovery.
 ///
-/// Everything on this screen is served by installed Stremio add-ons. The
-/// plugin/extension system is never consulted here.
+/// Everything here is served by installed Stremio add-ons; the plugin system
+/// is never consulted.
 class AddonsScreen extends ConsumerStatefulWidget {
   const AddonsScreen({super.key});
 
@@ -93,15 +93,13 @@ class _CatalogsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(addonRepositoryProvider);
     final theme = Theme.of(context);
+    final catalogs = ref.watch(browsableCatalogsProvider);
     final hasStreamAddon = state.enabled.any(
       (a) => a.manifest?.hasResource('stream') ?? false,
     );
-    final hasCatalogAddon = state.enabled.any(
-      (a) => a.manifest?.hasResource('catalog') ?? false,
-    );
 
     if (!state.isLoading && state.enabled.isEmpty) {
-      return _EmptyHint(
+      return const _EmptyHint(
         icon: Icons.dashboard_customize_outlined,
         title: 'No add-ons yet',
         message:
@@ -160,14 +158,23 @@ class _CatalogsTab extends ConsumerWidget {
         Expanded(
           child: query.length >= 2
               ? _SearchResults(query: query)
-              : hasCatalogAddon
-              ? const _CatalogRows()
-              : _EmptyHint(
+              : catalogs.isEmpty
+              ? const _EmptyHint(
                   icon: Icons.grid_view_rounded,
-                  title: 'No catalog add-on',
+                  title: 'No catalogs',
                   message:
-                      'Install a catalog add-on such as Cinemeta to browse '
-                      'titles here. Stream-only add-ons still work for playback.',
+                      'None of your add-ons publish browsable catalogs. '
+                      'Cinemeta or a streaming-catalogs add-on will fill this.',
+                )
+              // Rows are built lazily by the ListView, and each row only hits
+              // the network when it scrolls into view — a 40-catalog add-on
+              // therefore costs a handful of requests, not forty.
+              : ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 90),
+                  itemCount: catalogs.length,
+                  addAutomaticKeepAlives: false,
+                  itemBuilder: (context, index) =>
+                      _CatalogRow(entry: catalogs[index]),
                 ),
         ),
       ],
@@ -175,84 +182,70 @@ class _CatalogsTab extends ConsumerWidget {
   }
 }
 
-class _CatalogRows extends ConsumerWidget {
-  const _CatalogRows();
+class _CatalogRow extends ConsumerWidget {
+  final BrowsableCatalog entry;
+  const _CatalogRow({required this.entry});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final rowsAsync = ref.watch(addonCatalogRowsProvider);
-
-    return rowsAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text('Could not load catalogs: $error'),
-        ),
+    final itemsAsync = ref.watch(
+      addonCatalogItemsProvider(
+        entry.addon.manifestUrl,
+        entry.catalog.type,
+        entry.catalog.id,
       ),
-      data: (rows) {
-        if (rows.isEmpty) {
-          return const _EmptyHint(
-            icon: Icons.inbox_outlined,
-            title: 'Nothing to browse',
-            message: 'Your add-ons published no browsable catalogs.',
-          );
-        }
-        return RefreshIndicator(
-          onRefresh: () async {
-            ref.invalidate(addonCatalogRowsProvider);
-            await ref.read(addonCatalogRowsProvider.future);
-          },
-          child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 90),
-            itemCount: rows.length,
-            itemBuilder: (context, index) {
-              final row = rows[index];
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    );
+
+    return itemsAsync.when(
+      // A placeholder keeps the scroll position stable while the row loads.
+      loading: () => const SizedBox(height: 120),
+      error: (_, _) => const SizedBox.shrink(),
+      data: (items) {
+        if (items.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              child: Row(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            row.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () => AddonCatalogRoute(
-                            addonUrl: row.addon.manifestUrl,
-                            type: row.catalog.type,
-                            catalogId: row.catalog.id,
-                            title: row.title,
-                          ).push<void>(context),
-                          child: const Text('See all'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    height: 214,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: row.items.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 10),
-                      itemBuilder: (context, i) => AddonPosterCard(
-                        item: row.items[i],
-                        addonUrl: row.addon.manifestUrl,
+                  Expanded(
+                    child: Text(
+                      entry.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
+                  TextButton(
+                    onPressed: () => AddonCatalogRoute(
+                      addonUrl: entry.addon.manifestUrl,
+                      type: entry.catalog.type,
+                      catalogId: entry.catalog.id,
+                      title: entry.title,
+                    ).push<void>(context),
+                    child: const Text('See all'),
+                  ),
                 ],
-              );
-            },
-          ),
+              ),
+            ),
+            SizedBox(
+              height: 214,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: items.length,
+                addAutomaticKeepAlives: false,
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
+                itemBuilder: (context, i) => AddonPosterCard(
+                  item: items[i],
+                  addonUrl: entry.addon.manifestUrl,
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -294,7 +287,7 @@ class _SearchResults extends ConsumerWidget {
   }
 }
 
-/// Poster tile for catalog rows and search results.
+/// Poster tile for catalog rows, search results and the full catalog grid.
 class AddonPosterCard extends StatelessWidget {
   final AddonMetaPreview item;
   final String? addonUrl;
@@ -313,9 +306,7 @@ class AddonPosterCard extends StatelessWidget {
 
     return SizedBox(
       width: width == double.infinity ? null : width,
-      // CardsWrapper gives add-on posters the same D-pad focus ring, scale and
-      // select/long-press handling as every other card in the app, so the tab
-      // is usable on TV.
+      // Same focusable card the rest of the app uses, so D-pad works on TV.
       child: CardsWrapper(
         borderRadius: BorderRadius.circular(12),
         onTap: () => AddonDetailRoute(
@@ -339,9 +330,10 @@ class AddonPosterCard extends StatelessWidget {
                         imageUrl: item.poster!,
                         fit: BoxFit.cover,
                         width: double.infinity,
-                        // Decode at display size — this is what keeps the
-                        // image cache (and RAM) small.
+                        // Decoding at display size is the single biggest
+                        // memory saving on poster-heavy screens.
                         memCacheWidth: 320,
+                        fadeInDuration: const Duration(milliseconds: 120),
                         errorWidget: (_, _, _) => ColoredBox(
                           color: theme.colorScheme.surfaceContainerHighest,
                           child: const Center(
@@ -447,7 +439,9 @@ class _DiscoverTab extends ConsumerWidget {
                                 .install(entry.transportUrl);
                             messenger.showSnackBar(
                               SnackBar(
-                                content: Text('Installed ${entry.manifest.name}'),
+                                content: Text(
+                                  'Installed ${entry.manifest.name}',
+                                ),
                               ),
                             );
                           } catch (error) {

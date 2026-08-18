@@ -4,67 +4,79 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/addons/data/addon_client.dart';
 import '../../../core/addons/data/addon_repository.dart';
+import '../../../core/addons/data/builtin_addons.dart';
 import '../../../core/addons/models/addon_manifest.dart';
 import '../../../core/addons/models/addon_meta.dart';
 
 part 'addon_providers.g.dart';
 
-/// One horizontal row of an add-on catalog.
-class AddonCatalogRow {
+/// A catalog the Catalogs tab can render as a row.
+class BrowsableCatalog {
   final ManagedAddon addon;
   final AddonCatalog catalog;
-  final List<AddonMetaPreview> items;
 
-  const AddonCatalogRow({
-    required this.addon,
-    required this.catalog,
-    required this.items,
-  });
+  const BrowsableCatalog({required this.addon, required this.catalog});
 
   String get title => '${catalog.name} · ${addon.displayName}';
   String get key => '${addon.manifestUrl}|${catalog.key}';
 }
 
-/// Browsable catalogs of every enabled add-on, fetched in parallel.
+/// Every browsable catalog of every enabled add-on — derived from the stored
+/// manifests, so it costs no network at all.
+///
+/// Rows fetch their own items when they scroll into view
+/// ([addonCatalogItems]); a catalog add-on that publishes 40 rows therefore
+/// costs 3-4 requests on open instead of 40.
 @riverpod
-Future<List<AddonCatalogRow>> addonCatalogRows(Ref ref) async {
+List<BrowsableCatalog> browsableCatalogs(Ref ref) {
   final addons = ref.watch(addonRepositoryProvider).enabled;
-  final client = ref.watch(addonClientProvider);
 
-  final requests = <Future<AddonCatalogRow?>>[];
+  final out = <BrowsableCatalog>[];
   for (final addon in addons) {
     final manifest = addon.manifest;
     if (manifest == null || !manifest.hasResource('catalog')) continue;
-
-    var perAddon = 0;
     for (final catalog in manifest.catalogs) {
       if (catalog.requiresSearch || catalog.requiresOtherExtra) continue;
-      if (perAddon >= 4) break;
-      perAddon++;
-      requests.add(() async {
-        try {
-          final items = await client
-              .catalog(addon, type: catalog.type, id: catalog.id)
-              .timeout(const Duration(seconds: 15));
-          if (items.isEmpty) return null;
-          return AddonCatalogRow(
-            addon: addon,
-            catalog: catalog,
-            items: items,
-          );
-        } catch (_) {
-          return null;
-        }
-      }());
+      out.add(BrowsableCatalog(addon: addon, catalog: catalog));
     }
   }
-
-  if (requests.isEmpty) return const [];
-  final rows = await Future.wait(requests);
-  return [for (final row in rows) ?row];
+  return out;
 }
 
-/// Search across every catalog that advertises `search`.
+/// Items of a single catalog row. Cached by the client for 15 minutes.
+@riverpod
+Future<List<AddonMetaPreview>> addonCatalogItems(
+  Ref ref,
+  String addonUrl,
+  String type,
+  String id, {
+  String? genre,
+}) async {
+  final addons = ref.watch(addonRepositoryProvider).addons;
+  ManagedAddon? addon;
+  for (final candidate in addons) {
+    if (candidate.manifestUrl == addonUrl) addon = candidate;
+  }
+  addon ??= addonUrl == BuiltInAddons.cinemetaUrl ? BuiltInAddons.cinemeta : null;
+  if (addon == null) return const [];
+
+  try {
+    return await ref
+        .watch(addonClientProvider)
+        .catalog(
+          addon,
+          type: type,
+          id: id,
+          extra: genre == null ? null : {'genre': genre},
+        )
+        .timeout(const Duration(seconds: 15));
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// Search across every catalog that advertises `search`, with Cinemeta as a
+/// fallback when no installed add-on can search.
 @riverpod
 Future<List<AddonMetaPreview>> addonSearch(Ref ref, String query) async {
   final trimmed = query.trim();
@@ -73,31 +85,39 @@ Future<List<AddonMetaPreview>> addonSearch(Ref ref, String query) async {
   final addons = ref.watch(addonRepositoryProvider).enabled;
   final client = ref.watch(addonClientProvider);
 
-  final requests = <Future<List<AddonMetaPreview>>>[];
+  final searchable = <MapEntry<ManagedAddon, AddonCatalog>>[];
   for (final addon in addons) {
     final manifest = addon.manifest;
     if (manifest == null || !manifest.hasResource('catalog')) continue;
     for (final catalog in manifest.catalogs) {
-      if (!catalog.supportsSearch) continue;
-      requests.add(() async {
+      if (catalog.supportsSearch) searchable.add(MapEntry(addon, catalog));
+    }
+  }
+  if (searchable.isEmpty) {
+    for (final catalog in BuiltInAddons.cinemeta.manifest!.catalogs) {
+      if (catalog.supportsSearch) {
+        searchable.add(MapEntry(BuiltInAddons.cinemeta, catalog));
+      }
+    }
+  }
+
+  final results = await Future.wait([
+    for (final entry in searchable)
+      () async {
         try {
           return await client
               .catalog(
-                addon,
-                type: catalog.type,
-                id: catalog.id,
+                entry.key,
+                type: entry.value.type,
+                id: entry.value.id,
                 extra: {'search': trimmed},
               )
               .timeout(const Duration(seconds: 12));
         } catch (_) {
           return const <AddonMetaPreview>[];
         }
-      }());
-    }
-  }
-
-  if (requests.isEmpty) return const [];
-  final results = await Future.wait(requests);
+      }(),
+  ]);
 
   final seen = <String>{};
   final out = <AddonMetaPreview>[];
@@ -110,7 +130,10 @@ Future<List<AddonMetaPreview>> addonSearch(Ref ref, String query) async {
 }
 
 /// Meta for one item: the add-on it came from first, then any other meta
-/// add-on that accepts the id.
+/// add-on, then built-in Cinemeta for IMDb ids.
+///
+/// The fallback is what makes catalog-only add-ons (Streaming Catalogs, Trakt
+/// lists, …) usable — they publish posters but no `meta` resource at all.
 @riverpod
 Future<AddonMeta?> addonMeta(
   Ref ref,
@@ -124,11 +147,13 @@ Future<AddonMeta?> addonMeta(
   final candidates = addons
       .where((a) => a.manifest?.hasResource('meta') ?? false)
       .toList();
-  if (candidates.isEmpty) return null;
 
-  final ordered = [
+  final ordered = <ManagedAddon>[
     ...candidates.where((a) => a.manifestUrl == preferredAddonUrl),
     ...candidates.where((a) => a.manifestUrl != preferredAddonUrl),
+    if (id.startsWith('tt') &&
+        !candidates.any((a) => a.manifestUrl == BuiltInAddons.cinemetaUrl))
+      BuiltInAddons.cinemeta,
   ];
 
   for (final addon in ordered) {
