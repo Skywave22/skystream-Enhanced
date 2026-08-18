@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/addons/data/addon_client.dart';
 import '../../../core/addons/data/addon_repository.dart';
 import '../../../core/addons/models/addon_meta.dart';
 import '../../../core/router/app_router.dart';
@@ -169,12 +170,26 @@ class _CatalogsTab extends ConsumerWidget {
               // Rows are built lazily by the ListView, and each row only hits
               // the network when it scrolls into view — a 40-catalog add-on
               // therefore costs a handful of requests, not forty.
-              : ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 90),
-                  itemCount: catalogs.length,
-                  addAutomaticKeepAlives: false,
-                  itemBuilder: (context, index) =>
-                      _CatalogRow(entry: catalogs[index]),
+              : RefreshIndicator(
+                  onRefresh: () async {
+                    ref.read(addonClientProvider).clearCache();
+                    for (final entry in catalogs) {
+                      ref.invalidate(
+                        addonCatalogItemsProvider(
+                          entry.addon.manifestUrl,
+                          entry.catalog.type,
+                          entry.catalog.id,
+                        ),
+                      );
+                    }
+                  },
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 90),
+                    itemCount: catalogs.length,
+                    addAutomaticKeepAlives: false,
+                    itemBuilder: (context, index) =>
+                        _CatalogRow(entry: catalogs[index]),
+                  ),
                 ),
         ),
       ],
@@ -199,8 +214,34 @@ class _CatalogRow extends ConsumerWidget {
     return itemsAsync.when(
       // A placeholder keeps the scroll position stable while the row loads.
       loading: () => const SizedBox(height: 120),
-      error: (_, _) => const SizedBox.shrink(),
-      data: (items) {
+      error: (error, _) => _RowProblem(
+        title: entry.title,
+        message: error.toString(),
+        onRetry: () => ref.invalidate(
+          addonCatalogItemsProvider(
+            entry.addon.manifestUrl,
+            entry.catalog.type,
+            entry.catalog.id,
+          ),
+        ),
+      ),
+      data: (result) {
+        // A failing row says so — silently disappearing rows are impossible
+        // to diagnose from the UI.
+        if (result.failed) {
+          return _RowProblem(
+            title: entry.title,
+            message: result.error!,
+            onRetry: () => ref.invalidate(
+              addonCatalogItemsProvider(
+                entry.addon.manifestUrl,
+                entry.catalog.type,
+                entry.catalog.id,
+              ),
+            ),
+          );
+        }
+        final items = result.items;
         if (items.isEmpty) return const SizedBox.shrink();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -210,13 +251,28 @@ class _CatalogRow extends ConsumerWidget {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      entry.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          entry.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ],
                     ),
                   ),
                   TextButton(
@@ -491,6 +547,68 @@ class _EmptyHint extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Compact "this row failed" strip with a retry, so a broken add-on is visible
+/// instead of an empty screen.
+class _RowProblem extends StatelessWidget {
+  final String title;
+  final String message;
+  final VoidCallback onRetry;
+
+  const _RowProblem({
+    required this.title,
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: cs.errorContainer.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline_rounded, size: 18, color: cs.error),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    message,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),

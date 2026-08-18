@@ -17,7 +17,16 @@ class BrowsableCatalog {
 
   const BrowsableCatalog({required this.addon, required this.catalog});
 
-  String get title => '${catalog.name} · ${addon.displayName}';
+  String get title {
+    final type = catalog.type == 'series'
+        ? 'Series'
+        : catalog.type == 'movie'
+        ? 'Movies'
+        : catalog.type;
+    return '${catalog.name} · $type';
+  }
+
+  String get subtitle => addon.displayName;
   String get key => '${addon.manifestUrl}|${catalog.key}';
 }
 
@@ -43,9 +52,21 @@ List<BrowsableCatalog> browsableCatalogs(Ref ref) {
   return out;
 }
 
+/// Outcome of one catalog row. Errors are carried rather than swallowed —
+/// a row that silently disappears is impossible to debug from the UI.
+class AddonCatalogResult {
+  final List<AddonMetaPreview> items;
+  final String? error;
+
+  const AddonCatalogResult({this.items = const [], this.error});
+
+  bool get isEmpty => items.isEmpty;
+  bool get failed => error != null;
+}
+
 /// Items of a single catalog row. Cached by the client for 15 minutes.
 @riverpod
-Future<List<AddonMetaPreview>> addonCatalogItems(
+Future<AddonCatalogResult> addonCatalogItems(
   Ref ref,
   String addonUrl,
   String type,
@@ -58,10 +79,12 @@ Future<List<AddonMetaPreview>> addonCatalogItems(
     if (candidate.manifestUrl == addonUrl) addon = candidate;
   }
   addon ??= addonUrl == BuiltInAddons.cinemetaUrl ? BuiltInAddons.cinemeta : null;
-  if (addon == null) return const [];
+  if (addon == null) {
+    return const AddonCatalogResult(error: 'Add-on is no longer installed.');
+  }
 
   try {
-    return await ref
+    final items = await ref
         .watch(addonClientProvider)
         .catalog(
           addon,
@@ -69,9 +92,12 @@ Future<List<AddonMetaPreview>> addonCatalogItems(
           id: id,
           extra: genre == null ? null : {'genre': genre},
         )
-        .timeout(const Duration(seconds: 15));
-  } catch (_) {
-    return const [];
+        .timeout(const Duration(seconds: 20));
+    return AddonCatalogResult(items: items);
+  } on TimeoutException {
+    return const AddonCatalogResult(error: 'Timed out');
+  } catch (error) {
+    return AddonCatalogResult(error: error.toString());
   }
 }
 
