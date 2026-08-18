@@ -11,7 +11,7 @@ part 'addon_playback_resolver.g.dart';
 
 @Riverpod(keepAlive: true)
 AddonPlaybackResolver addonPlaybackResolver(Ref ref) =>
-    const AddonPlaybackResolver();
+    AddonPlaybackResolver(ref);
 
 class ResolvedAddonPlayback {
   final String url;
@@ -41,7 +41,11 @@ class AddonPlaybackException implements Exception {
 ///   torrent server, honouring `fileIdx` for season packs
 /// * `ytId` / `externalUrl` → returned for the caller to open externally
 class AddonPlaybackResolver {
-  const AddonPlaybackResolver();
+  AddonPlaybackResolver(this._ref);
+
+  /// Only used to reach the debrid settings/service — the torrent server is a
+  /// plain singleton and needs no provider lookup.
+  final Ref _ref;
 
   Future<ResolvedAddonPlayback> resolve(
     AddonStreamSource stream, {
