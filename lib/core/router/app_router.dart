@@ -277,7 +277,6 @@ class PlayerRoute extends GoRouteData with $PlayerRoute {
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
-@Riverpod(keepAlive: true)
 /// Branch roots the shell can start on. `/stream` no longer exists, so a
 /// preference saved by an older build has to be migrated instead of handing
 /// GoRouter an unknown initial location.
@@ -290,6 +289,7 @@ const List<String> kShellBranchRoutes = [
   '/settings',
 ];
 
+@Riverpod(keepAlive: true)
 GoRouter appRouter(Ref ref) {
   final saved = ref.read(settingsRepositoryProvider).getDefaultHomeScreen();
   final initial = kShellBranchRoutes.contains(saved)
