@@ -61,6 +61,9 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   Timer? _progressTimer;
   Timer? _chromeTimer;
 
+  /// Keeps the remote/keyboard alive even while the chrome is hidden.
+  final FocusNode _rootFocus = FocusNode(debugLabel: 'addon_player_root');
+
   // Playback context is mutable: binge playback swaps in the next episode's
   // request, streams and metadata without leaving the screen.
   late List<AddonStreamSource> _streams;
