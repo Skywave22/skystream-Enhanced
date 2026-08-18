@@ -176,7 +176,9 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
     return ReorderableListView.builder(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
       itemCount: state.addons.length,
-      onReorder: (oldIndex, newIndex) => unawaited(
+      // onReorderItem hands back an index that already accounts for the
+      // removed row, so the manager stores it verbatim.
+      onReorderItem: (oldIndex, newIndex) => unawaited(
         ref.read(addonManagerProvider.notifier).reorder(oldIndex, newIndex),
       ),
       header: Column(

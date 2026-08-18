@@ -136,13 +136,13 @@ class AddonManager extends _$AddonManager {
     await _persist(next);
   }
 
+  /// [newIndex] is expected to already account for the removed row (that is
+  /// what `ReorderableListView.onReorderItem` provides).
   Future<void> reorder(int oldIndex, int newIndex) async {
     final next = List<InstalledAddon>.of(state.addons);
     if (oldIndex < 0 || oldIndex >= next.length) return;
-    var target = newIndex;
-    if (target > oldIndex) target -= 1;
-    target = target.clamp(0, next.length - 1);
     final addon = next.removeAt(oldIndex);
+    final target = newIndex.clamp(0, next.length);
     next.insert(target, addon);
     await _persist(next);
   }
