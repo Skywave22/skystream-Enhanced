@@ -5,7 +5,8 @@ import 'package:skystream/features/home/presentation/home_screen.dart';
 import 'package:skystream/features/search/presentation/search_screen.dart';
 import '../../features/explore/presentation/explore_screen.dart';
 import 'package:skystream/features/library/presentation/library_screen.dart';
-import 'package:skystream/features/stream/presentation/stream_screen.dart';
+import 'package:skystream/features/addons/presentation/addons_screen.dart';
+import 'package:skystream/features/addons/presentation/addon_detail_screen.dart';
 import 'package:skystream/features/settings/presentation/settings_screen.dart';
 import '../../features/extensions/screens/extensions_screen.dart';
 import '../../features/settings/presentation/developer_options_screen.dart';
@@ -13,6 +14,8 @@ import '../../features/details/presentation/details_screen.dart';
 import '../../features/details/presentation/tmdb_movie_details_screen.dart';
 import '../../features/explore/presentation/view_all_screen.dart';
 import '../../features/player/presentation/player_screen.dart';
+import '../../features/player/presentation/addon_player_screen.dart';
+import '../../core/addons/models/addon_stream.dart';
 import '../domain/entity/multimedia_item.dart';
 import 'package:skystream/shared/widgets/app_scaffold.dart';
 import '../../core/storage/settings_repository.dart';
@@ -38,8 +41,8 @@ part 'app_router.g.dart';
     TypedStatefulShellBranch<LibraryBranchData>(
       routes: [TypedGoRoute<LibraryRoute>(path: '/library')],
     ),
-    TypedStatefulShellBranch<StreamBranchData>(
-      routes: [TypedGoRoute<StreamRoute>(path: '/stream')],
+    TypedStatefulShellBranch<AddonsBranchData>(
+      routes: [TypedGoRoute<AddonsRoute>(path: '/addons')],
     ),
     TypedStatefulShellBranch<SettingsBranchData>(
       routes: [
@@ -110,15 +113,15 @@ class LibraryRoute extends GoRouteData with $LibraryRoute {
       const LibraryScreen();
 }
 
-class StreamBranchData extends StatefulShellBranchData {
-  const StreamBranchData();
+class AddonsBranchData extends StatefulShellBranchData {
+  const AddonsBranchData();
 }
 
-class StreamRoute extends GoRouteData with $StreamRoute {
-  const StreamRoute();
+class AddonsRoute extends GoRouteData with $AddonsRoute {
+  const AddonsRoute();
   @override
   Widget build(BuildContext context, GoRouterState state) =>
-      const StreamScreen();
+      const AddonsScreen();
 }
 
 class SettingsBranchData extends StatefulShellBranchData {
@@ -273,13 +276,77 @@ class PlayerRoute extends GoRouteData with $PlayerRoute {
   }
 }
 
+
+/// Payload for the dedicated add-on player. The full candidate list travels
+/// with the route so in-player source switching never needs a refetch.
+class AddonPlayerRouteExtra {
+  const AddonPlayerRouteExtra({
+    required this.item,
+    required this.streams,
+    this.episode,
+    this.initialIndex = 0,
+  });
+  final MultimediaItem item;
+  final List<AddonStream> streams;
+  final Episode? episode;
+  final int initialIndex;
+}
+
+@TypedGoRoute<AddonDetailRoute>(path: '/addon-detail')
+class AddonDetailRoute extends GoRouteData with $AddonDetailRoute {
+  const AddonDetailRoute({
+    required this.type,
+    required this.id,
+    this.addonId,
+  });
+  final String type;
+  final String id;
+  final String? addonId;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return AddonDetailScreen(type: type, id: id, addonId: addonId);
+  }
+}
+
+@TypedGoRoute<AddonPlayerRoute>(path: '/addon-player')
+class AddonPlayerRoute extends GoRouteData with $AddonPlayerRoute {
+  const AddonPlayerRoute({required this.$extra});
+  final AddonPlayerRouteExtra $extra;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return AddonPlayerScreen(
+      item: $extra.item,
+      episode: $extra.episode,
+      streams: $extra.streams,
+      initialIndex: $extra.initialIndex,
+    );
+  }
+}
+
 // --- GoRouter Definition ---
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
+/// Branch roots the shell can start on. `/stream` was removed in favour of
+/// `/addons`, so a stale saved preference must be migrated instead of blowing
+/// up GoRouter with an unknown initial location.
+const List<String> kShellBranchRoutes = [
+  '/home',
+  '/search',
+  '/explore',
+  '/library',
+  '/addons',
+  '/settings',
+];
+
 @Riverpod(keepAlive: true)
 GoRouter appRouter(Ref ref) {
-  final initial = ref.read(settingsRepositoryProvider).getDefaultHomeScreen();
+  final saved = ref.read(settingsRepositoryProvider).getDefaultHomeScreen();
+  final initial = kShellBranchRoutes.contains(saved)
+      ? saved
+      : (saved == '/stream' ? '/addons' : '/home');
 
   return GoRouter(
     initialLocation: initial,

@@ -90,5 +90,93 @@ Dio dioClient(Ref ref) {
     },
   );
 
+  // Metadata GETs are pure and repeat constantly while browsing (Explore ->
+  // details -> back). A tiny in-memory TTL cache in front of them removes the
+  // biggest source of perceived latency without touching any call site.
+  dio.interceptors.add(MetadataCacheInterceptor());
+
   return dio;
+}
+
+/// In-memory response cache for read-only metadata APIs.
+///
+/// Only GETs to a small allow-list of metadata hosts are cached, for a short
+/// TTL, so stream resolution and plugin traffic are never affected.
+class MetadataCacheInterceptor extends Interceptor {
+  MetadataCacheInterceptor({
+    this.ttl = const Duration(minutes: 10),
+    this.maxEntries = 200,
+  });
+
+  final Duration ttl;
+  final int maxEntries;
+
+  static const Set<String> _cacheableHosts = {
+    'api.themoviedb.org',
+    'graphql.anilist.co',
+    'v3-cinemeta.strem.io',
+  };
+
+  final Map<String, _CachedResponse> _entries = {};
+
+  bool _isCacheable(RequestOptions options) {
+    if (options.method.toUpperCase() != 'GET') return false;
+    return _cacheableHosts.contains(options.uri.host);
+  }
+
+  String _keyFor(RequestOptions options) => options.uri.toString();
+
+  @override
+  void onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) {
+    if (!_isCacheable(options)) return handler.next(options);
+
+    final key = _keyFor(options);
+    final cached = _entries[key];
+    if (cached != null && cached.expiresAt.isAfter(DateTime.now())) {
+      return handler.resolve(
+        Response<dynamic>(
+          requestOptions: options,
+          data: cached.data,
+          statusCode: 200,
+          extra: const {'fromMetadataCache': true},
+        ),
+      );
+    }
+    if (cached != null) _entries.remove(key);
+    handler.next(options);
+  }
+
+  @override
+  void onResponse(
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
+    final options = response.requestOptions;
+    if (_isCacheable(options) &&
+        response.statusCode == 200 &&
+        response.data != null) {
+      if (_entries.length >= maxEntries) {
+        final stale = _entries.keys.take(maxEntries ~/ 4).toList();
+        for (final key in stale) {
+          _entries.remove(key);
+        }
+      }
+      _entries[_keyFor(options)] = _CachedResponse(
+        response.data,
+        DateTime.now().add(ttl),
+      );
+    }
+    handler.next(response);
+  }
+
+  void clear() => _entries.clear();
+}
+
+class _CachedResponse {
+  final dynamic data;
+  final DateTime expiresAt;
+  const _CachedResponse(this.data, this.expiresAt);
 }

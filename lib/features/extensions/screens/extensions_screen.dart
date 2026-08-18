@@ -7,6 +7,7 @@ import '../../../core/extensions/extension_manager.dart';
 import '../../../shared/widgets/custom_widgets.dart';
 import '../providers/extensions_controller.dart';
 import 'plugin_settings_screen.dart';
+import '../../addons/presentation/widgets/addon_manage_view.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
@@ -58,7 +59,7 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen> {
         ),
       _ => DefaultTabController(
           key: const ValueKey('installed_extensions_tab_controller'),
-          length: 2,
+          length: 3,
           child: Builder(
             builder: (tabContext) => Scaffold(
               appBar: AppBar(
@@ -83,6 +84,7 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen> {
                   tabs: [
                     Tab(text: l10n.installed),
                     Tab(text: l10n.repositories),
+                    const Tab(text: 'Add-ons'),
                   ],
                 ),
               ),
@@ -93,6 +95,7 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen> {
                     children: [
                       _buildInstalledTab(tabContext, ref, state),
                       _buildRepositoriesTab(tabContext, ref, state),
+                      const AddonManageView(),
                     ],
                   ),
                 ),

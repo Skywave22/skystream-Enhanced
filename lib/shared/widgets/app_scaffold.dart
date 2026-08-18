@@ -54,7 +54,7 @@ class _AppScaffoldState extends ConsumerState<AppScaffold> {
         return 2;
       case '/library':
         return 3;
-      case '/stream':
+      case '/addons':
         return 4;
       case '/settings':
         return 5;

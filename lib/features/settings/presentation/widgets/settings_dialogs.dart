@@ -8,7 +8,7 @@ import '../../../../core/services/external_player_service.dart';
 import '../../../../core/config/tmdb_config.dart';
 import '../../../../core/network/dio_client_provider.dart';
 import '../../../../core/network/doh_service.dart';
-import '../../../stream/data/stream_browser_provider.dart';
+import '../../../explore/data/explore_tmdb_provider.dart';
 import '../../../../core/storage/settings_repository.dart';
 import '../../../../core/services/download_service.dart';
 import '../../../../core/theme/theme_provider.dart';
@@ -75,7 +75,7 @@ void showDefaultHomeScreenDialog(
     {'label': l10n.explore, 'route': '/explore'},
     {'label': l10n.search, 'route': '/search'},
     {'label': l10n.library, 'route': '/library'},
-    {'label': 'Stream', 'route': '/stream'},
+    {'label': 'Add-ons', 'route': '/addons'},
   ];
 
   showDialog<void>(
@@ -2429,7 +2429,7 @@ void showTmdbApiKeyDialog(BuildContext context, WidgetRef ref) {
                 .setTmdbApiKey(key);
 
             // Force the TMDB-backed screens to refetch with the new key.
-            ref.invalidate(streamBrowserProvider);
+            ref.invalidate(tmdbServiceProvider);
 
             if (ctx.mounted) Navigator.pop<void>(ctx);
           }
