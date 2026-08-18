@@ -162,6 +162,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
     _torrentTimer?.cancel();
     _progressTimer?.cancel();
     _chromeTimer?.cancel();
+    _rootFocus.dispose();
     unawaited(_player.dispose());
     if (_usedTorrent) unawaited(_torrent.stop());
     unawaited(WakelockPlus.disable());
@@ -170,6 +171,55 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
       unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     }
     super.dispose();
+  }
+
+  /// TV remotes and keyboards drive playback directly — the video surface has
+  /// no touch targets, so without this the add-on player would be unusable on
+  /// Android TV and desktop.
+  KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+
+    void revealChrome() {
+      if (!_showChrome && mounted) setState(() => _showChrome = true);
+      _armChromeTimer();
+    }
+
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      revealChrome();
+      unawaited(
+        _player.seek(_player.state.position - const Duration(seconds: 10)),
+      );
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      revealChrome();
+      unawaited(
+        _player.seek(_player.state.position + const Duration(seconds: 10)),
+      );
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.mediaPlayPause) {
+      revealChrome();
+      unawaited(_player.playOrPause());
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown) {
+      revealChrome();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
+      Navigator.of(context).maybePop();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   void _armChromeTimer() {
@@ -560,7 +610,11 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
+      body: Focus(
+        autofocus: true,
+        focusNode: _rootFocus,
+        onKeyEvent: _onKeyEvent,
+        child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
           setState(() => _showChrome = !_showChrome);
@@ -587,6 +641,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
               Positioned(right: 20, bottom: 96, child: _nextEpisodeButton()),
             if (_showChrome) _topBar(),
           ],
+        ),
         ),
       ),
     );

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/addons/data/addon_repository.dart';
 import '../../../core/addons/models/addon_meta.dart';
 import '../../../core/router/app_router.dart';
+import '../../../shared/widgets/cards_wrapper.dart';
 import 'addon_providers.dart';
 import 'widgets/addon_manage_view.dart';
 
@@ -312,7 +313,10 @@ class AddonPosterCard extends StatelessWidget {
 
     return SizedBox(
       width: width == double.infinity ? null : width,
-      child: InkWell(
+      // CardsWrapper gives add-on posters the same D-pad focus ring, scale and
+      // select/long-press handling as every other card in the app, so the tab
+      // is usable on TV.
+      child: CardsWrapper(
         borderRadius: BorderRadius.circular(12),
         onTap: () => AddonDetailRoute(
           type: item.type,

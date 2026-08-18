@@ -352,6 +352,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
                       itemBuilder: (context, index) => _SourceRow(
                         stream: visible[index],
                         isBest: index == 0,
+                        autofocus: index == 0,
                         onPlay: () => _play(visible[index]),
                         onDownload: () => unawaited(_download(visible[index])),
                       ),
@@ -425,6 +426,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
 class _SourceRow extends StatelessWidget {
   final AddonStreamSource stream;
   final bool isBest;
+  final bool autofocus;
   final VoidCallback onPlay;
   final VoidCallback onDownload;
 
@@ -433,6 +435,7 @@ class _SourceRow extends StatelessWidget {
     required this.isBest,
     required this.onPlay,
     required this.onDownload,
+    this.autofocus = false,
   });
 
   Color _avatarColor() {
@@ -461,6 +464,8 @@ class _SourceRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onPlay,
+        autofocus: autofocus,
+        focusColor: cs.primary.withValues(alpha: 0.22),
         borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
