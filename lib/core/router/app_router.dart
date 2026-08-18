@@ -5,7 +5,7 @@ import 'package:skystream/features/home/presentation/home_screen.dart';
 import 'package:skystream/features/search/presentation/search_screen.dart';
 import '../../features/explore/presentation/explore_screen.dart';
 import 'package:skystream/features/library/presentation/library_screen.dart';
-import 'package:skystream/features/stream/presentation/stream_screen.dart';
+import 'package:skystream/features/addons/presentation/addons_screen.dart';
 import 'package:skystream/features/settings/presentation/settings_screen.dart';
 import '../../features/extensions/screens/extensions_screen.dart';
 import '../../features/settings/presentation/developer_options_screen.dart';
@@ -38,8 +38,8 @@ part 'app_router.g.dart';
     TypedStatefulShellBranch<LibraryBranchData>(
       routes: [TypedGoRoute<LibraryRoute>(path: '/library')],
     ),
-    TypedStatefulShellBranch<StreamBranchData>(
-      routes: [TypedGoRoute<StreamRoute>(path: '/stream')],
+    TypedStatefulShellBranch<AddonsBranchData>(
+      routes: [TypedGoRoute<AddonsRoute>(path: '/addons')],
     ),
     TypedStatefulShellBranch<SettingsBranchData>(
       routes: [
@@ -110,15 +110,15 @@ class LibraryRoute extends GoRouteData with $LibraryRoute {
       const LibraryScreen();
 }
 
-class StreamBranchData extends StatefulShellBranchData {
-  const StreamBranchData();
+class AddonsBranchData extends StatefulShellBranchData {
+  const AddonsBranchData();
 }
 
-class StreamRoute extends GoRouteData with $StreamRoute {
-  const StreamRoute();
+class AddonsRoute extends GoRouteData with $AddonsRoute {
+  const AddonsRoute();
   @override
   Widget build(BuildContext context, GoRouterState state) =>
-      const StreamScreen();
+      const AddonsScreen();
 }
 
 class SettingsBranchData extends StatefulShellBranchData {
@@ -278,8 +278,23 @@ class PlayerRoute extends GoRouteData with $PlayerRoute {
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 @Riverpod(keepAlive: true)
+/// Branch roots the shell can start on. `/stream` no longer exists, so a
+/// preference saved by an older build has to be migrated instead of handing
+/// GoRouter an unknown initial location.
+const List<String> kShellBranchRoutes = [
+  '/home',
+  '/search',
+  '/explore',
+  '/library',
+  '/addons',
+  '/settings',
+];
+
 GoRouter appRouter(Ref ref) {
-  final initial = ref.read(settingsRepositoryProvider).getDefaultHomeScreen();
+  final saved = ref.read(settingsRepositoryProvider).getDefaultHomeScreen();
+  final initial = kShellBranchRoutes.contains(saved)
+      ? saved
+      : (saved == '/stream' ? '/addons' : '/home');
 
   return GoRouter(
     initialLocation: initial,

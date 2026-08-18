@@ -75,7 +75,7 @@ void showDefaultHomeScreenDialog(
     {'label': l10n.explore, 'route': '/explore'},
     {'label': l10n.search, 'route': '/search'},
     {'label': l10n.library, 'route': '/library'},
-    {'label': 'Stream', 'route': '/stream'},
+    {'label': 'Add-ons', 'route': '/addons'},
   ];
 
   showDialog<void>(
