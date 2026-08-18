@@ -326,28 +326,37 @@ class AddonStreamSource {
     description ?? title ?? '',
   ].join('|');
 
-  /// Ranking score: playable now first, then cached debrid, resolution, HDR;
-  /// CAM and URL-less torrents are pushed down.
+  /// Ranking score.
+  ///
+  /// Resolution leads, because SkyStream streams torrents natively through the
+  /// bundled torrent server — unlike a browser client, a 4K torrent is not
+  /// second-class here. Direct links still get a head start for instant
+  /// playback, cached debrid links more so, and CAM rips are buried.
   int get score {
     var value = 0;
-    if (isDirect) value += 180;
-    if (isCachedDebrid) value += 80;
+    if (isCachedDebrid) value += 70;
+    if (isDirect) value += 45;
+
     final quality = qualityScore;
     if (quality >= 2160) {
-      value += 60;
+      value += 140;
+    } else if (quality >= 1440) {
+      value += 110;
     } else if (quality >= 1080) {
-      value += 45;
+      value += 85;
     } else if (quality >= 720) {
-      value += 25;
+      value += 45;
     }
+
     if (isHdr) value += 12;
-    if (isCam) value -= 80;
-    if (isTorrent && url == null) value -= 40;
+    if (isCam) value -= 150;
+
     final seeds = seeders;
-    if (seeds != null) value += seeds.clamp(0, 40);
+    if (seeds != null) value += (seeds.clamp(0, 60) / 2).round();
+
     final bytes = sizeBytes;
     if (bytes != null) {
-      value += (bytes / (1024 * 1024 * 1024)).clamp(0, 25).round();
+      value += (bytes / (1024 * 1024 * 1024)).clamp(0, 20).round();
     }
     return value;
   }

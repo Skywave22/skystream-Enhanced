@@ -7,6 +7,7 @@ import '../../features/explore/presentation/explore_screen.dart';
 import 'package:skystream/features/library/presentation/library_screen.dart';
 import 'package:skystream/features/addons/presentation/addons_screen.dart';
 import 'package:skystream/features/addons/presentation/addon_detail_screen.dart';
+import 'package:skystream/features/addons/presentation/addon_catalog_screen.dart';
 import 'package:skystream/features/addons/presentation/addon_player_screen.dart';
 import '../addons/data/addon_stream_service.dart';
 import '../addons/models/addon_stream_source.dart';
@@ -309,6 +310,30 @@ class AddonDetailRoute extends GoRouteData with $AddonDetailRoute {
   @override
   Widget build(BuildContext context, GoRouterState state) {
     return AddonDetailScreen(type: type, id: id, addonUrl: addonUrl);
+  }
+}
+
+@TypedGoRoute<AddonCatalogRoute>(path: '/addon-catalog')
+class AddonCatalogRoute extends GoRouteData with $AddonCatalogRoute {
+  const AddonCatalogRoute({
+    required this.addonUrl,
+    required this.type,
+    required this.catalogId,
+    required this.title,
+  });
+  final String addonUrl;
+  final String type;
+  final String catalogId;
+  final String title;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return AddonCatalogScreen(
+      addonUrl: addonUrl,
+      type: type,
+      catalogId: catalogId,
+      title: title,
+    );
   }
 }
 

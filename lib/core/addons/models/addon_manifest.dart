@@ -103,6 +103,14 @@ class AddonCatalog {
 
   bool get supportsSkip => extra.any((e) => e.name == 'skip');
 
+  /// Genre options a catalog advertises, used for the filter chips.
+  List<String> get genres {
+    for (final property in extra) {
+      if (property.name == 'genre') return property.options;
+    }
+    return const [];
+  }
+
   String get key => '$type/$id';
 }
 
@@ -288,18 +296,32 @@ class AddonManifest {
   }
 
   /// Types this add-on will actually be asked for, given a requested type.
-  /// An add-on that declares nothing is asked anyway — under-declared
-  /// manifests are common and a wasted request beats an empty screen.
+  ///
+  /// Priority: the resource's own `types` (the spec's narrowing), then the
+  /// manifest-level `types` as a fallback, and finally — when the manifest
+  /// declares nothing at all — the requested type anyway. Under-declared
+  /// manifests are extremely common, and one wasted request beats an empty
+  /// screen.
   List<String> requestTypesFor(String resource, String requested) {
-    final declared = <String>{
-      ...types.map((t) => t.toLowerCase()),
-      ...?this.resource(resource)?.types.map((t) => t.toLowerCase()),
-    }..removeWhere((t) => t.isEmpty);
-
     final aliases = typeAliases(requested);
-    if (declared.isEmpty) return [aliases.first];
-    final matches = aliases.where(declared.contains).toList();
-    return matches.isEmpty ? const [] : matches;
+
+    List<String> matching(Iterable<String> declared) {
+      final set = declared.map((t) => t.toLowerCase()).toSet()
+        ..removeWhere((t) => t.isEmpty);
+      if (set.isEmpty) return const [];
+      return aliases.where(set.contains).toList();
+    }
+
+    final resourceTypes = this.resource(resource)?.types ?? const <String>[];
+    final fromResource = matching(resourceTypes);
+    if (fromResource.isNotEmpty) return fromResource;
+
+    final fromManifest = matching(types);
+    if (fromManifest.isNotEmpty) return fromManifest;
+
+    // Nothing declared anywhere -> ask with the canonical alias.
+    if (resourceTypes.isEmpty && types.isEmpty) return [aliases.first];
+    return const [];
   }
 
   /// `idPrefixes` gate, matching either `prefix` or `prefix:`.
