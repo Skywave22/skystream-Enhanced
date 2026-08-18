@@ -7,6 +7,7 @@ import '../../features/explore/presentation/explore_screen.dart';
 import 'package:skystream/features/library/presentation/library_screen.dart';
 import 'package:skystream/features/addons/presentation/addons_screen.dart';
 import 'package:skystream/features/addons/presentation/addon_detail_screen.dart';
+import 'package:skystream/features/addons/presentation/addon_catalog_screen.dart';
 import 'package:skystream/features/settings/presentation/settings_screen.dart';
 import '../../features/extensions/screens/extensions_screen.dart';
 import '../../features/settings/presentation/developer_options_screen.dart';
@@ -285,11 +286,19 @@ class AddonPlayerRouteExtra {
     required this.streams,
     this.episode,
     this.initialIndex = 0,
+    this.type = 'movie',
+    this.contentId,
+    this.videoId,
   });
   final MultimediaItem item;
   final List<AddonStream> streams;
   final Episode? episode;
   final int initialIndex;
+
+  /// Stremio type/ids so the player can ask add-ons for subtitles.
+  final String type;
+  final String? contentId;
+  final String? videoId;
 }
 
 @TypedGoRoute<AddonDetailRoute>(path: '/addon-detail')
@@ -309,6 +318,30 @@ class AddonDetailRoute extends GoRouteData with $AddonDetailRoute {
   }
 }
 
+@TypedGoRoute<AddonCatalogRoute>(path: '/addon-catalog')
+class AddonCatalogRoute extends GoRouteData with $AddonCatalogRoute {
+  const AddonCatalogRoute({
+    required this.addonId,
+    required this.type,
+    required this.catalogId,
+    required this.title,
+  });
+  final String addonId;
+  final String type;
+  final String catalogId;
+  final String title;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return AddonCatalogScreen(
+      addonId: addonId,
+      type: type,
+      catalogId: catalogId,
+      title: title,
+    );
+  }
+}
+
 @TypedGoRoute<AddonPlayerRoute>(path: '/addon-player')
 class AddonPlayerRoute extends GoRouteData with $AddonPlayerRoute {
   const AddonPlayerRoute({required this.$extra});
@@ -321,6 +354,9 @@ class AddonPlayerRoute extends GoRouteData with $AddonPlayerRoute {
       episode: $extra.episode,
       streams: $extra.streams,
       initialIndex: $extra.initialIndex,
+      type: $extra.type,
+      contentId: $extra.contentId,
+      videoId: $extra.videoId,
     );
   }
 }

@@ -232,14 +232,31 @@ class _CatalogRow extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(
             LayoutConstants.spacingMd,
             LayoutConstants.spacingMd,
-            LayoutConstants.spacingMd,
+            LayoutConstants.spacingSm,
             LayoutConstants.spacingSm,
           ),
-          child: Text(
-            row.title,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  row.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => AddonCatalogRoute(
+                  addonId: row.addon.id,
+                  type: row.definition.type,
+                  catalogId: row.definition.id,
+                  title: row.title,
+                ).push<void>(context),
+                child: const Text('See all'),
+              ),
+            ],
           ),
         ),
         SizedBox(
@@ -341,6 +358,10 @@ class AddonPosterCard extends StatelessWidget {
                         imageUrl: item.poster!,
                         fit: BoxFit.cover,
                         width: double.infinity,
+                        // Posters are ~124-160 logical px wide here; decoding
+                        // them at full size is the main image-cache hog.
+                        memCacheWidth: 320,
+                        maxWidthDiskCache: 480,
                         errorWidget: (_, _, _) => ColoredBox(
                           color: theme.colorScheme.surfaceContainerHighest,
                           child: const Center(

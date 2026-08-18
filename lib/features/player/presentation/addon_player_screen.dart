@@ -9,8 +9,10 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../../../core/addons/addon_manager.dart';
 import '../../../core/addons/models/addon_stream.dart';
 import '../../../core/addons/services/addon_playback_resolver.dart';
+import '../../../core/addons/services/addon_subtitle_service.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/extensions/providers.dart';
 import '../../../core/models/torrent_status.dart';
@@ -32,12 +34,21 @@ class AddonPlayerScreen extends ConsumerStatefulWidget {
   final List<AddonStream> streams;
   final int initialIndex;
 
+  /// Stremio content type/ids, used to pull subtitles from add-ons that
+  /// implement the `subtitles` resource.
+  final String type;
+  final String? contentId;
+  final String? videoId;
+
   const AddonPlayerScreen({
     super.key,
     required this.item,
     required this.streams,
     this.episode,
     this.initialIndex = 0,
+    this.type = 'movie',
+    this.contentId,
+    this.videoId,
   });
 
   @override
@@ -65,8 +76,11 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   String? _error;
   TorrentStatus? _torrentStatus;
   AddonSubtitle? _activeSubtitle;
+  List<AddonSubtitle> _addonSubtitles = const [];
+  bool _loadingSubtitles = false;
   BoxFit _fit = BoxFit.contain;
   Timer? _chromeTimer;
+  bool _resumeApplied = false;
 
   AddonStream get _current => widget.streams.isEmpty
       ? const AddonStream(addonId: '', addonName: 'Add-on')
@@ -234,12 +248,15 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
         _torrentStatus = null;
       }
 
+      unawaited(_restoreProgress());
+
       final subtitle = _current.subtitles.isNotEmpty
           ? _current.subtitles.first
           : null;
       if (subtitle != null) {
         await _applySubtitle(subtitle);
       }
+      unawaited(_loadAddonSubtitles());
 
       if (mounted) setState(() => _resolving = false);
     } catch (error) {
@@ -248,6 +265,72 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
         _resolving = false;
         _error = error.toString();
       });
+    }
+  }
+
+  /// Seeks back to where the user left off. Waits for a real duration first —
+  /// mpv reports 0 until the demuxer has parsed the container.
+  Future<void> _restoreProgress() async {
+    if (_resumeApplied) return;
+    final episode = widget.episode;
+    final saved = episode == null
+        ? _history.getPosition(widget.item.url)
+        : _history.getEpisodePosition(
+            episode.url,
+            mainUrl: widget.item.url,
+            season: episode.season,
+            episode: episode.episode,
+          );
+    if (saved <= 10000) return;
+
+    for (var attempt = 0; attempt < 20; attempt++) {
+      if (!mounted || _disposed) return;
+      final duration = _player.state.duration.inMilliseconds;
+      if (duration > 0) {
+        // Don't resume if the user was basically finished.
+        if (saved < duration * 0.97) {
+          _resumeApplied = true;
+          await _player.seek(Duration(milliseconds: saved));
+        }
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+  }
+
+  /// Add-ons that implement the `subtitles` resource (OpenSubtitles v3, …) are
+  /// asked in the background so the subtitle menu fills in while playback has
+  /// already started.
+  Future<void> _loadAddonSubtitles() async {
+    final contentId = widget.contentId;
+    if (contentId == null || contentId.isEmpty) return;
+
+    final ids = <String>[
+      if (widget.videoId != null && widget.videoId!.isNotEmpty) widget.videoId!,
+      if (widget.episode != null)
+        '${contentId.split(':').first}:${widget.episode!.season}:${widget.episode!.episode}'
+      else
+        contentId,
+    ];
+
+    if (mounted) setState(() => _loadingSubtitles = true);
+    try {
+      final subs = await ref
+          .read(addonSubtitleServiceProvider)
+          .fetch(
+            addons: ref.read(addonManagerProvider).enabled,
+            type: widget.type,
+            ids: ids,
+            videoSize: _current.videoSize,
+            filename: _current.filename,
+          );
+      if (!mounted || _disposed) return;
+      setState(() {
+        _addonSubtitles = subs;
+        _loadingSubtitles = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingSubtitles = false);
     }
   }
 
@@ -281,7 +364,13 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
 
   Future<void> _switchTo(int index) async {
     if (index == _index) return;
-    setState(() => _index = index);
+    // Keep the current position when hopping to another source for the same
+    // title: save first, then let _restoreProgress put us back.
+    _saveProgress();
+    setState(() {
+      _index = index;
+      _resumeApplied = false;
+    });
     await _load();
   }
 
@@ -336,8 +425,18 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
     );
   }
 
+  List<AddonSubtitle> get _allSubtitles {
+    final seen = <String>{};
+    final out = <AddonSubtitle>[];
+    for (final sub in [..._current.subtitles, ..._addonSubtitles]) {
+      if (sub.url.isEmpty) continue;
+      if (seen.add(sub.url)) out.add(sub);
+    }
+    return out;
+  }
+
   void _openSubtitleSheet() {
-    final subtitles = _current.subtitles;
+    final subtitles = _allSubtitles;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -355,15 +454,27 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
                   unawaited(_applySubtitle(null));
                 },
               ),
-              if (subtitles.isEmpty)
+              if (_loadingSubtitles)
+                const ListTile(
+                  leading: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  title: Text('Looking for subtitles in your add-ons…'),
+                ),
+              if (subtitles.isEmpty && !_loadingSubtitles)
                 const ListTile(
                   enabled: false,
-                  title: Text('This source has no subtitles attached'),
+                  title: Text(
+                    'No subtitles. Install a subtitle add-on such as '
+                    'OpenSubtitles v3.',
+                  ),
                 ),
               for (final subtitle in subtitles)
                 ListTile(
                   leading: const Icon(Icons.subtitles_rounded),
-                  title: Text(subtitle.lang),
+                  title: Text(prettySubtitleLanguage(subtitle.lang)),
                   selected: _activeSubtitle?.url == subtitle.url,
                   onTap: () {
                     Navigator.pop(sheetContext);

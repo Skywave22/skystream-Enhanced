@@ -142,6 +142,8 @@ class _Body extends StatelessWidget {
                   CachedNetworkImage(
                     imageUrl: meta.background!,
                     fit: BoxFit.cover,
+                    memCacheWidth: 1080,
+                    maxWidthDiskCache: 1280,
                     errorWidget: (_, _, _) =>
                         ColoredBox(color: cs.surfaceContainerHighest),
                   )
@@ -312,6 +314,7 @@ class _Body extends StatelessWidget {
                           width: 70,
                           height: 42,
                           fit: BoxFit.cover,
+                          memCacheWidth: 220,
                           errorWidget: (_, _, _) =>
                               const Icon(Icons.image_not_supported_outlined),
                         ),

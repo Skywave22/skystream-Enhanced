@@ -219,6 +219,9 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
           episode: widget.episode,
           streams: ordered,
           initialIndex: index < 0 ? 0 : index,
+          type: widget.type,
+          contentId: widget.contentId,
+          videoId: widget.videoId,
         ),
       ).push<void>(context),
     );
