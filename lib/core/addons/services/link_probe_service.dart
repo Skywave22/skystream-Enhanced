@@ -114,7 +114,7 @@ class LinkProbeService {
       _cache[url] = result;
       return result;
     } finally {
-      _inFlight.remove(url);
+      _inFlight.remove(url)?.ignore();
     }
   }
 
@@ -164,7 +164,7 @@ class LinkProbeService {
       );
       final result = _fromHeaders(response.statusCode, response.headers.map);
       if (result.reachable) {
-        return _maybeWithHlsVariants(url, headers, result);
+        return await _maybeWithHlsVariants(url, headers, result);
       }
     } catch (error) {
       if (kDebugMode) debugPrint('[LinkProbe] HEAD failed for $url: $error');
@@ -190,7 +190,7 @@ class LinkProbeService {
         rangedGet: true,
       );
       if (result.reachable) {
-        return _maybeWithHlsVariants(url, headers, result);
+        return await _maybeWithHlsVariants(url, headers, result);
       }
       return result;
     } catch (error) {

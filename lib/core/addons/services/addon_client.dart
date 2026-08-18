@@ -24,9 +24,8 @@ AddonClient addonClient(Ref ref) => AddonClient(ref.watch(dioClientProvider));
 class _TtlCache {
   final Map<String, _CacheEntry> _entries = {};
   final Map<String, Future<Object?>> _inFlight = {};
-  final int maxEntries;
 
-  _TtlCache({this.maxEntries = 220});
+  static const int maxEntries = 220;
 
   T? read<T>(String key) {
     final entry = _entries[key];

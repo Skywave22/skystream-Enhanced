@@ -45,7 +45,7 @@ class ImdbResolver {
       _cache[key] = result;
       return result;
     } finally {
-      _inFlight.remove(key);
+      _inFlight.remove(key)?.ignore();
     }
   }
 

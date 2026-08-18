@@ -67,8 +67,7 @@ Future<List<AddonCatalogRow>> addonHomeCatalogs(Ref ref) async {
   if (requests.isEmpty) return const [];
   final rows = await Future.wait(requests);
   return [
-    for (final row in rows)
-      if (row != null) row,
+    for (final row in rows) ?row,
   ];
 }
 

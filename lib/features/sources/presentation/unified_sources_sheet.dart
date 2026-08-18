@@ -784,7 +784,7 @@ class _SourceRow extends StatelessWidget {
                         if (source.isTorrent)
                           _Tag(text: 'TORRENT', color: cs.primary),
                         if (source.isCachedDebrid)
-                          _Tag(text: 'CACHED', color: Colors.greenAccent),
+                          const _Tag(text: 'CACHED', color: Colors.greenAccent),
                         if (isBest) _Tag(text: 'BEST', color: cs.primary),
                       ],
                     ),
