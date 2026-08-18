@@ -14,6 +14,7 @@ import '../../../core/addons/services/addon_playback_resolver.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/extensions/providers.dart';
 import '../../../core/models/torrent_status.dart';
+import '../../../core/services/torrent_service.dart';
 import '../../../core/storage/history_repository.dart';
 import '../../../core/utils/file_size_formatter.dart';
 
@@ -50,6 +51,12 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   Timer? _torrentTimer;
   Timer? _progressTimer;
 
+  // Captured in initState: dispose() must not touch providers through `ref`
+  // after the element is unmounted.
+  late final TorrentService _torrent;
+  late final HistoryRepository _history;
+  bool _usedTorrent = false;
+
   int _index = 0;
   bool _resolving = true;
   bool _showChrome = true;
@@ -68,6 +75,8 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   void initState() {
     super.initState();
     MediaKit.ensureInitialized();
+    _torrent = ref.read(torrentServiceProvider);
+    _history = ref.read(historyRepositoryProvider);
     _index = widget.initialIndex.clamp(
       0,
       widget.streams.isEmpty ? 0 : widget.streams.length - 1,
@@ -122,6 +131,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
     _progressTimer?.cancel();
     _chromeTimer?.cancel();
     unawaited(_player.dispose());
+    if (_usedTorrent) unawaited(_torrent.stop());
     unawaited(WakelockPlus.disable());
     if (Platform.isAndroid || Platform.isIOS) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -146,8 +156,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
       if (position <= 0 || duration <= 0) return;
       final episode = widget.episode;
       unawaited(
-        ref
-            .read(historyRepositoryProvider)
+        _history
             .saveProgress(
               widget.item,
               position,
@@ -210,6 +219,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
       );
 
       if (resolved.viaTorrent) {
+        _usedTorrent = true;
         _startTorrentPolling();
       } else {
         _torrentTimer?.cancel();
@@ -236,7 +246,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   void _startTorrentPolling() {
     _torrentTimer?.cancel();
     _torrentTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-      final status = await ref.read(torrentServiceProvider).getCurrentStatus();
+      final status = await _torrent.getCurrentStatus();
       if (!mounted) return;
       setState(() => _torrentStatus = status);
     });

@@ -185,6 +185,13 @@ class _UnifiedSourcesSheetState extends ConsumerState<UnifiedSourcesSheet> {
   }
 
   Future<void> _startAddons() async {
+    // The manager loads from disk asynchronously; opening the sheet on a cold
+    // start must not be mistaken for "no add-ons installed".
+    if (ref.read(addonManagerProvider).isLoading) {
+      await ref.read(addonManagerProvider.notifier).load();
+    }
+    if (_disposed) return;
+
     final addons = ref.read(addonManagerProvider).enabled;
     if (addons.isEmpty) {
       if (_disposed) return;
