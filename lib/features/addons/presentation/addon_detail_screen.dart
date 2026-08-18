@@ -286,6 +286,7 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
                   item: item,
                   request: requestFor(video: video),
                   episode: episode,
+                  playlist: meta.videos,
                 ),
               );
             },

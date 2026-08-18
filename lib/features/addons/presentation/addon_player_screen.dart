@@ -12,6 +12,7 @@ import '../../../core/addons/data/addon_playback_resolver.dart';
 import '../../../core/addons/data/addon_repository.dart';
 import '../../../core/addons/data/addon_stream_service.dart';
 import '../../../core/addons/data/addon_subtitle_service.dart';
+import '../../../core/addons/models/addon_meta.dart';
 import '../../../core/addons/models/addon_stream_source.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/models/torrent_status.dart';
@@ -32,6 +33,9 @@ class AddonPlayerScreen extends ConsumerStatefulWidget {
   final List<AddonStreamSource> streams;
   final int initialIndex;
 
+  /// Episode list of the series, used for binge playback. Empty for movies.
+  final List<AddonVideo> playlist;
+
   const AddonPlayerScreen({
     super.key,
     required this.item,
@@ -39,6 +43,7 @@ class AddonPlayerScreen extends ConsumerStatefulWidget {
     required this.streams,
     this.episode,
     this.initialIndex = 0,
+    this.playlist = const [],
   });
 
   @override
@@ -56,7 +61,15 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   Timer? _progressTimer;
   Timer? _chromeTimer;
 
+  // Playback context is mutable: binge playback swaps in the next episode's
+  // request, streams and metadata without leaving the screen.
+  late List<AddonStreamSource> _streams;
+  late AddonStreamRequest _request;
+  Episode? _episode;
+
   int _index = 0;
+  bool _loadingNext = false;
+  bool _nextPrompt = false;
   bool _disposed = false;
   bool _resolving = true;
   bool _usedTorrent = false;
@@ -71,7 +84,20 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   BoxFit _fit = BoxFit.contain;
 
   AddonStreamSource get _current =>
-      widget.streams[_index.clamp(0, widget.streams.length - 1)];
+      _streams[_index.clamp(0, _streams.length - 1)];
+
+  /// The episode after the one playing, when the series list is known.
+  AddonVideo? get _nextVideo {
+    final episode = _episode;
+    if (episode == null || widget.playlist.isEmpty) return null;
+    final current = widget.playlist.indexWhere(
+      (v) =>
+          (v.season ?? 0) == episode.season &&
+          (v.episode ?? 0) == episode.episode,
+    );
+    if (current < 0 || current + 1 >= widget.playlist.length) return null;
+    return widget.playlist[current + 1];
+  }
 
   @override
   void initState() {
@@ -79,13 +105,15 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
     MediaKit.ensureInitialized();
     _torrent = TorrentService();
     _history = ref.read(historyRepositoryProvider);
+    _streams = List<AddonStreamSource>.of(widget.streams);
+    _request = widget.request;
+    _episode = widget.episode;
     _index = widget.initialIndex.clamp(
       0,
-      widget.streams.isEmpty ? 0 : widget.streams.length - 1,
+      _streams.isEmpty ? 0 : _streams.length - 1,
     );
 
-    final wantsTorrent =
-        widget.streams.isNotEmpty && widget.streams[_index].isTorrent;
+    final wantsTorrent = _streams.isNotEmpty && _streams[_index].isTorrent;
     _player = Player(
       configuration: PlayerConfiguration(
         // Torrent playback wants a large read-ahead window; direct links do
@@ -118,10 +146,10 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
     }
     unawaited(WakelockPlus.enable());
 
-    _progressTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => _saveProgress(),
-    );
+    _progressTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _saveProgress();
+      _maybePromptNextEpisode();
+    });
     _armChromeTimer();
     unawaited(_load());
   }
@@ -156,7 +184,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
       final position = _player.state.position.inMilliseconds;
       final duration = _player.state.duration.inMilliseconds;
       if (position <= 0 || duration <= 0) return;
-      final episode = widget.episode;
+      final episode = _episode;
       unawaited(
         _history.saveProgress(
           widget.item,
@@ -177,7 +205,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
 
   Future<void> _restoreProgress() async {
     if (_resumeApplied) return;
-    final episode = widget.episode;
+    final episode = _episode;
     final saved = episode == null
         ? _history.getPosition(widget.item.url)
         : _history.getEpisodePosition(
@@ -203,7 +231,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   }
 
   Future<void> _load() async {
-    if (widget.streams.isEmpty) {
+    if (_streams.isEmpty) {
       setState(() {
         _resolving = false;
         _error = 'No add-on stream was provided.';
@@ -266,6 +294,100 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
     }
   }
 
+  /// Shows the "Next episode" prompt in the last 60 seconds, and rolls over
+  /// automatically once playback completes.
+  void _maybePromptNextEpisode() {
+    if (_disposed || _loadingNext || _nextVideo == null) return;
+    final duration = _player.state.duration.inMilliseconds;
+    final position = _player.state.position.inMilliseconds;
+    if (duration <= 0) return;
+
+    final remaining = duration - position;
+    final shouldPrompt = remaining <= 60000 && remaining > 0;
+    if (shouldPrompt != _nextPrompt && mounted) {
+      setState(() => _nextPrompt = shouldPrompt);
+    }
+    if (_player.state.completed && remaining <= 2000) {
+      unawaited(_playNextEpisode());
+    }
+  }
+
+  /// Loads the next episode in place: resolve its links, prefer a source from
+  /// the same `bingeGroup` (same release/quality) and keep playing.
+  Future<void> _playNextEpisode() async {
+    final next = _nextVideo;
+    if (next == null || _loadingNext) return;
+
+    _saveProgress();
+    setState(() {
+      _loadingNext = true;
+      _nextPrompt = false;
+      _resolving = true;
+      _error = null;
+      _status = 'Loading next episode…';
+    });
+
+    final request = AddonStreamRequest(
+      type: 'series',
+      contentId: _request.contentId,
+      videoId: next.id,
+      season: next.season,
+      episode: next.episode,
+      imdbId: _request.imdbId,
+      tmdbId: _request.tmdbId,
+    );
+
+    try {
+      final progress = await ref
+          .read(addonStreamServiceProvider)
+          .resolve(
+            addons: ref.read(addonRepositoryProvider).enabled,
+            request: request,
+          )
+          .last;
+
+      if (!mounted || _disposed) return;
+      if (progress.streams.isEmpty) {
+        setState(() {
+          _loadingNext = false;
+          _resolving = false;
+          _error =
+              'No add-on had links for S${next.season}E${next.episode}.';
+        });
+        return;
+      }
+
+      // Binge groups identify "same release, same quality" across episodes.
+      final bingeGroup = _current.bingeGroup;
+      var index = 0;
+      if (bingeGroup != null) {
+        final match = progress.streams.indexWhere(
+          (s) => s.bingeGroup == bingeGroup,
+        );
+        if (match >= 0) index = match;
+      }
+
+      setState(() {
+        _streams = progress.streams;
+        _request = request;
+        _episode = next.toEpisode();
+        _index = index;
+        _resumeApplied = true; // start the new episode from the beginning
+        _addonSubtitles = const [];
+        _activeSubtitle = null;
+        _loadingNext = false;
+      });
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingNext = false;
+        _resolving = false;
+        _error = 'Could not load the next episode: $error';
+      });
+    }
+  }
+
   void _startTorrentPolling() {
     _torrentTimer?.cancel();
     _torrentTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
@@ -282,7 +404,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
           .read(addonSubtitleServiceProvider)
           .fetch(
             addons: ref.read(addonRepositoryProvider).enabled,
-            request: widget.request,
+            request: _request,
             videoSize: _current.videoSize,
             filename: _current.filename,
           );
@@ -326,7 +448,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   }
 
   Future<void> _switchTo(int index) async {
-    if (index == _index) return;
+    if (index == _index || index < 0 || index >= _streams.length) return;
     _saveProgress();
     setState(() {
       _index = index;
@@ -343,9 +465,9 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
       builder: (sheetContext) => SafeArea(
         child: ListView.builder(
           shrinkWrap: true,
-          itemCount: widget.streams.length,
+          itemCount: _streams.length,
           itemBuilder: (context, index) {
-            final stream = widget.streams[index];
+            final stream = _streams[index];
             return ListTile(
               selected: index == _index,
               leading: CircleAvatar(
@@ -429,7 +551,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
   }
 
   String get _title {
-    final episode = widget.episode;
+    final episode = _episode;
     if (episode == null) return widget.item.title;
     return '${widget.item.title} · S${episode.season}E${episode.episode}';
   }
@@ -461,6 +583,8 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
                 bottom: 96,
                 child: _torrentBadge(_torrentStatus!),
               ),
+            if (_nextPrompt && !_resolving && _error == null)
+              Positioned(right: 20, bottom: 96, child: _nextEpisodeButton()),
             if (_showChrome) _topBar(),
           ],
         ),
@@ -517,10 +641,10 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
                       icon: const Icon(Icons.refresh_rounded),
                       label: const Text('Retry'),
                     ),
-                    if (widget.streams.length > 1)
+                    if (_streams.length > 1)
                       OutlinedButton.icon(
                         onPressed: () => unawaited(
-                          _switchTo((_index + 1) % widget.streams.length),
+                          _switchTo((_index + 1) % _streams.length),
                         ),
                         icon: const Icon(Icons.skip_next_rounded),
                         label: const Text('Next source'),
@@ -536,6 +660,16 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _nextEpisodeButton() {
+    final next = _nextVideo;
+    if (next == null) return const SizedBox.shrink();
+    return FilledButton.icon(
+      onPressed: () => unawaited(_playNextEpisode()),
+      icon: const Icon(Icons.skip_next_rounded),
+      label: Text('Next: S${next.season ?? 0}E${next.episode ?? 0}'),
     );
   }
 
@@ -627,7 +761,7 @@ class _AddonPlayerScreenState extends ConsumerState<AddonPlayerScreen> {
                 icon: const Icon(Icons.subtitles_rounded, color: Colors.white),
                 onPressed: _openSubtitleSheet,
               ),
-              if (widget.streams.length > 1)
+              if (_streams.length > 1)
                 IconButton(
                   tooltip: 'Sources',
                   icon: const Icon(

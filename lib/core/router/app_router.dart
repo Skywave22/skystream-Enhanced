@@ -10,6 +10,7 @@ import 'package:skystream/features/addons/presentation/addon_detail_screen.dart'
 import 'package:skystream/features/addons/presentation/addon_catalog_screen.dart';
 import 'package:skystream/features/addons/presentation/addon_player_screen.dart';
 import '../addons/data/addon_stream_service.dart';
+import '../addons/models/addon_meta.dart';
 import '../addons/models/addon_stream_source.dart';
 import 'package:skystream/features/settings/presentation/settings_screen.dart';
 import '../../features/extensions/screens/extensions_screen.dart';
@@ -288,12 +289,16 @@ class AddonPlayerRouteExtra {
     required this.streams,
     this.episode,
     this.initialIndex = 0,
+    this.playlist = const [],
   });
   final MultimediaItem item;
   final AddonStreamRequest request;
   final List<AddonStreamSource> streams;
   final Episode? episode;
   final int initialIndex;
+
+  /// Series episode list, so the player can binge into the next episode.
+  final List<AddonVideo> playlist;
 }
 
 @TypedGoRoute<AddonDetailRoute>(path: '/addon-detail')
@@ -350,6 +355,7 @@ class AddonPlayerRoute extends GoRouteData with $AddonPlayerRoute {
       request: $extra.request,
       streams: $extra.streams,
       initialIndex: $extra.initialIndex,
+      playlist: $extra.playlist,
     );
   }
 }

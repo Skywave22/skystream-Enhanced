@@ -7,6 +7,7 @@ import '../../../../core/domain/entity/multimedia_item.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:skystream/core/router/app_router.dart';
+import 'package:skystream/core/addons/models/addon_meta.dart' show kAddonItemSource;
 import 'package:skystream/core/utils/image_fallbacks.dart';
 import 'package:skystream/core/utils/layout_constants.dart';
 import '../../../../core/extensions/extension_manager.dart';
@@ -169,6 +170,20 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
           );
           unawaited(
             ref.read(watchHistoryProvider.notifier).removeFromHistory(item.url),
+          );
+          return;
+        }
+
+        // Add-on content has no plugin behind it — reopen it in the add-on
+        // stack, which knows how to resolve its streams.
+        if (item.source == kAddonItemSource) {
+          unawaited(
+            AddonDetailRoute(
+              type: item.contentType == MultimediaContentType.movie
+                  ? 'movie'
+                  : 'series',
+              id: item.url,
+            ).push<void>(context),
           );
           return;
         }

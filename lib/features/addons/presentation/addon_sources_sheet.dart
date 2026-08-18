@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/addons/data/addon_repository.dart';
 import '../../../core/addons/data/addon_stream_service.dart';
+import '../../../core/addons/models/addon_meta.dart';
 import '../../../core/addons/models/addon_stream_source.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/router/app_router.dart';
@@ -17,11 +18,15 @@ class AddonSourcesSheet extends ConsumerStatefulWidget {
   final AddonStreamRequest request;
   final Episode? episode;
 
+  /// Full episode list, forwarded to the player for binge playback.
+  final List<AddonVideo> playlist;
+
   const AddonSourcesSheet({
     super.key,
     required this.item,
     required this.request,
     this.episode,
+    this.playlist = const [],
   });
 
   static Future<void> open(
@@ -29,14 +34,19 @@ class AddonSourcesSheet extends ConsumerStatefulWidget {
     required MultimediaItem item,
     required AddonStreamRequest request,
     Episode? episode,
+    List<AddonVideo> playlist = const [],
   }) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) =>
-          AddonSourcesSheet(item: item, request: request, episode: episode),
+      builder: (_) => AddonSourcesSheet(
+        item: item,
+        request: request,
+        episode: episode,
+        playlist: playlist,
+      ),
     );
   }
 
@@ -103,6 +113,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
           request: widget.request,
           streams: ordered,
           initialIndex: index < 0 ? 0 : index,
+          playlist: widget.playlist,
         ),
       ).push<void>(context),
     );

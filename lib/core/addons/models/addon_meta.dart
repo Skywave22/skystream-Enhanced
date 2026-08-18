@@ -4,6 +4,9 @@ library;
 
 import '../../domain/entity/multimedia_item.dart';
 
+/// `MultimediaItem.source` marker for anything that came from an add-on.
+const String kAddonItemSource = 'addon';
+
 class AddonMetaPreview {
   final String id;
   final String type;
@@ -91,6 +94,9 @@ class AddonMetaPreview {
       score: double.tryParse(imdbRating ?? ''),
       tags: genres.isEmpty ? null : genres,
       imdbId: imdbId,
+      // Marks the item as add-on owned so Continue Watching reopens it in the
+      // add-on stack instead of the plugin details screen.
+      source: kAddonItemSource,
     );
   }
 }
