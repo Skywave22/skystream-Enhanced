@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/addons/services/link_probe_service.dart';
+import '../../../core/network/link_probe_service.dart';
 
 /// Why a sources sheet was opened. Both actions stay on every row; the mode
 /// only decides the default tap action and the initial filtering.
