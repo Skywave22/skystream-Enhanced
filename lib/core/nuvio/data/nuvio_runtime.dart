@@ -188,11 +188,17 @@ class NuvioRuntime {
         return null;
       });
 
-      // Promise jobs and timers only advance when QuickJS is pumped.
+      // Promise jobs and timers only advance when QuickJS is pumped. Jobs are
+      // drained often; timers are checked every ~32 ms, which is plenty for
+      // the retry/rate-limit sleeps scrapers use and keeps ten parallel
+      // contexts from burning CPU on bridge calls.
+      var tickCounter = 0;
       pump = Timer.periodic(const Duration(milliseconds: 8), (_) {
         try {
           runtime.executePendingJob();
-          runtime.evaluate('__nuvio_tick && __nuvio_tick();');
+          if (++tickCounter % 4 == 0) {
+            runtime.evaluate('__nuvio_tick && __nuvio_tick();');
+          }
         } catch (_) {
           // A scraper throwing inside a microtask is its own problem.
         }

@@ -280,6 +280,58 @@ class PlayerRoute extends GoRouteData with $PlayerRoute {
 }
 
 
+/// Library is no longer a tab: Settings opens Downloads / Bookmarks here.
+@TypedGoRoute<LibraryRoute>(path: '/library')
+class LibraryRoute extends GoRouteData with $LibraryRoute {
+  const LibraryRoute({this.tab = 0});
+  final int tab;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) =>
+      LibraryScreen(initialTab: tab);
+}
+
+@TypedGoRoute<AddonDetailRoute>(path: '/addon-detail')
+class AddonDetailRoute extends GoRouteData with $AddonDetailRoute {
+  const AddonDetailRoute({
+    required this.type,
+    required this.id,
+    this.addonUrl,
+  });
+  final String type;
+  final String id;
+  final String? addonUrl;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return AddonDetailScreen(type: type, id: id, addonUrl: addonUrl);
+  }
+}
+
+@TypedGoRoute<AddonCatalogRoute>(path: '/addon-catalog')
+class AddonCatalogRoute extends GoRouteData with $AddonCatalogRoute {
+  const AddonCatalogRoute({
+    required this.addonUrl,
+    required this.type,
+    required this.catalogId,
+    required this.title,
+  });
+  final String addonUrl;
+  final String type;
+  final String catalogId;
+  final String title;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return AddonCatalogScreen(
+      addonUrl: addonUrl,
+      type: type,
+      catalogId: catalogId,
+      title: title,
+    );
+  }
+}
+
 // --- GoRouter Definition ---
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();

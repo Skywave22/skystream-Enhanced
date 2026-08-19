@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../../core/addons/data/addon_playback_launcher.dart';
 import '../../../../core/addons/data/addon_repository.dart';
 import '../../../../core/addons/data/debrid_service.dart';
 import '../../../../core/addons/models/addon_manifest.dart';
