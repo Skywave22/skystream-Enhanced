@@ -171,6 +171,27 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: LayoutConstants.spacingLg),
+            // Library is no longer a navigation destination — its two screens
+            // live here instead.
+            SettingsGroup(
+              title: l10n.library,
+              children: [
+                SettingsTile(
+                  icon: Icons.download_rounded,
+                  title: l10n.downloads,
+                  subtitle: 'Manage and open your downloads',
+                  onTap: () => const LibraryRoute().push<void>(context),
+                ),
+                SettingsTile(
+                  icon: Icons.bookmark_rounded,
+                  title: 'Bookmarks',
+                  subtitle: 'Everything you saved to watch later',
+                  onTap: () => const LibraryRoute(tab: 1).push<void>(context),
+                  isLast: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: LayoutConstants.spacingLg),
             SettingsGroup(
               title: l10n.downloads,
               children: [

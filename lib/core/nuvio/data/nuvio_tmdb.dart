@@ -1,0 +1,274 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../config/tmdb_config.dart';
+import '../../network/dio_client_provider.dart';
+
+part 'nuvio_tmdb.g.dart';
+
+/// TMDB key used by the Nuvio tab and handed to Nuvio scrapers.
+///
+/// Nuvio plugins are addressed by TMDB id and most of them call TMDB directly,
+/// so they need a key of their own. It is kept separate from the app-wide TMDB
+/// key (Settings → General) and falls back to it when left empty.
+@Riverpod(keepAlive: true)
+class NuvioTmdbKey extends _$NuvioTmdbKey {
+  static const String _prefsKey = 'nuvio_tmdb_api_key';
+
+  @override
+  String build() {
+    Future.microtask(_load);
+    return '';
+  }
+
+  Future<void> _load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getString(_prefsKey) ?? '';
+    } catch (_) {
+      state = '';
+    }
+  }
+
+  Future<void> set(String key) async {
+    state = key.trim();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (state.isEmpty) {
+        await prefs.remove(_prefsKey);
+      } else {
+        await prefs.setString(_prefsKey, state);
+      }
+    } catch (_) {
+      // Session-only fallback.
+    }
+  }
+}
+
+/// The key actually used: the Nuvio one when set, otherwise the app's.
+@Riverpod(keepAlive: true)
+String effectiveNuvioTmdbKey(Ref ref) {
+  final own = ref.watch(nuvioTmdbKeyProvider);
+  return own.isNotEmpty ? own : TmdbConfig.apiKey;
+}
+
+/// A title in the Nuvio browser.
+class NuvioTitle {
+  final int tmdbId;
+  final String name;
+  final String mediaType; // 'movie' | 'tv'
+  final String? posterUrl;
+  final String? backdropUrl;
+  final String? overview;
+  final String? year;
+  final double? rating;
+
+  const NuvioTitle({
+    required this.tmdbId,
+    required this.name,
+    required this.mediaType,
+    this.posterUrl,
+    this.backdropUrl,
+    this.overview,
+    this.year,
+    this.rating,
+  });
+
+  bool get isSeries => mediaType == 'tv';
+
+  static NuvioTitle? fromJson(Map<String, dynamic> json, {String? typeHint}) {
+    final id = (json['id'] as num?)?.toInt();
+    if (id == null) return null;
+    final type = (json['media_type'] as String?) ?? typeHint ?? 'movie';
+    if (type != 'movie' && type != 'tv') return null;
+
+    final name = (json['title'] ?? json['name'] ?? '').toString();
+    if (name.isEmpty) return null;
+
+    final date = (json['release_date'] ?? json['first_air_date'] ?? '')
+        .toString();
+    final poster = json['poster_path'] as String?;
+    final backdrop = json['backdrop_path'] as String?;
+
+    return NuvioTitle(
+      tmdbId: id,
+      name: name,
+      mediaType: type,
+      posterUrl: poster == null
+          ? null
+          : 'https://image.tmdb.org/t/p/w342$poster',
+      backdropUrl: backdrop == null
+          ? null
+          : 'https://image.tmdb.org/t/p/w780$backdrop',
+      overview: json['overview'] as String?,
+      year: date.length >= 4 ? date.substring(0, 4) : null,
+      rating: (json['vote_average'] as num?)?.toDouble(),
+    );
+  }
+}
+
+class NuvioEpisode {
+  final int season;
+  final int episode;
+  final String name;
+  final String? overview;
+  final String? stillUrl;
+
+  const NuvioEpisode({
+    required this.season,
+    required this.episode,
+    required this.name,
+    this.overview,
+    this.stillUrl,
+  });
+}
+
+@Riverpod(keepAlive: true)
+NuvioTmdbService nuvioTmdbService(Ref ref) => NuvioTmdbService(
+  ref.watch(dioClientProvider),
+  () => ref.read(effectiveNuvioTmdbKeyProvider),
+);
+
+/// Small TMDB client for the Nuvio tab — trending rows, search, and the
+/// season/episode list needed to ask scrapers for a specific episode.
+class NuvioTmdbService {
+  NuvioTmdbService(this._dio, this._key);
+
+  final Dio _dio;
+  final String Function() _key;
+
+  static const String _base = 'https://api.themoviedb.org/3';
+
+  bool get hasKey => _key().isNotEmpty;
+
+  Future<List<NuvioTitle>> _list(
+    String path, {
+    Map<String, dynamic>? query,
+    String? typeHint,
+  }) async {
+    final key = _key();
+    if (key.isEmpty) throw const NuvioTmdbException('No TMDB API key set.');
+
+    final response = await _dio.get<dynamic>(
+      '$_base$path',
+      queryParameters: {'api_key': key, ...?query},
+      options: Options(
+        receiveTimeout: const Duration(seconds: 15),
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
+    if ((response.statusCode ?? 0) == 401) {
+      throw const NuvioTmdbException('TMDB rejected that API key.');
+    }
+    final data = response.data;
+    if (data is! Map) return const [];
+    final results = data['results'];
+    if (results is! List) return const [];
+
+    final out = <NuvioTitle>[];
+    for (final entry in results) {
+      if (entry is Map) {
+        final title = NuvioTitle.fromJson(
+          Map<String, dynamic>.from(entry),
+          typeHint: typeHint,
+        );
+        if (title != null) out.add(title);
+      }
+    }
+    return out;
+  }
+
+  Future<List<NuvioTitle>> trendingMovies() =>
+      _list('/trending/movie/week', typeHint: 'movie');
+
+  Future<List<NuvioTitle>> trendingSeries() =>
+      _list('/trending/tv/week', typeHint: 'tv');
+
+  Future<List<NuvioTitle>> popularMovies() =>
+      _list('/movie/popular', typeHint: 'movie');
+
+  Future<List<NuvioTitle>> popularSeries() =>
+      _list('/tv/popular', typeHint: 'tv');
+
+  Future<List<NuvioTitle>> search(String query) =>
+      _list('/search/multi', query: {'query': query, 'include_adult': 'false'});
+
+  /// Season numbers of a show (specials excluded).
+  Future<List<int>> seasons(int tmdbId) async {
+    final key = _key();
+    if (key.isEmpty) return const [];
+    final response = await _dio.get<dynamic>(
+      '$_base/tv/$tmdbId',
+      queryParameters: {'api_key': key},
+      options: Options(validateStatus: (s) => s != null && s < 500),
+    );
+    final data = response.data;
+    if (data is! Map) return const [];
+    final seasons = data['seasons'];
+    if (seasons is! List) return const [];
+    final out = <int>[];
+    for (final entry in seasons) {
+      if (entry is! Map) continue;
+      final number = (entry['season_number'] as num?)?.toInt();
+      if (number != null && number > 0) out.add(number);
+    }
+    out.sort();
+    return out;
+  }
+
+  Future<List<NuvioEpisode>> episodes(int tmdbId, int season) async {
+    final key = _key();
+    if (key.isEmpty) return const [];
+    final response = await _dio.get<dynamic>(
+      '$_base/tv/$tmdbId/season/$season',
+      queryParameters: {'api_key': key},
+      options: Options(validateStatus: (s) => s != null && s < 500),
+    );
+    final data = response.data;
+    if (data is! Map) return const [];
+    final episodes = data['episodes'];
+    if (episodes is! List) return const [];
+
+    final out = <NuvioEpisode>[];
+    for (final entry in episodes) {
+      if (entry is! Map) continue;
+      final map = Map<String, dynamic>.from(entry);
+      final number = (map['episode_number'] as num?)?.toInt();
+      if (number == null) continue;
+      final still = map['still_path'] as String?;
+      out.add(
+        NuvioEpisode(
+          season: season,
+          episode: number,
+          name: (map['name'] as String?) ?? 'Episode $number',
+          overview: map['overview'] as String?,
+          stillUrl: still == null
+              ? null
+              : 'https://image.tmdb.org/t/p/w300$still',
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// Confirms a key works, so the field can show a result immediately.
+  Future<bool> verify(String key) async {
+    if (key.trim().isEmpty) return false;
+    final response = await _dio.get<dynamic>(
+      '$_base/configuration',
+      queryParameters: {'api_key': key.trim()},
+      options: Options(validateStatus: (s) => s != null && s < 500),
+    );
+    return response.statusCode == 200;
+  }
+}
+
+class NuvioTmdbException implements Exception {
+  final String message;
+  const NuvioTmdbException(this.message);
+  @override
+  String toString() => message;
+}

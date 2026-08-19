@@ -5,6 +5,7 @@ import 'package:skystream/features/home/presentation/home_screen.dart';
 import 'package:skystream/features/search/presentation/search_screen.dart';
 import '../../features/explore/presentation/explore_screen.dart';
 import 'package:skystream/features/library/presentation/library_screen.dart';
+import 'package:skystream/features/nuvio/presentation/nuvio_screen.dart';
 import 'package:skystream/features/addons/presentation/addons_screen.dart';
 import 'package:skystream/features/addons/presentation/addon_detail_screen.dart';
 import 'package:skystream/features/addons/presentation/addon_catalog_screen.dart';
@@ -41,8 +42,8 @@ part 'app_router.g.dart';
     TypedStatefulShellBranch<ExploreBranchData>(
       routes: [TypedGoRoute<ExploreRoute>(path: '/explore')],
     ),
-    TypedStatefulShellBranch<LibraryBranchData>(
-      routes: [TypedGoRoute<LibraryRoute>(path: '/library')],
+    TypedStatefulShellBranch<NuvioBranchData>(
+      routes: [TypedGoRoute<NuvioRoute>(path: '/nuvio')],
     ),
     TypedStatefulShellBranch<AddonsBranchData>(
       routes: [TypedGoRoute<AddonsRoute>(path: '/addons')],
@@ -105,15 +106,15 @@ class ExploreRoute extends GoRouteData with $ExploreRoute {
       const ExploreScreen();
 }
 
-class LibraryBranchData extends StatefulShellBranchData {
-  const LibraryBranchData();
+class NuvioBranchData extends StatefulShellBranchData {
+  const NuvioBranchData();
 }
 
-class LibraryRoute extends GoRouteData with $LibraryRoute {
-  const LibraryRoute();
+class NuvioRoute extends GoRouteData with $NuvioRoute {
+  const NuvioRoute();
   @override
   Widget build(BuildContext context, GoRouterState state) =>
-      const LibraryScreen();
+      const NuvioScreen();
 }
 
 class AddonsBranchData extends StatefulShellBranchData {
@@ -301,6 +302,17 @@ class AddonPlayerRouteExtra {
   final List<AddonVideo> playlist;
 }
 
+/// Library is no longer a tab: Settings opens Downloads / Bookmarks here.
+@TypedGoRoute<LibraryRoute>(path: '/library')
+class LibraryRoute extends GoRouteData with $LibraryRoute {
+  const LibraryRoute({this.tab = 0});
+  final int tab;
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) =>
+      LibraryScreen(initialTab: tab);
+}
+
 @TypedGoRoute<AddonDetailRoute>(path: '/addon-detail')
 class AddonDetailRoute extends GoRouteData with $AddonDetailRoute {
   const AddonDetailRoute({
@@ -371,7 +383,7 @@ const List<String> kShellBranchRoutes = [
   '/home',
   '/search',
   '/explore',
-  '/library',
+  '/nuvio',
   '/addons',
   '/settings',
 ];
@@ -381,7 +393,11 @@ GoRouter appRouter(Ref ref) {
   final saved = ref.read(settingsRepositoryProvider).getDefaultHomeScreen();
   final initial = kShellBranchRoutes.contains(saved)
       ? saved
-      : (saved == '/stream' ? '/addons' : '/home');
+      : (saved == '/stream'
+            ? '/addons'
+            : saved == '/library'
+            ? '/nuvio'
+            : '/home');
 
   return GoRouter(
     initialLocation: initial,

@@ -6,15 +6,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_js/flutter_js.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../config/tmdb_config.dart';
 import '../../network/dio_client_provider.dart';
 import '../models/nuvio_models.dart';
 import 'nuvio_dom.dart';
+import 'nuvio_tmdb.dart';
 
 part 'nuvio_runtime.g.dart';
 
 @Riverpod(keepAlive: true)
-NuvioRuntime nuvioRuntime(Ref ref) => NuvioRuntime(ref.watch(dioClientProvider));
+NuvioRuntime nuvioRuntime(Ref ref) => NuvioRuntime(
+  ref.watch(dioClientProvider),
+  () => ref.read(effectiveNuvioTmdbKeyProvider),
+);
 
 /// Runs Nuvio scraper plugins.
 ///
@@ -28,9 +31,12 @@ NuvioRuntime nuvioRuntime(Ref ref) => NuvioRuntime(ref.watch(dioClientProvider))
 /// message instead of failing silently — everything else, which is the vast
 /// majority (fetch + regex + JSON), runs unchanged.
 class NuvioRuntime {
-  NuvioRuntime(this._dio);
+  NuvioRuntime(this._dio, this._tmdbKey);
 
   final Dio _dio;
+
+  /// Scrapers call TMDB themselves; they get the key from the Nuvio tab.
+  final String Function() _tmdbKey;
 
   static const Duration defaultTimeout = Duration(seconds: 45);
   static const int _maxResponseChars = 4 * 1024 * 1024;
@@ -172,7 +178,7 @@ class NuvioRuntime {
         _polyfill(
           jsonEncode(scraperId),
           jsonEncode(settings),
-          jsonEncode(TmdbConfig.apiKey),
+          jsonEncode(_tmdbKey()),
         ),
       );
       runtime.evaluate('''

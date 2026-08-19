@@ -26,6 +26,8 @@ class NuvioScraperStatus {
     this.linkCount = 0,
     this.message,
   });
+
+  String get addonLabel => scraperName;
 }
 
 class NuvioProgress {

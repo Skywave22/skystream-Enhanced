@@ -74,7 +74,7 @@ void showDefaultHomeScreenDialog(
     {'label': l10n.home, 'route': '/home'},
     {'label': l10n.explore, 'route': '/explore'},
     {'label': l10n.search, 'route': '/search'},
-    {'label': l10n.library, 'route': '/library'},
+    {'label': 'Nuvio', 'route': '/nuvio'},
     {'label': 'Add-ons', 'route': '/addons'},
   ];
 

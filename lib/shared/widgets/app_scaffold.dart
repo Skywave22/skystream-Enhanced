@@ -52,7 +52,7 @@ class _AppScaffoldState extends ConsumerState<AppScaffold> {
         return 1;
       case '/explore':
         return 2;
-      case '/library':
+      case '/nuvio':
         return 3;
       case '/addons':
         return 4;
