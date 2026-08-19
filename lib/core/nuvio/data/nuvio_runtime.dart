@@ -6,8 +6,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_js/flutter_js.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../config/tmdb_config.dart';
 import '../../network/dio_client_provider.dart';
 import '../models/nuvio_models.dart';
+import 'nuvio_dom.dart';
 
 part 'nuvio_runtime.g.dart';
 
@@ -33,11 +35,9 @@ class NuvioRuntime {
   static const Duration defaultTimeout = Duration(seconds: 45);
   static const int _maxResponseChars = 4 * 1024 * 1024;
 
-  /// Quick static check so an unsupported scraper reports why.
+  /// Quick static check so an unsupported scraper reports why. Cheerio is
+  /// supported (see [NuvioDom]); WebAssembly is not.
   static String? unsupportedReason(String code) {
-    if (RegExp(r'''require\(\s*['"]cheerio['"]''').hasMatch(code)) {
-      return 'Needs cheerio (HTML DOM), which SkyStream does not expose yet.';
-    }
     if (code.contains('WebAssembly')) {
       return 'Needs WebAssembly, which SkyStream does not expose yet.';
     }
@@ -68,6 +68,7 @@ class NuvioRuntime {
 
     final completer = Completer<String>();
     final pending = <String, bool>{};
+    final dom = NuvioDom();
     Timer? pump;
 
     void evalSafe(String script) {
@@ -91,6 +92,62 @@ class NuvioRuntime {
         return null;
       });
 
+      // --- cheerio bridge -------------------------------------------------
+      Map<String, dynamic> asMap(dynamic args) => args is Map
+          ? Map<String, dynamic>.from(args)
+          : jsonDecode(args.toString()) as Map<String, dynamic>;
+
+      runtime.onMessage('nuvio_dom_load', (dynamic args) {
+        final data = asMap(args);
+        return dom.load(data['html']?.toString() ?? '');
+      });
+
+      runtime.onMessage('nuvio_dom_query', (dynamic args) {
+        final data = asMap(args);
+        final ids = dom.query(
+          data['doc']?.toString() ?? '',
+          data['context']?.toString(),
+          data['selector']?.toString() ?? '',
+        );
+        return jsonEncode(ids);
+      });
+
+      runtime.onMessage('nuvio_dom_describe', (dynamic args) {
+        final data = asMap(args);
+        final rawIds = data['nodes'];
+        final ids = <String>[
+          if (rawIds is List)
+            for (final id in rawIds) id.toString(),
+        ];
+        return dom.describeBatch(data['doc']?.toString() ?? '', ids);
+      });
+
+      runtime.onMessage('nuvio_dom_text', (dynamic args) {
+        final data = asMap(args);
+        return dom.text(
+          data['doc']?.toString() ?? '',
+          data['node']?.toString() ?? '',
+        );
+      });
+
+      runtime.onMessage('nuvio_dom_html', (dynamic args) {
+        final data = asMap(args);
+        return dom.html(
+          data['doc']?.toString() ?? '',
+          data['node']?.toString() ?? '',
+        );
+      });
+
+      runtime.onMessage('nuvio_dom_attr', (dynamic args) {
+        final data = asMap(args);
+        return dom.attr(
+              data['doc']?.toString() ?? '',
+              data['node']?.toString() ?? '',
+              data['name']?.toString() ?? '',
+            ) ??
+            '';
+      });
+
       runtime.onMessage('nuvio_fetch', (dynamic args) {
         final data = args is Map
             ? Map<String, dynamic>.from(args)
@@ -111,7 +168,13 @@ class NuvioRuntime {
         }
       });
 
-      runtime.evaluate(_polyfill(scraperId, jsonEncode(settings)));
+      runtime.evaluate(
+        _polyfill(
+          jsonEncode(scraperId),
+          jsonEncode(settings),
+          jsonEncode(TmdbConfig.apiKey),
+        ),
+      );
       runtime.evaluate('''
         var module = { exports: {} };
         var exports = module.exports;
@@ -167,6 +230,7 @@ class NuvioRuntime {
       return out;
     } finally {
       pump?.cancel();
+      dom.clear();
       try {
         runtime.dispose();
       } catch (_) {
@@ -237,7 +301,7 @@ class NuvioRuntime {
   }
 
   /// Minimal browser-ish environment Nuvio scrapers expect.
-  String _polyfill(String scraperId, String settingsJson) => '''
+  String _polyfill(String scraperId, String settingsJson, String tmdbKey) => '''
     globalThis.__nuvio_pending = {};
     globalThis.__nuvio_seq = 0;
 
@@ -400,6 +464,127 @@ class NuvioRuntime {
       }).join('&');
     };
     globalThis.URLSearchParams = NuvioSearchParams;
+
+    // Node-isms real Nuvio plugins rely on.
+    globalThis.global = globalThis;
+    globalThis.process = globalThis.process || { env: {}, platform: 'skystream' };
+    globalThis.TMDB_API_KEY = $tmdbKey;
+    globalThis.process.env.TMDB_API_KEY = $tmdbKey;
+
+    // ---- cheerio-compatible DOM ----------------------------------------
+    // Bundled Nuvio scrapers require('cheerio-without-node-native') and use
+    // load / \$(sel) / find / first / each / get / attr / text / html.
+    function NuvioSelection(docId, nodeIds) {
+      this._doc = docId;
+      this._nodes = nodeIds || [];
+      this.length = this._nodes.length;
+      this.cheerio = '[cheerio object]';
+    }
+    NuvioSelection.prototype.get = function (index) {
+      if (index === undefined) {
+        var self = this;
+        return this._nodes.map(function (id) {
+          return { __nuvioNode: id, __nuvioDoc: self._doc };
+        });
+      }
+      var id = this._nodes[index];
+      return id === undefined ? undefined : { __nuvioNode: id, __nuvioDoc: this._doc };
+    };
+    NuvioSelection.prototype.eq = function (index) {
+      var id = this._nodes[index];
+      return new NuvioSelection(this._doc, id === undefined ? [] : [id]);
+    };
+    NuvioSelection.prototype.first = function () { return this.eq(0); };
+    NuvioSelection.prototype.last = function () { return this.eq(this._nodes.length - 1); };
+    NuvioSelection.prototype.toArray = function () { return this.get(); };
+    NuvioSelection.prototype.each = function (fn) {
+      for (var i = 0; i < this._nodes.length; i++) {
+        var el = { __nuvioNode: this._nodes[i], __nuvioDoc: this._doc };
+        if (fn.call(el, i, el) === false) break;
+      }
+      return this;
+    };
+    NuvioSelection.prototype.map = function (fn) {
+      var out = [];
+      for (var i = 0; i < this._nodes.length; i++) {
+        var el = { __nuvioNode: this._nodes[i], __nuvioDoc: this._doc };
+        out.push(fn.call(el, i, el));
+      }
+      var selection = new NuvioSelection(this._doc, []);
+      selection.get = function () { return out; };
+      selection.toArray = selection.get;
+      selection.length = out.length;
+      return selection;
+    };
+    NuvioSelection.prototype.find = function (selector) {
+      var all = [];
+      for (var i = 0; i < this._nodes.length; i++) {
+        var found = JSON.parse(sendMessage('nuvio_dom_query', JSON.stringify({
+          doc: this._doc, context: this._nodes[i], selector: selector
+        })));
+        all = all.concat(found);
+      }
+      return new NuvioSelection(this._doc, all);
+    };
+    NuvioSelection.prototype.attr = function (name) {
+      if (!this._nodes.length) return undefined;
+      var value = sendMessage('nuvio_dom_attr', JSON.stringify({
+        doc: this._doc, node: this._nodes[0], name: name
+      }));
+      return (value === '' || value === null) ? undefined : value;
+    };
+    NuvioSelection.prototype.text = function () {
+      var out = '';
+      for (var i = 0; i < this._nodes.length; i++) {
+        out += sendMessage('nuvio_dom_text', JSON.stringify({
+          doc: this._doc, node: this._nodes[i]
+        }));
+      }
+      return out;
+    };
+    NuvioSelection.prototype.html = function () {
+      if (!this._nodes.length) return null;
+      return sendMessage('nuvio_dom_html', JSON.stringify({
+        doc: this._doc, node: this._nodes[0]
+      }));
+    };
+
+    var NuvioCheerio = {
+      load: function (html) {
+        var docId = sendMessage('nuvio_dom_load', JSON.stringify({ html: String(html || '') }));
+        var api = function (input) {
+          if (!input) return new NuvioSelection(docId, []);
+          if (input instanceof NuvioSelection) return input;
+          if (typeof input === 'object' && input.__nuvioNode) {
+            return new NuvioSelection(input.__nuvioDoc || docId, [input.__nuvioNode]);
+          }
+          if (Array.isArray(input)) {
+            return new NuvioSelection(docId, input.map(function (n) {
+              return n && n.__nuvioNode ? n.__nuvioNode : n;
+            }));
+          }
+          var ids = JSON.parse(sendMessage('nuvio_dom_query', JSON.stringify({
+            doc: docId, context: null, selector: String(input)
+          })));
+          return new NuvioSelection(docId, ids);
+        };
+        api.root = function () { return new NuvioSelection(docId, []); };
+        api.html = function () { return null; };
+        return api;
+      }
+    };
+
+    globalThis.cheerio = NuvioCheerio;
+    globalThis.require = function (name) {
+      var id = String(name || '');
+      if (id.indexOf('cheerio') >= 0) {
+        return { default: NuvioCheerio, load: NuvioCheerio.load, __esModule: true };
+      }
+      if (id === 'url' || id === 'node:url') {
+        return { URL: globalThis.URL, URLSearchParams: globalThis.URLSearchParams };
+      }
+      throw new Error('module not available in SkyStream: ' + id);
+    };
   ''';
 }
 
