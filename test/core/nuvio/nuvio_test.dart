@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skystream/core/nuvio/data/nuvio_crypto.dart';
 import 'package:skystream/core/nuvio/data/nuvio_dom.dart';
+import 'package:skystream/core/nuvio/data/nuvio_polyfill.dart';
 import 'package:skystream/core/nuvio/data/nuvio_runtime.dart';
 import 'package:skystream/core/nuvio/models/nuvio_models.dart';
 
@@ -187,7 +189,11 @@ void main() {
   });
 
   group('runtime gating', () {
-    test('cheerio scrapers are supported, WebAssembly ones are not', () {
+    test('nothing is rejected up front any more', () {
+      // The old gate refused any bundle whose text mentioned WebAssembly.
+      // Real providers ship polyfill branches that name it without ever
+      // running it, so that check threw away working scrapers. Failures are
+      // now reported per scraper, after an actual attempt.
       expect(
         NuvioRuntime.unsupportedReason(
           "const c = require('cheerio-without-node-native');",
@@ -196,8 +202,182 @@ void main() {
       );
       expect(
         NuvioRuntime.unsupportedReason('WebAssembly.instantiate(bytes)'),
-        isNotNull,
+        isNull,
       );
+    });
+
+    test('per-plugin budget matches Nuvio', () {
+      expect(NuvioRuntime.defaultTimeout, const Duration(seconds: 60));
+    });
+  });
+
+  group('javascript environment', () {
+    final js = buildNuvioPolyfill(
+      scraperIdJson: '"scraper"',
+      settingsJson: '{}',
+      tmdbKeyJson: '"KEY"',
+    );
+
+    test('placeholders are substituted', () {
+      expect(js, isNot(contains('__NUVIO_TMDB_KEY__')));
+      expect(js, contains('"KEY"'));
+      expect(js, contains('"scraper"'));
+    });
+
+    test('exposes every global the real providers reach for', () {
+      // Derived by scanning the 61 providers of All-in-One-Nuvio: 18 use URL,
+      // 15 setTimeout, 8 URLSearchParams, 6 Buffer, 5 XMLHttpRequest,
+      // 3 crypto-js, plus TextEncoder, localStorage and AbortSignal.timeout.
+      for (final api in [
+        'G.setTimeout',
+        'G.setInterval',
+        'G.clearTimeout',
+        'G.URL',
+        'G.URLSearchParams',
+        'G.Buffer',
+        'G.XMLHttpRequest',
+        'G.TextEncoder',
+        'G.TextDecoder',
+        'G.localStorage',
+        'G.CryptoJS',
+        'G.crypto',
+        'G.fetch',
+        'G.Headers',
+        'G.Response',
+        'G.AbortSignal',
+        'G.cheerio',
+        'G.require',
+        'NuvioAbortSignal.timeout',
+      ]) {
+        expect(js, contains(api), reason: '\$api missing from the runtime');
+      }
+    });
+
+    test('require() answers the modules bundles ask for', () {
+      for (final module in [
+        "id.indexOf('cheerio') >= 0",
+        "id === 'crypto-js'",
+        "id === 'crypto'",
+        "id === 'buffer'",
+        "id === 'url'",
+        "id === 'events'",
+        "id === 'util'",
+        "id === 'assert'",
+      ]) {
+        expect(js, contains(module));
+      }
+    });
+  });
+
+  group('crypto bridge', () {
+    test('digests match known vectors', () {
+      // "abc" = 616263
+      expect(
+        NuvioCrypto.handle({'op': 'digest', 'alg': 'SHA256', 'data': '616263'}),
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      );
+      expect(
+        NuvioCrypto.handle({'op': 'digest', 'alg': 'MD5', 'data': '616263'}),
+        '900150983cd24fb0d6963f7d28e17f72',
+      );
+    });
+
+    test('hmac matches a known vector', () {
+      expect(
+        NuvioCrypto.handle({
+          'op': 'hmac',
+          'alg': 'SHA256',
+          'key': '6b6579', // "key"
+          'data': '616263',
+        }),
+        '9c196e32dc0175f86f4b1cb89289d6619de6bee699e4c378e68309ed97a1a6ab',
+      );
+    });
+
+    test('AES-CBC round-trips', () {
+      const key = '00112233445566778899aabbccddeeff';
+      const iv = '000102030405060708090a0b0c0d0e0f';
+      final encrypted = NuvioCrypto.handle({
+        'op': 'aes_encrypt',
+        'mode': 'AES-CBC',
+        'key': key,
+        'iv': iv,
+        'data': '48656c6c6f204e7576696f', // "Hello Nuvio"
+      });
+      expect(encrypted.startsWith('__NUVIO_ERR__'), isFalse);
+      final decrypted = NuvioCrypto.handle({
+        'op': 'aes_decrypt',
+        'mode': 'AES-CBC',
+        'key': key,
+        'iv': iv,
+        'data': encrypted,
+      });
+      expect(decrypted, '48656c6c6f204e7576696f');
+    });
+
+    test('pbkdf2 matches RFC 6070 (SHA1, 2 iterations)', () {
+      expect(
+        NuvioCrypto.handle({
+          'op': 'pbkdf2',
+          'alg': 'SHA1',
+          'pass': '70617373776f7264',
+          'salt': '73616c74',
+          'iterations': 2,
+          'bits': 160,
+        }),
+        'ea6c014dc72d6f8ccd1ed92ace1d41f0d8de8957',
+      );
+    });
+
+    test('random returns the requested number of bytes', () {
+      final hex = NuvioCrypto.handle({'op': 'random', 'bytes': 16});
+      expect(hex.length, 32);
+    });
+
+    test('an unknown op reports an error instead of throwing', () {
+      expect(NuvioCrypto.handle({'op': 'nope'}), startsWith('__NUVIO_ERR__'));
+    });
+  });
+
+  group('dom traversal', () {
+    const html = '''
+      <div class="list">
+        <a class="item" href="/one">One</a>
+        <a class="item skip" href="/two">Two</a>
+        <span>tail</span>
+      </div>
+    ''';
+
+    test('filter narrows a selection by selector', () {
+      final dom = NuvioDom();
+      final doc = dom.load(html);
+      final links = dom.query(doc, null, 'a');
+      expect(links, hasLength(2));
+      expect(dom.filter(doc, links, '.skip'), hasLength(1));
+    });
+
+    test('relations walk the tree like cheerio', () {
+      final dom = NuvioDom();
+      final doc = dom.load(html);
+      final first = dom.query(doc, null, 'a.item').first;
+      expect(dom.relation(doc, [first], 'parent', null), hasLength(1));
+      expect(dom.relation(doc, [first], 'next', null), hasLength(1));
+      expect(dom.relation(doc, [first], 'siblings', null), hasLength(2));
+      expect(dom.relation(doc, [first], 'closest', '.list'), hasLength(1));
+      expect(dom.relation(doc, [first], 'index', null), ['0']);
+    });
+
+    test('text concatenates the whole selection', () {
+      final dom = NuvioDom();
+      final doc = dom.load(html);
+      final links = dom.query(doc, null, 'a');
+      expect(dom.textOf(doc, links), 'OneTwo');
+    });
+
+    test('html("") returns the document', () {
+      final dom = NuvioDom();
+      final doc = dom.load(html);
+      expect(dom.html(doc, ''), contains('class="list"'));
     });
   });
 }

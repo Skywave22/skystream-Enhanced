@@ -274,7 +274,6 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
             ],
           ),
           const SizedBox(height: 20),
-          const _PlayerCard(),
           const SizedBox(height: 16),
           const _DebridCard(),
           const SizedBox(height: 20),
@@ -654,73 +653,3 @@ class _DebridCardState extends ConsumerState<_DebridCard> {
 }
 
 
-/// Which player add-on links open in.
-class _PlayerCard extends ConsumerWidget {
-  const _PlayerCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final choice = ref.watch(addonPlayerPreferenceProvider);
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.play_circle_outline_rounded, color: cs.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Player',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'The built-in player brings everything the app already has: '
-              'quality filtering, source switching, subtitle and audio track '
-              'menus, gestures, HDR and tone mapping, external players, watch '
-              'history and tracker sync. Long-press a source row to use the '
-              'other player once.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<AddonPlayerChoice>(
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(
-                  value: AddonPlayerChoice.builtIn,
-                  icon: Icon(Icons.movie_rounded, size: 18),
-                  label: Text('Built-in'),
-                ),
-                ButtonSegment(
-                  value: AddonPlayerChoice.addon,
-                  icon: Icon(Icons.extension_rounded, size: 18),
-                  label: Text('Add-on'),
-                ),
-              ],
-              selected: {choice},
-              onSelectionChanged: (value) => unawaited(
-                ref
-                    .read(addonPlayerPreferenceProvider.notifier)
-                    .set(value.first),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

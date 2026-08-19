@@ -43,12 +43,19 @@ Pointer<JSValueConst> bridgeCallbackGlobalHandler(
       QuickJsRuntime._jsGetNullValue(ctx, nullValue);
       return nullValue;
     } else {
-      return QuickJsRuntime.jsEval(ctx, "'$result';").rawResult;
+      // The returned value has to reach JS as a *string literal*. Interpolating
+      // it into single quotes breaks on every apostrophe, backslash, newline or
+      // control character — which is most real-world HTML. jsonEncode produces
+      // a literal that is valid JSON *and* valid JS, so the value survives
+      // intact whatever it contains.
+      return QuickJsRuntime.jsEval(ctx, jsonEncode(result)).rawResult;
     }
   }
 
   return QuickJsRuntime.jsEval(
-          ctx, "'No channel registered: ($channelNameStr) => $messageStr'")
+          ctx,
+          jsonEncode(
+              'No channel registered: ($channelNameStr) => $messageStr'))
       .rawResult;
 }
 

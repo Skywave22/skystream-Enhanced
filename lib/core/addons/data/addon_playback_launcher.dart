@@ -2,60 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/entity/multimedia_item.dart';
 import '../models/addon_stream_source.dart';
 
 part 'addon_playback_launcher.g.dart';
-
-/// Which player add-on links open in.
-enum AddonPlayerChoice {
-  /// The app's own full-featured player: quality filtering, source switching,
-  /// track/subtitle menus, gestures, HDR + tone mapping, external player
-  /// hand-off, watch history and tracker sync.
-  builtIn('Built-in player'),
-
-  /// The lightweight add-on player (torrent stats overlay, binge rollover).
-  addon('Add-on player');
-
-  const AddonPlayerChoice(this.label);
-  final String label;
-}
-
-/// Remembers which player the user prefers for add-on playback.
-@Riverpod(keepAlive: true)
-class AddonPlayerPreference extends _$AddonPlayerPreference {
-  static const String _key = 'addon_player_choice';
-
-  @override
-  AddonPlayerChoice build() {
-    Future.microtask(_load);
-    return AddonPlayerChoice.builtIn;
-  }
-
-  Future<void> _load() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final stored = prefs.getString(_key);
-      if (stored == AddonPlayerChoice.addon.name) {
-        state = AddonPlayerChoice.addon;
-      }
-    } catch (_) {
-      // Default stands.
-    }
-  }
-
-  Future<void> set(AddonPlayerChoice choice) async {
-    state = choice;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_key, choice.name);
-    } catch (_) {
-      // Non-fatal: the choice still applies for this session.
-    }
-  }
-}
 
 @Riverpod(keepAlive: true)
 AddonStreamConverter addonStreamConverter(Ref ref) =>

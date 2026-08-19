@@ -9,7 +9,6 @@ import 'package:skystream/features/nuvio/presentation/nuvio_screen.dart';
 import 'package:skystream/features/addons/presentation/addons_screen.dart';
 import 'package:skystream/features/addons/presentation/addon_detail_screen.dart';
 import 'package:skystream/features/addons/presentation/addon_catalog_screen.dart';
-import 'package:skystream/features/addons/presentation/addon_player_screen.dart';
 import '../addons/data/addon_stream_service.dart';
 import '../addons/models/addon_meta.dart';
 import '../addons/models/addon_stream_source.dart';
@@ -280,97 +279,6 @@ class PlayerRoute extends GoRouteData with $PlayerRoute {
   }
 }
 
-
-/// Payload for the add-on player. The candidate list travels with the route so
-/// switching source in-player needs no refetch.
-class AddonPlayerRouteExtra {
-  const AddonPlayerRouteExtra({
-    required this.item,
-    required this.request,
-    required this.streams,
-    this.episode,
-    this.initialIndex = 0,
-    this.playlist = const [],
-  });
-  final MultimediaItem item;
-  final AddonStreamRequest request;
-  final List<AddonStreamSource> streams;
-  final Episode? episode;
-  final int initialIndex;
-
-  /// Series episode list, so the player can binge into the next episode.
-  final List<AddonVideo> playlist;
-}
-
-/// Library is no longer a tab: Settings opens Downloads / Bookmarks here.
-@TypedGoRoute<LibraryRoute>(path: '/library')
-class LibraryRoute extends GoRouteData with $LibraryRoute {
-  const LibraryRoute({this.tab = 0});
-  final int tab;
-
-  @override
-  Widget build(BuildContext context, GoRouterState state) =>
-      LibraryScreen(initialTab: tab);
-}
-
-@TypedGoRoute<AddonDetailRoute>(path: '/addon-detail')
-class AddonDetailRoute extends GoRouteData with $AddonDetailRoute {
-  const AddonDetailRoute({
-    required this.type,
-    required this.id,
-    this.addonUrl,
-  });
-  final String type;
-  final String id;
-  final String? addonUrl;
-
-  @override
-  Widget build(BuildContext context, GoRouterState state) {
-    return AddonDetailScreen(type: type, id: id, addonUrl: addonUrl);
-  }
-}
-
-@TypedGoRoute<AddonCatalogRoute>(path: '/addon-catalog')
-class AddonCatalogRoute extends GoRouteData with $AddonCatalogRoute {
-  const AddonCatalogRoute({
-    required this.addonUrl,
-    required this.type,
-    required this.catalogId,
-    required this.title,
-  });
-  final String addonUrl;
-  final String type;
-  final String catalogId;
-  final String title;
-
-  @override
-  Widget build(BuildContext context, GoRouterState state) {
-    return AddonCatalogScreen(
-      addonUrl: addonUrl,
-      type: type,
-      catalogId: catalogId,
-      title: title,
-    );
-  }
-}
-
-@TypedGoRoute<AddonPlayerRoute>(path: '/addon-player')
-class AddonPlayerRoute extends GoRouteData with $AddonPlayerRoute {
-  const AddonPlayerRoute({required this.$extra});
-  final AddonPlayerRouteExtra $extra;
-
-  @override
-  Widget build(BuildContext context, GoRouterState state) {
-    return AddonPlayerScreen(
-      item: $extra.item,
-      episode: $extra.episode,
-      request: $extra.request,
-      streams: $extra.streams,
-      initialIndex: $extra.initialIndex,
-      playlist: $extra.playlist,
-    );
-  }
-}
 
 // --- GoRouter Definition ---
 

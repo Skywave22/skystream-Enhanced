@@ -522,6 +522,17 @@ class PlayerController extends Notifier<PlayerState> {
   Timer? _stallRecoveryGuardTimer;
 
   final List<DateTime> _bufferDepletionTimes = [];
+
+  // Seek/buffer watchdog. The silent-stall watchdog below deliberately ignores
+  // buffering, so a seek that lands outside the cache (jump to 01:00:00 on a
+  // torrent or a CDN that answers the new Range badly) could sit on the
+  // spinner forever. This one escalates: nudge the seek, re-open the same
+  // source at the same position, then fail over to the next source.
+  Timer? _bufferWatchdogTimer;
+  DateTime? _bufferingSince;
+  Duration? _bufferingStartPosition;
+  int _bufferRecoveryStage = 0;
+
   Timer? _stallTimer;
   // Hide-debounce for the buffering overlay. Without this, a 250-350 ms
   // network blip would show the overlay (300 ms past the show-debounce)
@@ -1135,6 +1146,7 @@ class PlayerController extends Notifier<PlayerState> {
 
     _videoViewController!.loading.addListener(() {
       final isLoading = _videoViewController!.loading.value;
+      _onBufferingChanged(isLoading);
       if (isLoading) {
         _handleBufferStall();
         // Buffering started — cancel any pending HIDE (we're back in
@@ -1433,6 +1445,7 @@ class PlayerController extends Notifier<PlayerState> {
   void _setupBufferingMonitor() {
     _bufferingSub?.cancel();
     _bufferingSub = _player.stream.buffering.listen((isBuffering) {
+      _onBufferingChanged(isBuffering);
       if (isBuffering) {
         _handleBufferStall();
         // Cancel pending hide and arm the show debounce. See ExoPlayer
@@ -1477,12 +1490,100 @@ class PlayerController extends Notifier<PlayerState> {
     });
   }
 
+  /// Current playback position regardless of which backend is in use.
+  Duration get _currentPosition => state.useExoPlayer
+      ? Duration(milliseconds: _videoViewController?.position.value ?? 0)
+      : _player.state.position;
+
+  /// Called whenever the backend flips its buffering flag.
+  void _onBufferingChanged(bool isBuffering) {
+    if (!isBuffering) {
+      _bufferingSince = null;
+      _bufferingStartPosition = null;
+      _bufferRecoveryStage = 0;
+      _bufferWatchdogTimer?.cancel();
+      _bufferWatchdogTimer = null;
+      return;
+    }
+    _bufferingSince ??= DateTime.now();
+    _bufferingStartPosition ??= _currentPosition;
+    _bufferWatchdogTimer ??= Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => _checkBufferWatchdog(),
+    );
+  }
+
+  /// Escalating recovery for "I jumped to 01:00:00 and it just spins".
+  ///
+  /// 12 s → re-issue the seek and kick play (unsticks mpv when the demuxer
+  /// dropped the request after a Range response it disliked).
+  /// 25 s → re-open the *same* source at the same position, which makes a
+  /// fresh Range request; for torrents this re-prioritises pieces around the
+  /// new offset instead of waiting on the old read head.
+  /// 45 s → give up on this source and fail over to the next one.
+  void _checkBufferWatchdog() {
+    final since = _bufferingSince;
+    if (since == null) return;
+    if (!_hasConfirmedPlaybackFrame) return; // startup has its own handling
+    if (state.isLive) return; // live reconnect is handled elsewhere
+    if (_isRecoveringFromStall) return;
+
+    final position = _currentPosition;
+    final startedAt = _bufferingStartPosition;
+    if (startedAt != null && (position - startedAt).abs() > const Duration(seconds: 1)) {
+      // Playback moved on its own — treat this as a fresh buffering window.
+      _bufferingSince = DateTime.now();
+      _bufferingStartPosition = position;
+      _bufferRecoveryStage = 0;
+      return;
+    }
+
+    final stuckFor = DateTime.now().difference(since);
+    if (_bufferRecoveryStage == 0 && stuckFor.inSeconds >= 12) {
+      _bufferRecoveryStage = 1;
+      if (kDebugMode) {
+        debugPrint('Watchdog: buffering 12s — re-issuing seek to $position');
+      }
+      unawaited(() async {
+        await _safeSeekTo(position.inMilliseconds);
+        await play();
+      }());
+      return;
+    }
+
+    if (_bufferRecoveryStage == 1 && stuckFor.inSeconds >= 25) {
+      _bufferRecoveryStage = 2;
+      final current = state.currentStream;
+      if (current == null) return;
+      if (kDebugMode) {
+        debugPrint('Watchdog: buffering 25s — reopening source at $position');
+      }
+      _enterRuntimePhase(
+        kind: PlaybackUiPhaseKind.bufferingRuntime,
+        detail: 'Reconnecting to the source…',
+      );
+      _beginStallRecovery(
+        perform: changeStream(current, resetPosition: false),
+      );
+      return;
+    }
+
+    if (_bufferRecoveryStage == 2 && stuckFor.inSeconds >= 45) {
+      _bufferRecoveryStage = 3;
+      if (kDebugMode) {
+        debugPrint('Watchdog: buffering 45s — moving to the next source');
+      }
+      _revertMessage =
+          'This source stopped responding after the seek. Trying the next one…';
+      unawaited(retryNextStream(sourceSessionId: state.sourceSessionId));
+    }
+  }
+
   void _handleBufferStall() {
     if (!_hasConfirmedPlaybackFrame) {
       return; // ignore stalls during source health check
     }
     if (_isLiveStream(_videoUrl)) return;
-
     final now = DateTime.now();
     _bufferDepletionTimes.add(now);
 
@@ -3721,6 +3822,8 @@ class PlayerController extends Notifier<PlayerState> {
     _torrentPollTimer = null;
     _stallTimer?.cancel();
     _stallTimer = null;
+    _bufferWatchdogTimer?.cancel();
+    _bufferWatchdogTimer = null;
     _bufferingHideTimer?.cancel();
     _bufferingHideTimer = null;
     _stallRecoveryGuardTimer?.cancel();

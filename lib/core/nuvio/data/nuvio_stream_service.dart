@@ -6,13 +6,14 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../models/nuvio_models.dart';
 import 'nuvio_repository.dart';
 import 'nuvio_runtime.dart';
+import 'nuvio_tmdb.dart';
 
 part 'nuvio_stream_service.g.dart';
 
 @Riverpod(keepAlive: true)
 NuvioStreamService nuvioStreamService(Ref ref) => NuvioStreamService(ref);
 
-enum NuvioScraperOutcome { pending, links, empty, failed, unsupported }
+enum NuvioScraperOutcome { pending, running, links, empty, failed, unsupported }
 
 class NuvioScraperStatus {
   final String scraperName;
@@ -48,6 +49,15 @@ class NuvioProgress {
   bool get hasWork => totalCount > 0;
 }
 
+class _CacheEntry {
+  _CacheEntry(this.results) : createdAt = DateTime.now();
+  final List<NuvioStreamResult> results;
+  final DateTime createdAt;
+
+  bool get isFresh =>
+      DateTime.now().difference(createdAt) < NuvioStreamService.cacheTtl;
+}
+
 /// Runs every enabled Nuvio scraper for one title and streams results back as
 /// they arrive, mirroring how the SkyStream plugin aggregator behaves so both
 /// systems can feed one list.
@@ -56,9 +66,43 @@ class NuvioStreamService {
 
   final Ref _ref;
 
-  /// Scrapers are heavy (each spins its own QuickJS context), so the pool is
-  /// deliberately small.
-  static const int _maxConcurrent = 3;
+  /// Nuvio itself launches every scraper at once. A phone can't hold 60 QuickJS
+  /// contexts, but three at a time was the reason most providers never got to
+  /// answer before the user gave up — ten keeps memory sane and finishes a
+  /// 60-scraper repository in roughly the time the slowest six take.
+  static const int maxConcurrent = 10;
+
+  /// Repeat visits to the same episode shouldn't re-run 60 scrapers.
+  static const Duration cacheTtl = Duration(minutes: 10);
+
+  final Map<String, _CacheEntry> _cache = {};
+
+  void clearCache() => _cache.clear();
+
+  /// Nuvio plugins are written against a *numeric TMDB id*. Feeding them an
+  /// `tt…` or `tmdb:123` id is the difference between a provider answering and
+  /// silently returning nothing, so normalise (and convert) first.
+  Future<String> _normalizeId(String rawId, String type) async {
+    var id = rawId.trim();
+    if (id.isEmpty) return id;
+    if (id.startsWith('tmdb:')) id = id.substring(5);
+    if (id.startsWith('tmdb/')) id = id.substring(5);
+    id = id.split('/').first;
+    // Stremio-style "tt1234:1:2" ids.
+    final colon = id.indexOf(':');
+    if (colon > 0) id = id.substring(0, colon);
+    if (!id.startsWith('tt')) return id;
+
+    try {
+      final resolved = await _ref
+          .read(nuvioTmdbServiceProvider)
+          .tmdbIdForImdbId(id, type: type);
+      if (resolved != null && resolved.isNotEmpty) return resolved;
+    } catch (error) {
+      if (kDebugMode) debugPrint('[Nuvio] imdb→tmdb failed for $id: $error');
+    }
+    return id;
+  }
 
   Stream<NuvioProgress> resolve({
     required String tmdbId,
@@ -78,10 +122,12 @@ class NuvioStreamService {
         .where((entry) => entry.scraper.supportsType(type))
         .toList();
 
-    if (tmdbId.isEmpty || targets.isEmpty) {
+    if (tmdbId.trim().isEmpty || targets.isEmpty) {
       yield const NuvioProgress(isLoading: false);
       return;
     }
+
+    final resolvedId = await _normalizeId(tmdbId, type);
 
     final runtime = _ref.read(nuvioRuntimeProvider);
     final streams = <NuvioStreamResult>[];
@@ -105,38 +151,62 @@ class NuvioStreamService {
       isLoading: loading,
     );
 
-    Future<void> runOne(({NuvioRepo repo, NuvioScraperInfo scraper}) entry) async {
+    String cacheKey(String scraperId) =>
+        '$scraperId|$resolvedId|$type|${season ?? ''}|${episode ?? ''}';
+
+    void publish(String scraperId, String name, List<NuvioStreamResult> found) {
+      var added = 0;
+      for (final result in found) {
+        if (!seen.add('$scraperId|${result.url}')) continue;
+        streams.add(result);
+        added++;
+      }
+      statuses[scraperId] = NuvioScraperStatus(
+        scraperName: name,
+        outcome: added > 0
+            ? NuvioScraperOutcome.links
+            : NuvioScraperOutcome.empty,
+        linkCount: added,
+        message: added > 0 ? null : 'no links',
+      );
+    }
+
+    Future<void> runOne(
+      ({NuvioRepo repo, NuvioScraperInfo scraper}) entry,
+    ) async {
       final scraper = entry.scraper;
+      final key = cacheKey(scraper.id);
+      final cached = _cache[key];
+      if (cached != null && cached.isFresh) {
+        publish(scraper.id, scraper.name, cached.results);
+        completed++;
+        if (!updates.isClosed) updates.add(snapshot());
+        return;
+      }
+
+      statuses[scraper.id] = NuvioScraperStatus(
+        scraperName: scraper.name,
+        outcome: NuvioScraperOutcome.running,
+      );
+      if (!updates.isClosed) updates.add(snapshot());
+
       try {
         final code = await repository.codeFor(entry.repo, scraper);
         final results = await runtime.run(
           code: code,
           scraperId: scraper.id,
           scraperName: scraper.name,
-          tmdbId: tmdbId,
+          tmdbId: resolvedId,
           mediaType: type,
           season: season,
           episode: episode,
         );
-
-        var added = 0;
-        for (final result in results) {
-          if (!seen.add('${scraper.id}|${result.url}')) continue;
-          streams.add(result);
-          added++;
-        }
-        statuses[scraper.id] = NuvioScraperStatus(
-          scraperName: scraper.name,
-          outcome: added > 0
-              ? NuvioScraperOutcome.links
-              : NuvioScraperOutcome.empty,
-          linkCount: added,
-          message: added > 0 ? null : 'no links',
-        );
+        _cache[key] = _CacheEntry(results);
+        publish(scraper.id, scraper.name, results);
       } on NuvioRuntimeException catch (error) {
         statuses[scraper.id] = NuvioScraperStatus(
           scraperName: scraper.name,
-          outcome: NuvioScraperOutcome.unsupported,
+          outcome: NuvioScraperOutcome.failed,
           message: error.message,
         );
       } catch (error) {
@@ -155,7 +225,7 @@ class NuvioStreamService {
     unawaited(() async {
       final queue = List.of(targets);
       final workers = List.generate(
-        targets.length < _maxConcurrent ? targets.length : _maxConcurrent,
+        targets.length < maxConcurrent ? targets.length : maxConcurrent,
         (_) => Future(() async {
           while (queue.isNotEmpty) {
             await runOne(queue.removeAt(0));

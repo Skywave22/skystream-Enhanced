@@ -196,6 +196,46 @@ class NuvioTmdbService {
   Future<List<NuvioTitle>> search(String query) =>
       _list('/search/multi', query: {'query': query, 'include_adult': 'false'});
 
+  final Map<String, String> _imdbToTmdb = {};
+
+  /// Nuvio scrapers expect a numeric TMDB id. When all we have is an IMDb id
+  /// (add-on catalogues, Trakt imports, Stremio-style ids) resolve it the same
+  /// way Nuvio does — `/find/{imdb}` — and remember the answer.
+  Future<String?> tmdbIdForImdbId(String imdbId, {required String type}) async {
+    final trimmed = imdbId.trim();
+    if (!trimmed.startsWith('tt')) return trimmed;
+    final cacheKey = '$trimmed|$type';
+    final cached = _imdbToTmdb[cacheKey];
+    if (cached != null) return cached;
+
+    final key = _key();
+    if (key.isEmpty) return null;
+
+    final response = await _dio.get<dynamic>(
+      '$_base/find/$trimmed',
+      queryParameters: {'api_key': key, 'external_source': 'imdb_id'},
+      options: Options(
+        receiveTimeout: const Duration(seconds: 15),
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
+    final data = response.data;
+    if (data is! Map) return null;
+    final bucket = type == 'tv' ? 'tv_results' : 'movie_results';
+    final results = data[bucket] is List && (data[bucket] as List).isNotEmpty
+        ? data[bucket] as List
+        : (data['movie_results'] is List && (data['movie_results'] as List).isNotEmpty
+              ? data['movie_results'] as List
+              : data['tv_results'] as List? ?? const []);
+    if (results.isEmpty) return null;
+    final first = results.first;
+    if (first is! Map) return null;
+    final id = first['id']?.toString();
+    if (id == null || id.isEmpty) return null;
+    _imdbToTmdb[cacheKey] = id;
+    return id;
+  }
+
   /// Season numbers of a show (specials excluded).
   Future<List<int>> seasons(int tmdbId) async {
     final key = _key();

@@ -117,15 +117,12 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
   List<AddonStreamSource> get _playable =>
       _visible.where((s) => s.isPlayable).toList(growable: false);
 
-  /// Plays through the app's built-in player by default — it brings quality
-  /// filtering, source switching, subtitle and track menus, gestures, HDR,
-  /// external-player hand-off, history and tracker sync. The lightweight
-  /// add-on player stays available (long-press a row, or make it the default
-  /// in My add-ons).
-  Future<void> _play(
-    AddonStreamSource stream, {
-    AddonPlayerChoice? forceChoice,
-  }) async {
+  /// Plays through the app's built-in player — quality filtering, source
+  /// switching, subtitle and track menus, gestures, HDR, external-player
+  /// hand-off, the seek/buffer watchdog, history and tracker sync. There is no
+  /// second, weaker player any more: add-on streams get the same engine as
+  /// everything else in the app.
+  Future<void> _play(AddonStreamSource stream) async {
     // Deep links (WatchHub & friends) open the streaming service instead of
     // the player — that is the only thing those add-ons can do.
     if (stream.isExternal) {
@@ -133,26 +130,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
       return;
     }
 
-    final choice = forceChoice ?? ref.read(addonPlayerPreferenceProvider);
     final ordered = _playable;
-
-    if (choice == AddonPlayerChoice.addon) {
-      final index = ordered.indexOf(stream);
-      Navigator.of(context).pop();
-      unawaited(
-        AddonPlayerRoute(
-          $extra: AddonPlayerRouteExtra(
-            item: widget.item,
-            episode: widget.episode,
-            request: widget.request,
-            streams: ordered,
-            initialIndex: index < 0 ? 0 : index,
-            playlist: widget.playlist,
-          ),
-        ).push<void>(context),
-      );
-      return;
-    }
 
     // With a debrid account configured, the chosen torrent becomes a direct
     // link before the player sees it. Not cached? The magnet is passed through
@@ -516,16 +494,6 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
                         isBest: index == 0,
                         autofocus: index == 0,
                         onPlay: () => unawaited(_play(visible[index])),
-                        onPlayAlternate: () => unawaited(
-                          _play(
-                            visible[index],
-                            forceChoice:
-                                ref.read(addonPlayerPreferenceProvider) ==
-                                    AddonPlayerChoice.addon
-                                ? AddonPlayerChoice.builtIn
-                                : AddonPlayerChoice.addon,
-                          ),
-                        ),
                         onDownload: () => unawaited(_download(visible[index])),
                       ),
                     ),
@@ -600,14 +568,12 @@ class _SourceRow extends StatelessWidget {
   final bool isBest;
   final bool autofocus;
   final VoidCallback onPlay;
-  final VoidCallback onPlayAlternate;
   final VoidCallback onDownload;
 
   const _SourceRow({
     required this.stream,
     required this.isBest,
     required this.onPlay,
-    required this.onPlayAlternate,
     required this.onDownload,
     this.autofocus = false,
   });
@@ -638,7 +604,6 @@ class _SourceRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onPlay,
-        onLongPress: onPlayAlternate,
         autofocus: autofocus,
         focusColor: cs.primary.withValues(alpha: 0.22),
         borderRadius: BorderRadius.circular(16),
