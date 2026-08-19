@@ -19,7 +19,7 @@ import '../data/lightweight_details_provider.dart';
 import 'widgets/movie_trailers_carousel.dart';
 import 'widgets/movie_production_companies.dart';
 import 'widgets/movie_seasons_list.dart';
-import '../../stream/presentation/stream_source_picker.dart';
+import '../../sources/presentation/plugin_sources_sheet.dart';
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../shared/widgets/shimmer_placeholder.dart';
 
@@ -257,8 +257,7 @@ class _TmdbMovieDetailsScreenState
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: FilledButton.icon(
-                  onPressed: () =>
-                      StreamSourcePicker.open(context, ref, data),
+                  onPressed: () => PluginSourcesSheet.open(context, data),
                   icon: const Icon(Icons.play_arrow_rounded),
                   label: const Text('Play from plugins'),
                 ),
@@ -579,8 +578,7 @@ class _TmdbMovieDetailsScreenState
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
                     child: FilledButton.icon(
-                      onPressed: () =>
-                          StreamSourcePicker.open(context, ref, data),
+                      onPressed: () => PluginSourcesSheet.open(context, data),
                       icon: const Icon(Icons.play_arrow_rounded),
                       label: const Text('Play from plugins'),
                     ),

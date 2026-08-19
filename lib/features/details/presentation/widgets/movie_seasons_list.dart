@@ -13,7 +13,7 @@ import '../tmdb_details_controller.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../../core/domain/entity/multimedia_item.dart';
-import '../../../stream/presentation/stream_source_picker.dart';
+import '../../../sources/presentation/plugin_sources_sheet.dart';
 
 class MovieSeasonsList extends ConsumerStatefulWidget {
   final int movieId;
@@ -387,9 +387,8 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                           season: controller.selectedSeason,
                           episode: (ep['episode_number'] as int?) ?? 0,
                         );
-                        StreamSourcePicker.open(
+                        PluginSourcesSheet.open(
                           context,
-                          ref,
                           target,
                           episode: episode,
                         );
@@ -660,9 +659,8 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                           season: controller.selectedSeason,
                           episode: (ep['episode_number'] as int?) ?? 0,
                         );
-                        StreamSourcePicker.open(
+                        PluginSourcesSheet.open(
                           context,
-                          ref,
                           target,
                           episode: episode,
                         );
