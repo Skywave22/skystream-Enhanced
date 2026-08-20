@@ -66,7 +66,10 @@ class NuvioRuntime {
       xhr: false,
       extraArgs: {
         'stackSize': 4 * 1024 * 1024,
-        'memoryLimit': 192 * 1024 * 1024,
+        // Eight of these can be alive at once on a phone; 96 MB each is more
+        // than any real bundle needs and keeps the app well clear of the
+        // Android per-process limit.
+        'memoryLimit': 96 * 1024 * 1024,
       },
     );
 

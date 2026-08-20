@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/link_probe_service.dart';
@@ -130,6 +131,7 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
     isLoading: true,
   );
   NuvioProgress _nuvioResult = const NuvioProgress(isLoading: true);
+  bool _showDiagnostics = false;
 
   final Map<String, LinkProbeResult> _probes = {};
   final Set<String> _probing = {};
@@ -333,6 +335,91 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
     }
   }
 
+  /// Per-plugin outcome, so "why did only three plugins answer?" has an
+  /// answer in the app instead of needing a rebuild to find out.
+  Widget _diagnosticsPanel(ThemeData theme, ColorScheme cs) {
+    final statuses = _nuvioResult.statuses.toList()
+      ..sort((a, b) => a.scraperName.compareTo(b.scraperName));
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Nuvio plugins · ${statuses.length}',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: _diagnosticsReport()));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Diagnostics copied')),
+                  );
+                },
+                icon: const Icon(Icons.copy_rounded, size: 14),
+                label: const Text('Copy'),
+              ),
+            ],
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 160),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final status in statuses)
+                    Text(
+                      '${status.scraperName}: '
+                      '${status.outcome == NuvioScraperOutcome.links ? '${status.linkCount} links' : (status.message ?? status.outcome.name)}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: status.outcome == NuvioScraperOutcome.failed
+                            ? cs.error
+                            : cs.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _diagnosticsReport() {
+    final buffer = StringBuffer()
+      ..writeln('SkyStream sources diagnostics')
+      ..writeln('title: ${widget.target.title} (tmdb ${widget.target.tmdbId})')
+      ..writeln(
+        'skystream plugins: ${_pluginResult.streams.length} links, '
+        '${_pluginResult.completedCount}/${_pluginResult.totalCount} done',
+      )
+      ..writeln(
+        'nuvio plugins: ${_nuvioResult.streams.length} links, '
+        '${_nuvioResult.completedCount}/${_nuvioResult.totalCount} done',
+      );
+    for (final status in _nuvioResult.statuses) {
+      buffer.writeln(
+        '- ${status.scraperName}: ${status.outcome.name}'
+        '${status.outcome == NuvioScraperOutcome.links ? ' (${status.linkCount})' : ''}'
+        '${status.message == null ? '' : ' — ${status.message}'}',
+      );
+    }
+    return buffer.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -431,10 +518,19 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
                           minHeight: 4,
                           borderRadius: BorderRadius.circular(2),
                         ),
+                      )
+                    else if (_nuvioResult.hasWork)
+                      TextButton.icon(
+                        onPressed: () => setState(
+                          () => _showDiagnostics = !_showDiagnostics,
+                        ),
+                        icon: const Icon(Icons.info_outline_rounded, size: 16),
+                        label: const Text('Details'),
                       ),
                   ],
                 ),
               ),
+              if (_showDiagnostics) _diagnosticsPanel(theme, cs),
               SizedBox(
                 height: 42,
                 child: ListView(

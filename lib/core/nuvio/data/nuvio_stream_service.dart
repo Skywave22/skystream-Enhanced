@@ -69,9 +69,10 @@ class NuvioStreamService {
 
   /// Nuvio itself launches every scraper at once. A phone can't hold 60 QuickJS
   /// contexts, but three at a time was the reason most providers never got to
-  /// answer before the user gave up — ten keeps memory sane and finishes a
-  /// 60-scraper repository in roughly the time the slowest six take.
-  static const int maxConcurrent = 10;
+  /// answer before the user gave up. Eight keeps memory and UI-thread
+  /// contention sane while still finishing a 60-scraper repository in about
+  /// the time the slowest handful take.
+  static const int maxConcurrent = 8;
 
   /// Repeat visits to the same episode shouldn't re-run 60 scrapers.
   static const Duration cacheTtl = Duration(minutes: 10);
