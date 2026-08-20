@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/domain/entity/multimedia_item.dart';
@@ -175,6 +176,26 @@ class _NuvioSourcesSheetState extends ConsumerState<NuvioSourcesSheet> {
     }
   }
 
+  /// A plain-text summary of what every scraper did — the fastest way to see
+  /// why a title returned few links, and to share it.
+  String _diagnosticsReport() {
+    final buffer = StringBuffer()
+      ..writeln('Nuvio diagnostics')
+      ..writeln('title: ${widget.title.name} (tmdb ${widget.title.tmdbId})')
+      ..writeln(
+        'scrapers: ${_result.totalCount}, completed: ${_result.completedCount}, '
+        'links: ${_result.streams.length}',
+      );
+    for (final status in _result.statuses) {
+      buffer.writeln(
+        '- ${status.scraperName}: ${status.outcome.name}'
+        '${status.outcome == NuvioScraperOutcome.links ? ' (${status.linkCount})' : ''}'
+        '${status.message == null ? '' : ' — ${status.message}'}',
+      );
+    }
+    return buffer.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -290,12 +311,40 @@ class _NuvioSourcesSheetState extends ConsumerState<NuvioSourcesSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Per-plugin result',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: () {
+                            Clipboard.setData(
+                              ClipboardData(text: _diagnosticsReport()),
+                            );
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Diagnostics copied'),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.copy_rounded, size: 14),
+                          label: const Text('Copy'),
+                        ),
+                      ],
+                    ),
                     for (final status in _result.statuses)
                       Text(
                         '${status.addonLabel}: '
                         '${status.outcome == NuvioScraperOutcome.links ? '${status.linkCount} links' : (status.message ?? status.outcome.name)}',
                         style: theme.textTheme.labelSmall?.copyWith(
-                          color: cs.onSurfaceVariant,
+                          color: status.outcome == NuvioScraperOutcome.failed
+                              ? cs.error
+                              : cs.onSurfaceVariant,
                         ),
                       ),
                   ],

@@ -72,9 +72,14 @@ class NuvioRuntime {
 
     final completer = Completer<String>();
     final dom = NuvioDom();
+    final cancelToken = CancelToken();
     Timer? pump;
+    // A fetch that lands after the scraper timed out must not touch a disposed
+    // QuickJS context: that is a native use-after-free, not a Dart exception.
+    var disposed = false;
 
     void evalSafe(String script) {
+      if (disposed) return;
       try {
         runtime.evaluate(script);
       } catch (error) {
@@ -184,7 +189,7 @@ class NuvioRuntime {
         final data = asMap(args);
         final id = data['id']?.toString();
         if (id == null) return null;
-        unawaited(_performFetch(data, evalSafe));
+        unawaited(_performFetch(data, evalSafe, cancelToken: cancelToken));
         return null;
       });
 
@@ -194,6 +199,7 @@ class NuvioRuntime {
       // contexts from burning CPU on bridge calls.
       var tickCounter = 0;
       pump = Timer.periodic(const Duration(milliseconds: 8), (_) {
+        if (disposed) return;
         try {
           runtime.executePendingJob();
           if (++tickCounter % 4 == 0) {
@@ -261,6 +267,8 @@ class NuvioRuntime {
       return out;
     } finally {
       pump?.cancel();
+      disposed = true;
+      cancelToken.cancel('scraper finished');
       dom.clear();
       try {
         runtime.dispose();
@@ -291,9 +299,12 @@ class NuvioRuntime {
     );
     final completer = Completer<String>();
     final dom = NuvioDom();
+    final cancelToken = CancelToken();
     Timer? pump;
+    var disposed = false;
 
     void evalSafe(String script) {
+      if (disposed) return;
       try {
         runtime.evaluate(script);
       } catch (error) {
@@ -326,7 +337,7 @@ class NuvioRuntime {
       runtime.onMessage('nuvio_fetch', (dynamic args) {
         final data = asMap(args);
         if (data['id'] == null) return null;
-        unawaited(_performFetch(data, evalSafe));
+        unawaited(_performFetch(data, evalSafe, cancelToken: cancelToken));
         return null;
       });
 
@@ -363,6 +374,8 @@ class NuvioRuntime {
       return NuvioSettingsField.parseLayout(decoded['layout']);
     } finally {
       pump?.cancel();
+      disposed = true;
+      cancelToken.cancel('settings read finished');
       dom.clear();
       try {
         runtime.dispose();
@@ -399,8 +412,9 @@ class NuvioRuntime {
 
   Future<void> _performFetch(
     Map<String, dynamic> data,
-    void Function(String script) evalSafe,
-  ) async {
+    void Function(String script) evalSafe, {
+    CancelToken? cancelToken,
+  }) async {
     final id = data['id'].toString();
     final url = data['url']?.toString() ?? '';
     final method = (data['method']?.toString() ?? 'GET').toUpperCase();
@@ -421,6 +435,7 @@ class NuvioRuntime {
       final response = await _dio.request<dynamic>(
         url,
         data: body,
+        cancelToken: cancelToken,
         options: Options(
           method: method,
           headers: headers,
@@ -456,6 +471,12 @@ class NuvioRuntime {
         'body': text,
       });
       evalSafe('globalThis.__nuvio_settle(${jsonEncode(id)}, $payload, null)');
+    } on DioException catch (error) {
+      if (CancelToken.isCancel(error)) return; // scraper already finished
+      evalSafe(
+        'globalThis.__nuvio_settle(${jsonEncode(id)}, null, '
+        '${jsonEncode(error.message ?? error.toString())})',
+      );
     } catch (error) {
       evalSafe(
         'globalThis.__nuvio_settle(${jsonEncode(id)}, null, '

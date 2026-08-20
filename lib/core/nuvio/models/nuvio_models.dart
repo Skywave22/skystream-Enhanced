@@ -291,6 +291,10 @@ class NuvioRepo {
   /// Scraper ids the user switched off locally.
   final Set<String> disabledScrapers;
 
+  /// Scraper ids the user switched **on** even though the manifest ships them
+  /// disabled (repositories often publish torrent providers off by default).
+  final Set<String> enabledOverrides;
+
   /// When the manifest was last fetched, and when that fetch actually brought
   /// something new. Both are what the UI shows as "checked 5m ago".
   final DateTime? lastCheckedAt;
@@ -309,6 +313,7 @@ class NuvioRepo {
     this.manifest,
     this.errorMessage,
     this.disabledScrapers = const {},
+    this.enabledOverrides = const {},
     this.lastCheckedAt,
     this.lastUpdatedAt,
     this.isRefreshing = false,
@@ -318,8 +323,11 @@ class NuvioRepo {
   String get displayName =>
       manifest?.name ?? Uri.tryParse(manifestUrl)?.host ?? manifestUrl;
 
-  bool isScraperEnabled(NuvioScraperInfo scraper) =>
-      scraper.manifestEnabled && !disabledScrapers.contains(scraper.id);
+  bool isScraperEnabled(NuvioScraperInfo scraper) {
+    if (disabledScrapers.contains(scraper.id)) return false;
+    if (enabledOverrides.contains(scraper.id)) return true;
+    return scraper.manifestEnabled;
+  }
 
   List<NuvioScraperInfo> get enabledScrapers => [
     for (final scraper in manifest?.scrapers ?? const <NuvioScraperInfo>[])
@@ -335,6 +343,7 @@ class NuvioRepo {
     String? errorMessage,
     bool clearError = false,
     Set<String>? disabledScrapers,
+    Set<String>? enabledOverrides,
     DateTime? lastCheckedAt,
     DateTime? lastUpdatedAt,
     bool? isRefreshing,
@@ -347,6 +356,7 @@ class NuvioRepo {
       manifest: manifest ?? this.manifest,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       disabledScrapers: disabledScrapers ?? this.disabledScrapers,
+      enabledOverrides: enabledOverrides ?? this.enabledOverrides,
       lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
       lastUpdatedAt: lastUpdatedAt ?? this.lastUpdatedAt,
       isRefreshing: isRefreshing ?? this.isRefreshing,
@@ -359,6 +369,7 @@ class NuvioRepo {
     'addedAt': addedAt.toIso8601String(),
     'manifest': manifest?.toJson(),
     'disabled': disabledScrapers.toList(),
+    'enabledOverrides': enabledOverrides.toList(),
     'lastCheckedAt': lastCheckedAt?.toIso8601String(),
     'lastUpdatedAt': lastUpdatedAt?.toIso8601String(),
   };
@@ -377,6 +388,9 @@ class NuvioRepo {
           : null,
       disabledScrapers: {
         for (final id in _stringList(json['disabled'])) id,
+      },
+      enabledOverrides: {
+        for (final id in _stringList(json['enabledOverrides'])) id,
       },
       lastCheckedAt: DateTime.tryParse((json['lastCheckedAt'] as String?) ?? ''),
       lastUpdatedAt: DateTime.tryParse((json['lastUpdatedAt'] as String?) ?? ''),

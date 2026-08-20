@@ -703,4 +703,83 @@ void main() {
       );
     });
   });
+
+  group('bridge payloads', () {
+    final js = buildNuvioPolyfill(
+      scraperIdJson: '"s"',
+      settingsJson: '{}',
+      tmdbKeyJson: '"k"',
+    );
+
+    test('every sendMessage payload is JSON', () {
+      // flutter_js decodes each message with jsonDecode before handing it to
+      // Dart. A bare string (a log line) makes that throw, which used to kill
+      // every plugin that called console.log — 38 of the 61 real providers.
+      final calls = RegExp(r"sendMessage\(\s*'([a-z_]+)'\s*,\s*([^;]+?)\)\s*;")
+          .allMatches(js);
+      expect(calls, isNotEmpty);
+      for (final call in calls) {
+        final channel = call.group(1)!;
+        final payload = call.group(2)!.trim();
+        expect(
+          payload.startsWith('JSON.stringify(') || payload == 'payload',
+          isTrue,
+          reason: 'channel $channel sends a non-JSON payload: $payload',
+        );
+      }
+    });
+
+    test('console logging goes through JSON.stringify', () {
+      expect(js, contains("sendMessage('nuvio_log', JSON.stringify(String(text)))"));
+      expect(js, isNot(contains("sendMessage('nuvio_log', fmt(")));
+    });
+
+    test('logging can never throw out of a scraper', () {
+      expect(js, contains('function logLine(text)'));
+      expect(js, contains('// Logging must never break a scraper.'));
+    });
+  });
+
+  group('enabling plugins the repository ships disabled', () {
+    NuvioScraperInfo scraper({required bool enabled}) => NuvioScraperInfo(
+      id: 'torrentio',
+      name: 'Torrentio',
+      version: '1.0.0',
+      filename: 'providers/torrentio.js',
+      manifestEnabled: enabled,
+    );
+
+    test('a manifest-disabled plugin can be turned on by the user', () {
+      final repo = NuvioRepo(
+        manifestUrl: 'https://example.com/manifest.json',
+        addedAt: DateTime.now(),
+      );
+      expect(repo.isScraperEnabled(scraper(enabled: false)), isFalse);
+
+      final withOverride = repo.copyWith(enabledOverrides: {'torrentio'});
+      expect(withOverride.isScraperEnabled(scraper(enabled: false)), isTrue);
+    });
+
+    test('switching off always wins', () {
+      final repo = NuvioRepo(
+        manifestUrl: 'https://example.com/manifest.json',
+        addedAt: DateTime.now(),
+        enabledOverrides: {'torrentio'},
+        disabledScrapers: {'torrentio'},
+      );
+      expect(repo.isScraperEnabled(scraper(enabled: true)), isFalse);
+    });
+
+    test('overrides survive a storage round trip', () {
+      final repo = NuvioRepo(
+        manifestUrl: 'https://example.com/manifest.json',
+        addedAt: DateTime.now(),
+        enabledOverrides: {'torrentio', 'other'},
+        disabledScrapers: {'x'},
+      );
+      final restored = NuvioRepo.fromJson(repo.toJson())!;
+      expect(restored.enabledOverrides, {'torrentio', 'other'});
+      expect(restored.disabledScrapers, {'x'});
+    });
+  });
 }

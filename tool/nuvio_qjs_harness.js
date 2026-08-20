@@ -32,6 +32,9 @@ const TIMEOUT_MS = Number(flag('timeout', 45)) * 1000;
 const ONLY = (flag('only', '') || '').split(',').filter(Boolean);
 const TMDB_KEY = flag('key', '439c478a771f35c05022f9feabcca01c');
 const VERBOSE = args.includes('--verbose');
+const CONCURRENCY = Number(flag('concurrency', 1));
+// Mirror flutter_js's bridge, which jsonDecodes every message.
+const STRICT_BRIDGE = !args.includes('--loose-bridge');
 const SETTINGS_MODE = args.includes('--settings');
 const SETTINGS_VALUES = {};
 args.forEach((a, i) => {
@@ -205,20 +208,32 @@ async function runProvider(QuickJS, file) {
   const vm = runtime.newContext();
   const dom = new Dom();
   const settleQueue = [];
+  const bridgeFailures = [];
   let resultJson = null;
   let logs = [];
 
   const sendMessage = vm.newFunction('sendMessage', (chanHandle, msgHandle) => {
     const channel = vm.getString(chanHandle);
     const message = msgHandle === undefined ? '' : vm.getString(msgHandle);
+    // flutter_js (QuickJsRuntime2) hands the Dart side jsonDecode(message):
+    // a payload that is not valid JSON throws, and the exception surfaces in
+    // JS. STRICT mode reproduces that exactly so the harness can catch it.
     let payload = {};
-    if (channel !== 'nuvio_log' && channel !== 'nuvio_result') {
-      try { payload = JSON.parse(message); } catch (e) { payload = {}; }
+    let decodeFailed = false;
+    try { payload = JSON.parse(message); } catch (e) { decodeFailed = true; }
+    if (decodeFailed && STRICT_BRIDGE) {
+      bridgeFailures.push(channel);
+      return vm.newError('FormatException: bridge payload is not JSON (' + channel + ')');
     }
     let out = '';
     switch (channel) {
-      case 'nuvio_log': logs.push(message); if (VERBOSE) console.log('   [' + name + ']', message); break;
-      case 'nuvio_result': resultJson = message; break;
+      case 'nuvio_log':
+        logs.push(typeof payload === 'string' ? payload : message);
+        if (VERBOSE) console.log('   [' + name + ']', message);
+        break;
+      case 'nuvio_result':
+        resultJson = typeof payload === 'string' ? payload : message;
+        break;
       case 'nuvio_crypto': out = cryptoHandle(payload); break;
       case 'nuvio_dom_load': out = dom.load(payload.html || ''); break;
       case 'nuvio_dom_query': out = JSON.stringify(dom.query(payload.doc, payload.context, payload.selector)); break;
@@ -316,6 +331,11 @@ async function runProvider(QuickJS, file) {
     try { vm.dispose(); } catch (e) {}
     try { runtime.dispose(); } catch (e) {}
   }
+  if (bridgeFailures.length) {
+    error = (error ? error + ' | ' : '') + 'bridge rejected ' + bridgeFailures.length +
+      ' message(s) on ' + [...new Set(bridgeFailures)].join(',');
+    if (status === 'empty') status = 'bridge';
+  }
   return { name, status, count: streams.length, error, seconds: ((Date.now() - started) / 1000).toFixed(1), sample: streams[0], logs };
 }
 
@@ -347,9 +367,17 @@ async function doFetch(payload) {
   let files = fs.readdirSync(providersDir).filter((f) => f.endsWith('.js'));
   if (ONLY.length) files = files.filter((f) => ONLY.includes(path.basename(f, '.js')));
   const results = [];
-  for (const f of files) {
-    const r = await runProvider(QuickJS, path.join(providersDir, f));
-    results.push(r);
+  const queue = files.slice();
+  const workers = Array.from({ length: Math.max(1, Math.min(CONCURRENCY, files.length)) }, async () => {
+    while (queue.length) {
+      const f = queue.shift();
+      const r = await runProvider(QuickJS, path.join(providersDir, f));
+      results.push(r);
+      report(r);
+    }
+  });
+  await Promise.all(workers);
+  function report(r) {
     const detail = r.status === 'links'
       ? r.count + ' links'
       : (r.status === 'fields' ? r.count + ' fields: ' + (r.error || '') : (r.error || ''));

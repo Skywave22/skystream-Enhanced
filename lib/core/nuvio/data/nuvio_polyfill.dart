@@ -51,6 +51,9 @@ const String nuvioPolyfillSource = r'''
   G.process.env.TMDB_API_KEY = TMDB_KEY_VALUE;
   G.process.nextTick = function (fn) { Promise.resolve().then(fn); };
 
+  // Every message crossing the bridge must be valid JSON: the host decodes it
+  // with jsonDecode, and a bare string (a log line, say) makes that throw —
+  // which used to kill any plugin that called console.log.
   function bridge(channel, payload) {
     return sendMessage(channel, JSON.stringify(payload === undefined ? {} : payload));
   }
@@ -71,12 +74,19 @@ const String nuvioPolyfillSource = r'''
     }
     return out.join(' ');
   }
+  function logLine(text) {
+    try {
+      sendMessage('nuvio_log', JSON.stringify(String(text)));
+    } catch (e) {
+      // Logging must never break a scraper.
+    }
+  }
   G.console = {
-    log: function () { sendMessage('nuvio_log', fmt(arguments)); },
-    info: function () { sendMessage('nuvio_log', fmt(arguments)); },
-    debug: function () { sendMessage('nuvio_log', fmt(arguments)); },
-    warn: function () { sendMessage('nuvio_log', 'WARN ' + fmt(arguments)); },
-    error: function () { sendMessage('nuvio_log', 'ERROR ' + fmt(arguments)); },
+    log: function () { logLine(fmt(arguments)); },
+    info: function () { logLine(fmt(arguments)); },
+    debug: function () { logLine(fmt(arguments)); },
+    warn: function () { logLine('WARN ' + fmt(arguments)); },
+    error: function () { logLine('ERROR ' + fmt(arguments)); },
     trace: function () {},
     table: function () {},
     group: function () {},
@@ -88,6 +98,8 @@ const String nuvioPolyfillSource = r'''
   // ----------------------------------------------------------------- result
   G.__nuvio_pending = {};
   G.__nuvio_seq = 0;
+  // `payload` is already a JSON document (JSON.stringify of the result), so it
+  // survives the host's jsonDecode.
   G.__nuvio_result = function (payload) { sendMessage('nuvio_result', payload); };
   G.__nuvio_settle = function (id, payload, error) {
     var entry = G.__nuvio_pending[id];

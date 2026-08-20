@@ -405,14 +405,36 @@ class _RepoCardState extends ConsumerState<_RepoCard> {
                   style: theme.textTheme.labelSmall?.copyWith(color: cs.error),
                 ),
               ),
-            TextButton.icon(
-              onPressed: () => setState(() => _expanded = !_expanded),
-              icon: Icon(
-                _expanded
-                    ? Icons.keyboard_arrow_up_rounded
-                    : Icons.keyboard_arrow_down_rounded,
-              ),
-              label: Text(_expanded ? 'Hide plugins' : 'Show plugins'),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () => setState(() => _expanded = !_expanded),
+                  icon: Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                  ),
+                  label: Text(_expanded ? 'Hide plugins' : 'Show plugins'),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => unawaited(
+                    ref
+                        .read(nuvioRepositoryProvider.notifier)
+                        .setAllScrapersEnabled(repo.manifestUrl, true),
+                  ),
+                  child: const Text('Enable all'),
+                ),
+                TextButton(
+                  onPressed: () => unawaited(
+                    ref
+                        .read(nuvioRepositoryProvider.notifier)
+                        .setAllScrapersEnabled(repo.manifestUrl, false),
+                  ),
+                  child: const Text('Disable all'),
+                ),
+                const SizedBox(width: 4),
+              ],
             ),
             if (_expanded)
               for (final scraper in scrapers)
@@ -582,6 +604,10 @@ class _ScraperTileState extends ConsumerState<_ScraperTile> {
                               : 'v${scraper.version}',
                           color: widget.justUpdated ? cs.tertiary : cs.outline,
                         ),
+                        if (!scraper.manifestEnabled) ...[
+                          const SizedBox(width: 4),
+                          _Badge(text: 'off by default', color: cs.outline),
+                        ],
                         if (scraper.limited) ...[
                           const SizedBox(width: 4),
                           _Badge(text: 'limited', color: cs.outline),
@@ -623,9 +649,13 @@ class _ScraperTileState extends ConsumerState<_ScraperTile> {
                 onPressed: _testing ? null : () => unawaited(_test()),
               ),
               Switch(
+                // Repositories often publish torrent providers disabled. The
+                // user can always turn one on; only a platform the plugin
+                // cannot run on keeps the switch locked.
                 value: enabled && !unsupported,
-                onChanged: scraper.manifestEnabled && !unsupported
-                    ? (value) => unawaited(
+                onChanged: unsupported
+                    ? null
+                    : (value) => unawaited(
                         ref
                             .read(nuvioRepositoryProvider.notifier)
                             .setScraperEnabled(
@@ -633,8 +663,7 @@ class _ScraperTileState extends ConsumerState<_ScraperTile> {
                               scraper.id,
                               value,
                             ),
-                      )
-                    : null,
+                      ),
               ),
             ],
           ),

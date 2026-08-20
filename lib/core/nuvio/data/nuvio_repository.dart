@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -234,6 +235,9 @@ class NuvioRepository extends _$NuvioRepository {
     }
   }
 
+  /// Turning a scraper on always wins — including for providers a repository
+  /// ships disabled (torrent providers usually are), which previously could
+  /// not be enabled at all.
   Future<void> setScraperEnabled(
     String manifestUrl,
     String scraperId,
@@ -249,9 +253,57 @@ class NuvioRepository extends _$NuvioRepository {
               ...repo.disabledScrapers.where((id) => id != scraperId),
               if (!enabled) scraperId,
             },
+            enabledOverrides: {
+              ...repo.enabledOverrides.where((id) => id != scraperId),
+              if (enabled) scraperId,
+            },
           ),
     ];
     await _persist(next);
+    if (enabled) {
+      final repo = next.firstWhere((r) => r.manifestUrl == manifestUrl);
+      final scraper = repo.manifest?.scrapers
+          .where((s) => s.id == scraperId)
+          .firstOrNull;
+      if (scraper != null) {
+        unawaited(
+          codeFor(repo, scraper).catchError((Object _) => ''),
+        );
+      }
+    }
+  }
+
+  /// Bulk switch for a repository — "Enable all" / "Disable all".
+  Future<void> setAllScrapersEnabled(String manifestUrl, bool enabled) async {
+    final next = [
+      for (final repo in state.repos)
+        if (repo.manifestUrl != manifestUrl)
+          repo
+        else
+          repo.copyWith(
+            disabledScrapers: enabled
+                ? const <String>{}
+                : {
+                    for (final scraper
+                        in repo.manifest?.scrapers ??
+                            const <NuvioScraperInfo>[])
+                      scraper.id,
+                  },
+            enabledOverrides: enabled
+                ? {
+                    for (final scraper
+                        in repo.manifest?.scrapers ??
+                            const <NuvioScraperInfo>[])
+                      scraper.id,
+                  }
+                : const <String>{},
+          ),
+    ];
+    await _persist(next);
+    if (enabled) {
+      final repo = next.firstWhere((r) => r.manifestUrl == manifestUrl);
+      unawaited(prefetchCode(repo));
+    }
   }
 
   Future<void> setAutoUpdate(bool value) async {

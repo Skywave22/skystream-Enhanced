@@ -143,6 +143,10 @@ class NuvioStreamService {
     var completed = 0;
 
     final updates = StreamController<NuvioProgress>();
+    // Closing the sheet must stop the remaining scrapers instead of leaving
+    // ten QuickJS contexts running in the background.
+    var cancelled = false;
+    updates.onCancel = () => cancelled = true;
 
     NuvioProgress snapshot({bool loading = true}) => NuvioProgress(
       streams: List.of(streams),
@@ -176,6 +180,7 @@ class NuvioStreamService {
     Future<void> runOne(
       ({NuvioRepo repo, NuvioScraperInfo scraper}) entry,
     ) async {
+      if (cancelled) return;
       final scraper = entry.scraper;
       // Settings change what a scraper returns, so they are part of the
       // cache identity — saving a new debrid key invalidates old results.
@@ -241,7 +246,7 @@ class NuvioStreamService {
       final workers = List.generate(
         targets.length < maxConcurrent ? targets.length : maxConcurrent,
         (_) => Future(() async {
-          while (queue.isNotEmpty) {
+          while (queue.isNotEmpty && !cancelled) {
             await runOne(queue.removeAt(0));
           }
         }),
