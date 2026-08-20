@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../network/dio_client_provider.dart';
 import '../models/nuvio_models.dart';
+import 'nuvio_code_store.dart';
 
 part 'nuvio_repository.g.dart';
 
@@ -89,7 +90,8 @@ class NuvioRepository extends _$NuvioRepository {
     };
   }
 
-  final Map<String, String> _codeCache = {};
+  /// Plugin code lives in files, not SharedPreferences — see [NuvioCodeStore].
+  final NuvioCodeStore _codeStore = NuvioCodeStore();
   final Map<String, Map<String, dynamic>> _settingsCache = {};
 
   @override
@@ -209,18 +211,26 @@ class NuvioRepository extends _$NuvioRepository {
   }
 
   Future<void> removeRepository(String manifestUrl) async {
+    final removed = state.repos.firstWhere(
+      (r) => r.manifestUrl == manifestUrl,
+      orElse: () => NuvioRepo(manifestUrl: manifestUrl, addedAt: DateTime.now()),
+    );
     await _persist(
       state.repos.where((r) => r.manifestUrl != manifestUrl).toList(),
     );
-    final prefs = await SharedPreferences.getInstance();
-    for (final key in prefs.getKeys().toList()) {
-      if (key.startsWith('$_codePrefix$manifestUrl')) {
-        await prefs.remove(key);
-      }
+    await _codeStore.deleteRepository(manifestUrl);
+    for (final scraper
+        in removed.manifest?.scrapers ?? const <NuvioScraperInfo>[]) {
+      await clearScraperSettings(scraper.id);
     }
-    _codeCache.removeWhere((key, _) => key.contains(manifestUrl));
-    for (final id in _settingsCache.keys.toList()) {
-      if (id.startsWith(manifestUrl)) _settingsCache.remove(id);
+    // Legacy: code used to be cached in SharedPreferences.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in prefs.getKeys().toList()) {
+        if (key.startsWith('$_codePrefix$manifestUrl')) await prefs.remove(key);
+      }
+    } catch (_) {
+      // Nothing to clean up.
     }
   }
 
@@ -353,45 +363,24 @@ class NuvioRepository extends _$NuvioRepository {
   }
 
   /// Drop cached code for the given scrapers (any version).
-  Future<void> _invalidateCode(String manifestUrl, Set<String> scraperIds) async {
-    _codeCache.removeWhere((key, _) {
-      if (!key.startsWith('$_codePrefix$manifestUrl#')) return false;
-      final id = key.split('#').last.split('@').first;
-      return scraperIds.contains(id);
-    });
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      for (final key in prefs.getKeys().toList()) {
-        if (!key.startsWith('$_codePrefix$manifestUrl#')) continue;
-        final id = key.split('#').last.split('@').first;
-        if (scraperIds.contains(id)) await prefs.remove(key);
-      }
-    } catch (_) {
-      // Memory cache is already clear; disk will be overwritten on download.
-    }
-  }
+  Future<void> _invalidateCode(
+    String manifestUrl,
+    Set<String> scraperIds,
+  ) => _codeStore.deleteScrapers(
+    manifestUrl: manifestUrl,
+    scraperIds: scraperIds,
+  );
 
   /// Remove code cached for versions (or scrapers) the manifest no longer
   /// lists, so an old bundle can never be run after an update.
-  Future<void> _pruneCode(String manifestUrl, NuvioManifest manifest) async {
-    final valid = {
-      for (final scraper in manifest.scrapers) '${scraper.id}@${scraper.version}',
-    };
-    bool isStale(String key) {
-      if (!key.startsWith('$_codePrefix$manifestUrl#')) return false;
-      return !valid.contains(key.split('#').last);
-    }
-
-    _codeCache.removeWhere((key, _) => isStale(key));
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      for (final key in prefs.getKeys().toList()) {
-        if (isStale(key)) await prefs.remove(key);
-      }
-    } catch (_) {
-      // Non-fatal: stale entries are keyed by version and simply unused.
-    }
-  }
+  Future<void> _pruneCode(String manifestUrl, NuvioManifest manifest) =>
+      _codeStore.prune(
+        manifestUrl: manifestUrl,
+        keepIdVersions: {
+          for (final scraper in manifest.scrapers)
+            '${scraper.id}@${scraper.version}',
+        },
+      );
 
   // --- per-scraper settings ------------------------------------------------
 
@@ -440,21 +429,14 @@ class NuvioRepository extends _$NuvioRepository {
     }
   }
 
-  String _codeKey(String manifestUrl, NuvioScraperInfo scraper) =>
-      '$_codePrefix$manifestUrl#${scraper.id}@${scraper.version}';
-
-  /// Scraper source, from memory → disk → network.
+  /// Scraper source, from the on-disk store → network.
   Future<String> codeFor(NuvioRepo repo, NuvioScraperInfo scraper) async {
-    final key = _codeKey(repo.manifestUrl, scraper);
-    final cached = _codeCache[key];
+    final cached = await _codeStore.read(
+      manifestUrl: repo.manifestUrl,
+      scraperId: scraper.id,
+      version: scraper.version,
+    );
     if (cached != null) return cached;
-
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(key);
-    if (stored != null && stored.isNotEmpty) {
-      _codeCache[key] = stored;
-      return stored;
-    }
 
     final uri = repo.codeUrlFor(scraper);
     if (uri == null) {
@@ -481,18 +463,26 @@ class NuvioRepository extends _$NuvioRepository {
       throw NuvioException('${scraper.name} returned an empty file.');
     }
 
-    _codeCache[key] = code;
-    await prefs.setString(key, code);
+    await _codeStore.write(
+      manifestUrl: repo.manifestUrl,
+      scraperId: scraper.id,
+      version: scraper.version,
+      code: code,
+    );
     return code;
   }
+
+  /// Bytes of plugin code cached on disk.
+  Future<int> cachedCodeBytes() => _codeStore.usedBytes();
 
   Future<void> prefetchCode(NuvioRepo repo, {bool force = false}) async {
     for (final scraper in repo.enabledScrapers) {
       try {
         if (force) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.remove(_codeKey(repo.manifestUrl, scraper));
-          _codeCache.remove(_codeKey(repo.manifestUrl, scraper));
+          await _codeStore.deleteScrapers(
+            manifestUrl: repo.manifestUrl,
+            scraperIds: {scraper.id},
+          );
         }
         await codeFor(repo, scraper);
       } catch (error) {

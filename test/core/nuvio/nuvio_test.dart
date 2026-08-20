@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skystream/core/nuvio/data/nuvio_code_store.dart';
 import 'package:skystream/core/nuvio/data/nuvio_crypto.dart';
 import 'package:skystream/core/nuvio/data/nuvio_dom.dart';
 import 'package:skystream/core/nuvio/data/nuvio_polyfill.dart';
@@ -619,6 +622,85 @@ void main() {
       }, scraperId: 's', scraperName: 'P');
       expect(result!.url, startsWith('magnet:?xt=urn:btih:abc123'));
       expect(result.isTorrent, isTrue);
+    });
+  });
+
+  group('plugin code cache', () {
+    test('file names are unique per repository, scraper and version', () {
+      final a = NuvioCodeStore.fileNameFor(
+        manifestUrl: 'https://example.com/manifest.json',
+        scraperId: '4khdhub',
+        version: '1.0.0',
+      );
+      final newer = NuvioCodeStore.fileNameFor(
+        manifestUrl: 'https://example.com/manifest.json',
+        scraperId: '4khdhub',
+        version: '1.0.5',
+      );
+      final otherRepo = NuvioCodeStore.fileNameFor(
+        manifestUrl: 'https://other.example/manifest.json',
+        scraperId: '4khdhub',
+        version: '1.0.0',
+      );
+      expect(a, isNot(newer));
+      expect(a, isNot(otherRepo));
+      expect(a, endsWith('.js'));
+      // No path separators or query characters can leak into the name.
+      expect(a.contains('/'), isFalse);
+    });
+
+    test('unsafe scraper ids are sanitised', () {
+      final name = NuvioCodeStore.fileNameFor(
+        manifestUrl: 'https://example.com/manifest.json?token=x',
+        scraperId: '../../etc/passwd',
+        version: '1.0',
+      );
+      expect(name.contains('..'), isFalse);
+      expect(name.contains('/'), isFalse);
+    });
+
+    test('reads and writes through a temporary directory', () async {
+      final dir = await Directory.systemTemp.createTemp('nuvio_code');
+      addTearDown(() => dir.delete(recursive: true));
+      final store = NuvioCodeStore(root: dir);
+
+      await store.write(
+        manifestUrl: 'https://example.com/manifest.json',
+        scraperId: 'a',
+        version: '1.0.0',
+        code: 'module.exports = {};',
+      );
+      expect(
+        await store.read(
+          manifestUrl: 'https://example.com/manifest.json',
+          scraperId: 'a',
+          version: '1.0.0',
+        ),
+        'module.exports = {};',
+      );
+
+      // A new version is a different file, so the old bundle can't be run.
+      expect(
+        await store.read(
+          manifestUrl: 'https://example.com/manifest.json',
+          scraperId: 'a',
+          version: '1.0.1',
+        ),
+        isNull,
+      );
+
+      await store.prune(
+        manifestUrl: 'https://example.com/manifest.json',
+        keepIdVersions: {'a@1.0.1'},
+      );
+      expect(
+        await store.read(
+          manifestUrl: 'https://example.com/manifest.json',
+          scraperId: 'a',
+          version: '1.0.0',
+        ),
+        isNull,
+      );
     });
   });
 }
