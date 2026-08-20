@@ -380,4 +380,245 @@ void main() {
       expect(dom.html(doc, ''), contains('class="list"'));
     });
   });
+
+  group('plugin metadata (real All-in-One-Nuvio shapes)', () {
+    const scraperJson = {
+      'id': 'allanime',
+      'name': 'AllAnime',
+      'description': 'AllAnime - Anime and Manga content streaming',
+      'version': '1.0.5',
+      'author': 'nuvio',
+      'supportedTypes': ['movie', 'tv'],
+      'filename': 'providers/allanime.js',
+      'enabled': true,
+      'hasSettings': true,
+      'formats': ['mp4', 'mkv', 'm3u8'],
+      'logo': 'https://i.postimg.cc/DwpqLJWV/allanime.png',
+      'contentLanguage': ['en', 'ja'],
+      'limited': true,
+      'disabledPlatforms': ['ios'],
+    };
+
+    test('keeps everything the manifest publishes', () {
+      final scraper = NuvioScraperInfo.fromJson(scraperJson);
+      expect(scraper.version, '1.0.5');
+      expect(scraper.author, 'nuvio');
+      expect(scraper.hasSettings, isTrue);
+      expect(scraper.formats, ['mp4', 'mkv', 'm3u8']);
+      expect(scraper.logo, contains('postimg'));
+      expect(scraper.contentLanguage, ['en', 'ja']);
+      expect(scraper.limited, isTrue);
+    });
+
+    test('platform gating matches Nuvio', () {
+      final scraper = NuvioScraperInfo.fromJson(scraperJson);
+      expect(scraper.isSupportedOn('android'), isTrue);
+      expect(scraper.isSupportedOn('iOS'), isFalse);
+
+      final windowsOnly = NuvioScraperInfo.fromJson({
+        ...scraperJson,
+        'disabledPlatforms': <String>[],
+        'supportedPlatforms': ['windows'],
+      });
+      expect(windowsOnly.isSupportedOn('windows'), isTrue);
+      expect(windowsOnly.isSupportedOn('android'), isFalse);
+    });
+
+    test('a round trip through storage keeps the version', () {
+      final scraper = NuvioScraperInfo.fromJson(scraperJson);
+      final restored = NuvioScraperInfo.fromJson(scraper.toJson());
+      expect(restored.version, '1.0.5');
+      expect(restored.hasSettings, isTrue);
+      expect(restored.limited, isTrue);
+    });
+  });
+
+  group('plugin updates', () {
+    NuvioManifest manifest(List<Map<String, dynamic>> scrapers, String version) =>
+        NuvioManifest.fromJson({
+          'name': 'Repo',
+          'version': version,
+          'scrapers': scrapers,
+        });
+
+    Map<String, dynamic> scraper(String id, String version) => {
+      'id': id,
+      'name': id,
+      'version': version,
+      'filename': 'providers/$id.js',
+    };
+
+    test('compares versions numerically, not as text', () {
+      expect(compareNuvioVersions('1.0.10', '1.0.9') > 0, isTrue);
+      expect(compareNuvioVersions('2.0.0', '1.9.9') > 0, isTrue);
+      expect(compareNuvioVersions('1.0.0', '1.0.0'), 0);
+      expect(compareNuvioVersions('v1.1.0', '1.1.0'), 0);
+      expect(compareNuvioVersions('1.0.0', '1.0.1') < 0, isTrue);
+    });
+
+    test('spots the versions a developer published', () {
+      final installed = manifest([
+        scraper('a', '1.0.0'),
+        scraper('b', '1.0.0'),
+        scraper('gone', '1.0.0'),
+      ], '1.0.0');
+      final fetched = manifest([
+        scraper('a', '1.0.0'),
+        scraper('b', '1.0.5'),
+        scraper('new', '2.0.0'),
+      ], '1.1.0');
+
+      final summary = NuvioUpdateSummary.diff(installed, fetched);
+      expect(summary.hasChanges, isTrue);
+      expect(summary.updated.single.scraper.id, 'b');
+      expect(summary.updated.single.from, '1.0.0');
+      expect(summary.updated.single.to, '1.0.5');
+      expect(summary.added.single.id, 'new');
+      expect(summary.removed, ['gone']);
+      expect(summary.changedScraperIds, {'b', 'new'});
+      expect(summary.changeCount, 3);
+      expect(summary.label, '1 updated · 1 new · 1 removed');
+    });
+
+    test('no changes means nothing to re-download', () {
+      final same = manifest([scraper('a', '1.0.0')], '1.0.0');
+      final summary = NuvioUpdateSummary.diff(same, same);
+      expect(summary.hasChanges, isFalse);
+      expect(summary.changedScraperIds, isEmpty);
+      expect(summary.label, 'Up to date');
+    });
+
+    test('a first install counts every scraper as new', () {
+      final summary = NuvioUpdateSummary.diff(
+        null,
+        manifest([scraper('a', '1.0.0'), scraper('b', '1.0.0')], '1.0.0'),
+      );
+      expect(summary.added, hasLength(2));
+      expect(summary.hasChanges, isTrue);
+    });
+  });
+
+  group('scraper settings form', () {
+    const layout = [
+      {'type': 'header', 'label': 'Account'},
+      {
+        'type': 'text',
+        'key': 'apiKey',
+        'label': 'API key',
+        'placeholder': 'paste here',
+        'isPassword': true,
+        'description': 'From your provider dashboard',
+      },
+      {
+        'type': 'select',
+        'key': 'quality',
+        'label': 'Max quality',
+        'defaultValue': '1080p',
+        'options': [
+          {'label': '4K', 'value': '2160p'},
+          {'label': '1080p', 'value': '1080p'},
+        ],
+      },
+      {'type': 'toggle', 'key': 'dubbed', 'label': 'Dubbed', 'defaultValue': true},
+      {'type': 'nonsense', 'key': 'x'},
+    ];
+
+    test('parses the field types Nuvio renders and drops unknown ones', () {
+      final fields = NuvioSettingsField.parseLayout(layout);
+      expect(fields, hasLength(4));
+      expect(fields[0].type, 'header');
+      expect(fields[1].isPassword, isTrue);
+      expect(fields[1].placeholder, 'paste here');
+      expect(fields[2].options.map((o) => o.value), ['2160p', '1080p']);
+      expect(fields[3].defaultValue, true);
+    });
+
+    test('defaults are what the plugin sees before the user edits anything', () {
+      final defaults = NuvioSettingsField.defaults(
+        NuvioSettingsField.parseLayout(layout),
+      );
+      expect(defaults, {'quality': '1080p', 'dubbed': true});
+    });
+
+    test('a malformed layout is empty, not a crash', () {
+      expect(NuvioSettingsField.parseLayout('nope'), isEmpty);
+      expect(NuvioSettingsField.parseLayout(null), isEmpty);
+    });
+  });
+
+  group('stream results from real providers', () {
+    test('takes headers out of behaviorHints.proxyHeaders.request', () {
+      // Shape returned by 4KHDHub: the CDN 403s without that Referer.
+      final result = NuvioStreamResult.fromJson(const {
+        'name': '4KHDHub | 2160p',
+        'title': 'Spider-Man',
+        'url': 'https://cdn.example/file.mkv',
+        'behaviorHints': {
+          'notWebReady': true,
+          'proxyHeaders': {
+            'request': {
+              'Referer': 'https://4khdhub.one/',
+              'User-Agent': 'Mozilla/5.0',
+            },
+          },
+        },
+      }, scraperId: 's', scraperName: '4KHDHub');
+
+      expect(result, isNotNull);
+      expect(result!.headers?['Referer'], 'https://4khdhub.one/');
+      expect(result.headers?['User-Agent'], 'Mozilla/5.0');
+      expect(result.toStreamResult().headers?['Referer'], isNotNull);
+    });
+
+    test('strips the zero-width sort padding providers add', () {
+      final result = NuvioStreamResult.fromJson(const {
+        'name': '\u200b\ufeff\u200bProvider | 1080p',
+        'title': '\ufeffMovie title',
+        'url': 'https://cdn.example/a.mkv',
+      }, scraperId: 's', scraperName: 'P');
+
+      expect(result!.title, 'Movie title');
+      expect(result.name, 'Provider | 1080p');
+    });
+
+    test('derives quality when only the title carries it', () {
+      final result = NuvioStreamResult.fromJson(const {
+        'title': 'Movie 2160p HDR',
+        'url': 'https://cdn.example/a.mkv',
+      }, scraperId: 's', scraperName: 'P');
+      expect(result!.quality, '2160p');
+    });
+
+    test('formats a byte count when the provider sends one', () {
+      final result = NuvioStreamResult.fromJson(const {
+        'title': 'Movie',
+        'url': 'https://cdn.example/a.mkv',
+        'sizeBytes': 2147483648,
+      }, scraperId: 's', scraperName: 'P');
+      expect(result!.size, '2.0 GB');
+    });
+
+    test('accepts alternative url fields and object urls', () {
+      final asObject = NuvioStreamResult.fromJson(const {
+        'title': 'A',
+        'url': {'url': 'https://cdn.example/b.mkv'},
+      }, scraperId: 's', scraperName: 'P');
+      expect(asObject!.url, 'https://cdn.example/b.mkv');
+
+      final asLink = NuvioStreamResult.fromJson(const {
+        'title': 'A',
+        'link': 'https://cdn.example/c.mkv',
+      }, scraperId: 's', scraperName: 'P');
+      expect(asLink!.url, 'https://cdn.example/c.mkv');
+    });
+
+    test('an infoHash-only result becomes a magnet', () {
+      final result = NuvioStreamResult.fromJson(const {
+        'title': 'T',
+        'infoHash': 'abc123',
+      }, scraperId: 's', scraperName: 'P');
+      expect(result!.url, startsWith('magnet:?xt=urn:btih:abc123'));
+      expect(result.isTorrent, isTrue);
+    });
+  });
 }

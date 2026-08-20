@@ -211,13 +211,7 @@ class NuvioRuntime {
           tmdbKeyJson: jsonEncode(_tmdbKey()),
         ),
       );
-      runtime.evaluate('''
-        var module = { exports: {} };
-        var exports = module.exports;
-        (function() {
-          $code
-        })();
-      ''');
+      runtime.evaluate(_wrapScraper(code));
 
       final seasonArg = season?.toString() ?? 'undefined';
       final episodeArg = episode?.toString() ?? 'undefined';
@@ -275,6 +269,133 @@ class NuvioRuntime {
       }
     }
   }
+
+  /// Runs a scraper's `onSettings()` and returns the form it describes.
+  ///
+  /// Nuvio plugins ship their own settings UI as JSON (`header`, `info`,
+  /// `text`, `select`, `toggle`); 54 of the 61 providers in All-in-One-Nuvio
+  /// declare `hasSettings: true`, and several of them (debrid keys, language,
+  /// quality caps, proxies) return nothing useful until they are filled in.
+  Future<List<NuvioSettingsField>> settingsLayout({
+    required String code,
+    required String scraperId,
+    Map<String, dynamic> settings = const {},
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    final runtime = getJavascriptRuntime(
+      xhr: false,
+      extraArgs: {
+        'stackSize': 4 * 1024 * 1024,
+        'memoryLimit': 128 * 1024 * 1024,
+      },
+    );
+    final completer = Completer<String>();
+    final dom = NuvioDom();
+    Timer? pump;
+
+    void evalSafe(String script) {
+      try {
+        runtime.evaluate(script);
+      } catch (error) {
+        if (kDebugMode) debugPrint('[Nuvio] settings eval failed: $error');
+      }
+    }
+
+    Map<String, dynamic> asMap(dynamic args) => args is Map
+        ? Map<String, dynamic>.from(args)
+        : jsonDecode(args.toString()) as Map<String, dynamic>;
+
+    try {
+      runtime.onMessage('nuvio_result', (dynamic args) {
+        if (!completer.isCompleted) {
+          completer.complete(args is String ? args : jsonEncode(args));
+        }
+        return null;
+      });
+      runtime.onMessage('nuvio_log', (dynamic args) {
+        if (kDebugMode) debugPrint('[Nuvio:settings] $args');
+        return null;
+      });
+      runtime.onMessage(
+        'nuvio_crypto',
+        (dynamic args) => NuvioCrypto.handle(asMap(args)),
+      );
+      runtime.onMessage('nuvio_dom_load', (dynamic args) {
+        return dom.load(asMap(args)['html']?.toString() ?? '');
+      });
+      runtime.onMessage('nuvio_fetch', (dynamic args) {
+        final data = asMap(args);
+        if (data['id'] == null) return null;
+        unawaited(_performFetch(data, evalSafe));
+        return null;
+      });
+
+      var tickCounter = 0;
+      pump = Timer.periodic(const Duration(milliseconds: 8), (_) {
+        try {
+          runtime.executePendingJob();
+          if (++tickCounter % 4 == 0) {
+            runtime.evaluate('__nuvio_tick && __nuvio_tick();');
+          }
+        } catch (_) {
+          // Ignore microtask failures.
+        }
+      });
+
+      runtime.evaluate(
+        buildNuvioPolyfill(
+          scraperIdJson: jsonEncode(scraperId),
+          settingsJson: jsonEncode(settings),
+          tmdbKeyJson: jsonEncode(_tmdbKey()),
+        ),
+      );
+      runtime.evaluate(_wrapScraper(code));
+      runtime.evaluate(_settingsCall);
+
+      final raw = await completer.future.timeout(
+        timeout,
+        onTimeout: () => jsonEncode({'error': 'Timed out reading settings'}),
+      );
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const [];
+      final error = decoded['error'];
+      if (error != null) throw NuvioRuntimeException(error.toString());
+      return NuvioSettingsField.parseLayout(decoded['layout']);
+    } finally {
+      pump?.cancel();
+      dom.clear();
+      try {
+        runtime.dispose();
+      } catch (_) {
+        // Disposal races with in-flight jobs on some platforms; harmless.
+      }
+    }
+  }
+
+  /// Nuvio wraps every scraper in a CommonJS shell before calling into it.
+  static String _wrapScraper(String code) =>
+      'var module = { exports: {} };\n'
+      'var exports = module.exports;\n'
+      '(function() {\n$code\n})();';
+
+  static const String _settingsCall = '''
+    (async function () {
+      try {
+        var onSettings = (module.exports && module.exports.onSettings) ||
+            globalThis.onSettings;
+        if (typeof onSettings !== 'function') {
+          __nuvio_result(JSON.stringify({ layout: [] }));
+          return;
+        }
+        var layout = await onSettings();
+        __nuvio_result(JSON.stringify({ layout: layout || [] }));
+      } catch (e) {
+        __nuvio_result(JSON.stringify({
+          error: (e && e.message) ? e.message : String(e),
+        }));
+      }
+    })();
+  ''';
 
   Future<void> _performFetch(
     Map<String, dynamic> data,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -151,8 +152,9 @@ class NuvioStreamService {
       isLoading: loading,
     );
 
-    String cacheKey(String scraperId) =>
-        '$scraperId|$resolvedId|$type|${season ?? ''}|${episode ?? ''}';
+    String cacheKey(String scraperId, [Object? settingsStamp]) =>
+        '$scraperId|$resolvedId|$type|${season ?? ''}|${episode ?? ''}'
+        '|${settingsStamp ?? ''}';
 
     void publish(String scraperId, String name, List<NuvioStreamResult> found) {
       var added = 0;
@@ -175,7 +177,15 @@ class NuvioStreamService {
       ({NuvioRepo repo, NuvioScraperInfo scraper}) entry,
     ) async {
       final scraper = entry.scraper;
-      final key = cacheKey(scraper.id);
+      // Settings change what a scraper returns, so they are part of the
+      // cache identity — saving a new debrid key invalidates old results.
+      final settings = scraper.hasSettings
+          ? await repository.scraperSettings(scraper.id)
+          : const <String, dynamic>{};
+      final key = cacheKey(
+        scraper.id,
+        '${scraper.version}|${settings.isEmpty ? '' : jsonEncode(settings)}',
+      );
       final cached = _cache[key];
       if (cached != null && cached.isFresh) {
         publish(scraper.id, scraper.name, cached.results);
@@ -192,6 +202,9 @@ class NuvioStreamService {
 
       try {
         final code = await repository.codeFor(entry.repo, scraper);
+        // Whatever the user filled into the scraper's own settings form
+        // (debrid keys, language, quality caps) travels with every run, the
+        // way Nuvio passes SCRAPER_SETTINGS.
         final results = await runtime.run(
           code: code,
           scraperId: scraper.id,
@@ -200,6 +213,7 @@ class NuvioStreamService {
           mediaType: type,
           season: season,
           episode: episode,
+          settings: settings,
         );
         _cache[key] = _CacheEntry(results);
         publish(scraper.id, scraper.name, results);

@@ -34,6 +34,10 @@ const String nuvioPolyfillSource = r'''
   G.NUVIO_SCRAPER_ID = G.SCRAPER_ID;
   G.SCRAPER_SETTINGS = __NUVIO_SETTINGS__;
   G.NUVIO_SETTINGS = G.SCRAPER_SETTINGS;
+  // Real providers read any of these: globalThis/global/window.SCRAPER_SETTINGS,
+  // with `SETTINGS` / `settings` as fallbacks (see 4khdhub, showbox, netmirror).
+  G.SETTINGS = G.SCRAPER_SETTINGS;
+  G.settings = G.SCRAPER_SETTINGS;
   G.getScraperSetting = function (key, fallback) {
     var s = G.SCRAPER_SETTINGS || {};
     return s[key] !== undefined ? s[key] : fallback;

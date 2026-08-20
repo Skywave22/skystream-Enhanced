@@ -16,27 +16,46 @@ class NuvioState {
   final bool enabled;
   final bool isLoading;
 
+  /// Check every repository's manifest on launch, the way Nuvio does — this is
+  /// how a plugin the developer bumped to a new version reaches the user.
+  final bool autoUpdate;
+
   const NuvioState({
     this.repos = const [],
     this.enabled = true,
     this.isLoading = true,
+    this.autoUpdate = true,
   });
 
   List<({NuvioRepo repo, NuvioScraperInfo scraper})> get activeScrapers => [
     if (enabled)
       for (final repo in repos)
         for (final scraper in repo.enabledScrapers)
-          (repo: repo, scraper: scraper),
+          if (scraper.isSupportedOn(NuvioRepository.platformName))
+            (repo: repo, scraper: scraper),
   ];
+
+  /// Scrapers whose version changed on the most recent refresh.
+  Set<String> get recentlyUpdatedScraperIds => {
+    for (final repo in repos)
+      ...?repo.lastUpdate?.changedScraperIds,
+  };
+
+  int get pendingUpdateCount => repos.fold(
+    0,
+    (total, repo) => total + (repo.lastUpdate?.changeCount ?? 0),
+  );
 
   NuvioState copyWith({
     List<NuvioRepo>? repos,
     bool? enabled,
     bool? isLoading,
+    bool? autoUpdate,
   }) => NuvioState(
     repos: repos ?? this.repos,
     enabled: enabled ?? this.enabled,
     isLoading: isLoading ?? this.isLoading,
+    autoUpdate: autoUpdate ?? this.autoUpdate,
   );
 }
 
@@ -49,9 +68,29 @@ class NuvioState {
 class NuvioRepository extends _$NuvioRepository {
   static const String _reposKey = 'nuvio_repos_v1';
   static const String _enabledKey = 'nuvio_enabled_v1';
+  static const String _autoUpdateKey = 'nuvio_auto_update_v1';
   static const String _codePrefix = 'nuvio_code_';
+  static const String _settingsPrefix = 'nuvio_scraper_settings_';
+
+  /// How long after the last check a launch triggers a new one.
+  static const Duration autoUpdateInterval = Duration(hours: 6);
+
+  /// Value matched against a scraper's `supportedPlatforms` /
+  /// `disabledPlatforms`, like Nuvio's `currentPluginPlatform()`.
+  static String get platformName {
+    if (kIsWeb) return 'web';
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android => 'android',
+      TargetPlatform.iOS => 'ios',
+      TargetPlatform.macOS => 'macos',
+      TargetPlatform.windows => 'windows',
+      TargetPlatform.linux => 'linux',
+      TargetPlatform.fuchsia => 'fuchsia',
+    };
+  }
 
   final Map<String, String> _codeCache = {};
+  final Map<String, Map<String, dynamic>> _settingsCache = {};
 
   @override
   NuvioState build() {
@@ -81,7 +120,9 @@ class NuvioRepository extends _$NuvioRepository {
         repos: repos,
         enabled: prefs.getBool(_enabledKey) ?? true,
         isLoading: false,
+        autoUpdate: prefs.getBool(_autoUpdateKey) ?? true,
       );
+      unawaited(autoUpdateIfDue());
     } catch (error) {
       if (kDebugMode) debugPrint('[Nuvio] load failed: $error');
       state = const NuvioState(repos: [], isLoading: false);
@@ -142,10 +183,13 @@ class NuvioRepository extends _$NuvioRepository {
     if (url.isEmpty) throw const NuvioException('Enter a plugin manifest URL.');
 
     final manifest = await fetchManifest(url);
+    final now = DateTime.now();
     final repo = NuvioRepo(
       manifestUrl: url,
       manifest: manifest,
-      addedAt: DateTime.now(),
+      addedAt: now,
+      lastCheckedAt: now,
+      lastUpdatedAt: now,
     );
 
     final next = List<NuvioRepo>.of(state.repos);
@@ -174,7 +218,10 @@ class NuvioRepository extends _$NuvioRepository {
         await prefs.remove(key);
       }
     }
-    _codeCache.removeWhere((key, _) => key.startsWith(manifestUrl));
+    _codeCache.removeWhere((key, _) => key.contains(manifestUrl));
+    for (final id in _settingsCache.keys.toList()) {
+      if (id.startsWith(manifestUrl)) _settingsCache.remove(id);
+    }
   }
 
   Future<void> setScraperEnabled(
@@ -197,22 +244,199 @@ class NuvioRepository extends _$NuvioRepository {
     await _persist(next);
   }
 
-  Future<void> refreshAll() async {
-    if (state.repos.isEmpty) return;
-    state = state.copyWith(isLoading: true);
-    final refreshed = <NuvioRepo>[];
-    for (final repo in state.repos) {
-      try {
-        final manifest = await fetchManifest(repo.manifestUrl);
-        refreshed.add(repo.copyWith(manifest: manifest, clearError: true));
-      } catch (error) {
-        refreshed.add(repo.copyWith(errorMessage: error.toString()));
-      }
+  Future<void> setAutoUpdate(bool value) async {
+    state = state.copyWith(autoUpdate: value);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_autoUpdateKey, value);
+    } catch (_) {
+      // Session-only fallback.
     }
-    _codeCache.clear();
-    await _persist(refreshed);
-    for (final repo in refreshed) {
-      unawaited(prefetchCode(repo, force: true));
+    if (value) unawaited(autoUpdateIfDue(force: true));
+  }
+
+  /// Launch-time update check, matching Nuvio's `initialize()`: every stored
+  /// repository is re-fetched so a version the developer published upstream
+  /// lands in the app without the user doing anything.
+  Future<void> autoUpdateIfDue({bool force = false}) async {
+    if (!state.autoUpdate || state.repos.isEmpty) return;
+    final due = state.repos.where((repo) {
+      final checked = repo.lastCheckedAt;
+      return force ||
+          checked == null ||
+          DateTime.now().difference(checked) >= autoUpdateInterval;
+    }).toList();
+    if (due.isEmpty) return;
+    for (final repo in due) {
+      await refreshRepository(repo.manifestUrl, silent: true);
+    }
+  }
+
+  /// Re-fetch one repository's manifest, work out what the developer changed,
+  /// drop the cached code for anything whose version moved, and warm the new
+  /// code so the next playback isn't slowed by downloads.
+  Future<NuvioUpdateSummary?> refreshRepository(
+    String manifestUrl, {
+    bool silent = false,
+  }) async {
+    final index = state.repos.indexWhere((r) => r.manifestUrl == manifestUrl);
+    if (index < 0) return null;
+
+    void patch(NuvioRepo Function(NuvioRepo repo) update) {
+      final next = List<NuvioRepo>.of(state.repos);
+      final at = next.indexWhere((r) => r.manifestUrl == manifestUrl);
+      if (at < 0) return;
+      next[at] = update(next[at]);
+      state = state.copyWith(repos: next);
+    }
+
+    patch((repo) => repo.copyWith(isRefreshing: true, clearError: true));
+
+    try {
+      final manifest = await fetchManifest(manifestUrl);
+      final installed = state.repos
+          .firstWhere((r) => r.manifestUrl == manifestUrl)
+          .manifest;
+      final summary = NuvioUpdateSummary.diff(installed, manifest);
+      final now = DateTime.now();
+
+      // A changed version means the cached file is stale: forget it so the
+      // next run downloads the developer's new code.
+      if (summary.changedScraperIds.isNotEmpty) {
+        await _invalidateCode(manifestUrl, summary.changedScraperIds);
+      }
+      await _pruneCode(manifestUrl, manifest);
+
+      patch(
+        (repo) => repo.copyWith(
+          manifest: manifest,
+          isRefreshing: false,
+          clearError: true,
+          lastCheckedAt: now,
+          lastUpdatedAt: summary.hasChanges ? now : repo.lastUpdatedAt,
+          lastUpdate: summary,
+          clearLastUpdate: !summary.hasChanges,
+        ),
+      );
+      await _persist(state.repos);
+
+      if (summary.changedScraperIds.isNotEmpty) {
+        final repo = state.repos.firstWhere(
+          (r) => r.manifestUrl == manifestUrl,
+        );
+        unawaited(prefetchCode(repo));
+      }
+      return summary;
+    } catch (error) {
+      patch(
+        (repo) => repo.copyWith(
+          isRefreshing: false,
+          errorMessage: error.toString(),
+          lastCheckedAt: DateTime.now(),
+        ),
+      );
+      if (kDebugMode) debugPrint('[Nuvio] refresh $manifestUrl: $error');
+      if (!silent) rethrow;
+      return null;
+    }
+  }
+
+  /// Check every repository. Returns how many plugins changed in total.
+  Future<int> refreshAll() async {
+    if (state.repos.isEmpty) return 0;
+    var changes = 0;
+    for (final repo in List<NuvioRepo>.of(state.repos)) {
+      final summary = await refreshRepository(repo.manifestUrl, silent: true);
+      changes += summary?.changeCount ?? 0;
+    }
+    return changes;
+  }
+
+  /// Drop cached code for the given scrapers (any version).
+  Future<void> _invalidateCode(String manifestUrl, Set<String> scraperIds) async {
+    _codeCache.removeWhere((key, _) {
+      if (!key.startsWith('$_codePrefix$manifestUrl#')) return false;
+      final id = key.split('#').last.split('@').first;
+      return scraperIds.contains(id);
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in prefs.getKeys().toList()) {
+        if (!key.startsWith('$_codePrefix$manifestUrl#')) continue;
+        final id = key.split('#').last.split('@').first;
+        if (scraperIds.contains(id)) await prefs.remove(key);
+      }
+    } catch (_) {
+      // Memory cache is already clear; disk will be overwritten on download.
+    }
+  }
+
+  /// Remove code cached for versions (or scrapers) the manifest no longer
+  /// lists, so an old bundle can never be run after an update.
+  Future<void> _pruneCode(String manifestUrl, NuvioManifest manifest) async {
+    final valid = {
+      for (final scraper in manifest.scrapers) '${scraper.id}@${scraper.version}',
+    };
+    bool isStale(String key) {
+      if (!key.startsWith('$_codePrefix$manifestUrl#')) return false;
+      return !valid.contains(key.split('#').last);
+    }
+
+    _codeCache.removeWhere((key, _) => isStale(key));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in prefs.getKeys().toList()) {
+        if (isStale(key)) await prefs.remove(key);
+      }
+    } catch (_) {
+      // Non-fatal: stale entries are keyed by version and simply unused.
+    }
+  }
+
+  // --- per-scraper settings ------------------------------------------------
+
+  /// Values saved from a scraper's `onSettings()` form. Handed to the plugin
+  /// as `SCRAPER_SETTINGS` on every run, exactly like Nuvio.
+  Future<Map<String, dynamic>> scraperSettings(String scraperId) async {
+    final cached = _settingsCache[scraperId];
+    if (cached != null) return cached;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('$_settingsPrefix$scraperId');
+      if (raw == null || raw.isEmpty) return const {};
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const {};
+      final map = Map<String, dynamic>.from(decoded);
+      _settingsCache[scraperId] = map;
+      return map;
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Future<void> saveScraperSettings(
+    String scraperId,
+    Map<String, dynamic> values,
+  ) async {
+    _settingsCache[scraperId] = values;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        '$_settingsPrefix$scraperId',
+        jsonEncode(values),
+      );
+    } catch (error) {
+      if (kDebugMode) debugPrint('[Nuvio] save settings $scraperId: $error');
+    }
+  }
+
+  Future<void> clearScraperSettings(String scraperId) async {
+    _settingsCache.remove(scraperId);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('$_settingsPrefix$scraperId');
+    } catch (_) {
+      // Nothing to do.
     }
   }
 

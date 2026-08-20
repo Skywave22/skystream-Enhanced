@@ -32,6 +32,14 @@ const TIMEOUT_MS = Number(flag('timeout', 45)) * 1000;
 const ONLY = (flag('only', '') || '').split(',').filter(Boolean);
 const TMDB_KEY = flag('key', '439c478a771f35c05022f9feabcca01c');
 const VERBOSE = args.includes('--verbose');
+const SETTINGS_MODE = args.includes('--settings');
+const SETTINGS_VALUES = {};
+args.forEach((a, i) => {
+  if (a === '--set' && args[i + 1]) {
+    const [k, ...rest] = args[i + 1].split('=');
+    SETTINGS_VALUES[k] = rest.join('=');
+  }
+});
 
 function loadPolyfill() {
   const dart = fs.readFileSync(
@@ -51,7 +59,7 @@ function loadPolyfill() {
 const POLYFILL_FILE = flag('polyfill', null);
 const POLYFILL = (POLYFILL_FILE ? fs.readFileSync(POLYFILL_FILE, 'utf8') : loadPolyfill())
   .replace(/__NUVIO_SCRAPER_ID__/g, JSON.stringify('harness'))
-  .replace(/__NUVIO_SETTINGS__/g, '{}')
+  .replace(/__NUVIO_SETTINGS__/g, JSON.stringify(SETTINGS_VALUES))
   .replace(/__NUVIO_TMDB_KEY__/g, JSON.stringify(TMDB_KEY));
 
 // --------------------------------------------------------------- dom channels
@@ -252,7 +260,17 @@ async function runProvider(QuickJS, file) {
     evalOrThrow('var module = { exports: {} }; var exports = module.exports; (function(){\n' + code + '\n})();', 'load');
     const seasonArg = SEASON == null ? 'undefined' : SEASON;
     const episodeArg = EPISODE == null ? 'undefined' : EPISODE;
-    evalOrThrow(
+    if (SETTINGS_MODE) {
+      evalOrThrow(
+        '(async function(){ try {' +
+        ' var os = (module.exports && module.exports.onSettings) || globalThis.onSettings;' +
+        ' if (typeof os !== "function") { __nuvio_result(JSON.stringify({layout: []})); return; }' +
+        ' var layout = await os();' +
+        ' __nuvio_result(JSON.stringify({layout: layout || []}));' +
+        ' } catch (e) { __nuvio_result(JSON.stringify({error: (e && e.message) ? e.message : String(e)})); } })();',
+        'settings'
+      );
+    } else evalOrThrow(
       '(async function(){ try {' +
       ' var gs = (module.exports && module.exports.getStreams) || globalThis.getStreams;' +
       ' if (!gs) { __nuvio_result(JSON.stringify({error: "getStreams not found"})); return; }' +
@@ -282,6 +300,13 @@ async function runProvider(QuickJS, file) {
     } else {
       const parsed = JSON.parse(resultJson);
       if (parsed.error) { status = 'error'; error = parsed.error; }
+      else if (SETTINGS_MODE) {
+        const layout = parsed.layout || [];
+        streams = layout;
+        const types = [...new Set(layout.map((f) => f && f.type))].join(',');
+        status = layout.length ? 'fields' : 'none';
+        error = layout.length ? types : '';
+      }
       else { streams = parsed.streams || []; status = streams.length ? 'links' : 'empty'; }
     }
   } catch (e) {
@@ -325,7 +350,9 @@ async function doFetch(payload) {
   for (const f of files) {
     const r = await runProvider(QuickJS, path.join(providersDir, f));
     results.push(r);
-    const detail = r.status === 'links' ? r.count + ' links' : (r.error || '');
+    const detail = r.status === 'links'
+      ? r.count + ' links'
+      : (r.status === 'fields' ? r.count + ' fields: ' + (r.error || '') : (r.error || ''));
     console.log(
       String(r.name).padEnd(20),
       String(r.status).padEnd(8),
@@ -334,6 +361,13 @@ async function doFetch(payload) {
     );
   }
   const by = (s) => results.filter((r) => r.status === s).length;
+  if (SETTINGS_MODE) {
+    console.log('\n--- ' + results.length + ' providers: with-settings-form=' + by('fields') +
+      ' none=' + by('none') + ' error=' + by('error') +
+      ' crash=' + by('crash') + ' timeout=' + by('timeout'));
+    fs.writeFileSync('/tmp/nuvio_settings_results.json', JSON.stringify(results, null, 2));
+    return;
+  }
   console.log('\n--- ' + results.length + ' providers: links=' + by('links') +
     ' empty=' + by('empty') + ' error=' + by('error') +
     ' crash=' + by('crash') + ' timeout=' + by('timeout'));
