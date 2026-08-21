@@ -18,11 +18,17 @@ class EpisodePickerSheet extends ConsumerWidget {
   final MultimediaItem target;
   final SourcesMode mode;
 
+  /// The screen that opened the picker. The sources sheet is shown from this
+  /// context *after* the picker closes — using the picker's own (defunct)
+  /// context would silently do nothing.
+  final BuildContext hostContext;
+
   const EpisodePickerSheet({
     super.key,
     required this.movieId,
     required this.seasons,
     required this.target,
+    required this.hostContext,
     this.source,
     this.mode = SourcesMode.play,
   });
@@ -44,6 +50,7 @@ class EpisodePickerSheet extends ConsumerWidget {
         movieId: movieId,
         seasons: seasons,
         target: target,
+        hostContext: context,
         source: source,
         mode: mode,
       ),
@@ -194,7 +201,7 @@ class EpisodePickerSheet extends ConsumerWidget {
                             );
                             Navigator.of(context).pop();
                             PluginSourcesSheet.open(
-                              context,
+                              hostContext,
                               target,
                               episode: episode,
                               mode: mode,
