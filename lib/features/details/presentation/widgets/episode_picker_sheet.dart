@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/domain/entity/multimedia_item.dart';
 import '../../../sources/presentation/plugin_sources_sheet.dart';
+import '../../../sources/presentation/source_sheet_widgets.dart';
 import '../tmdb_details_controller.dart';
 
 /// Season / episode picker for "Play from plugins" on a series.
