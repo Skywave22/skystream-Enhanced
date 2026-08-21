@@ -67,11 +67,10 @@ class NuvioStreamService {
 
   final Ref _ref;
 
-  /// Nuvio itself launches every scraper at once. A phone can't hold 60 QuickJS
-  /// contexts, but three at a time was the reason most providers never got to
-  /// answer before the user gave up. Eight keeps memory and UI-thread
-  /// contention sane while still finishing a 60-scraper repository in about
-  /// the time the slowest handful take.
+  /// Nuvio itself launches every scraper at once. Plugins now run on worker
+  /// isolates, so eight in flight is real parallelism rather than eight jobs
+  /// fighting over the UI thread — a 60-scraper repository finishes in about
+  /// the time the slowest handful take, without stuttering the app.
   static const int maxConcurrent = 8;
 
   /// Repeat visits to the same episode shouldn't re-run 60 scrapers.

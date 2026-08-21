@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/nuvio/data/nuvio_code_store.dart';
+import 'package:skystream/core/nuvio/data/nuvio_engine.dart';
+import 'package:skystream/core/nuvio/data/nuvio_isolate_pool.dart';
 import 'package:skystream/core/nuvio/data/nuvio_crypto.dart';
 import 'package:skystream/core/nuvio/data/nuvio_dom.dart';
 import 'package:skystream/core/nuvio/data/nuvio_polyfill.dart';
@@ -780,6 +783,199 @@ void main() {
       final restored = NuvioRepo.fromJson(repo.toJson())!;
       expect(restored.enabledOverrides, {'torrentio', 'other'});
       expect(restored.disabledScrapers, {'x'});
+    });
+  });
+
+  group('plugin worker isolates', () {
+    test('a request survives the trip to another isolate', () {
+      const request = NuvioEngineRequest(
+        code: 'module.exports = {};',
+        scraperId: 'repo#a',
+        scraperName: 'A',
+        tmdbId: '603',
+        mediaType: 'tv',
+        season: 2,
+        episode: 5,
+        settings: {'apiKey': 'x', 'dubbed': true},
+        tmdbKey: 'key',
+        timeoutMs: 1234,
+        mode: 'settings',
+      );
+      final restored = NuvioEngineRequest.fromMap(request.toMap());
+      expect(restored.code, request.code);
+      expect(restored.scraperId, 'repo#a');
+      expect(restored.season, 2);
+      expect(restored.episode, 5);
+      expect(restored.settings, {'apiKey': 'x', 'dubbed': true});
+      expect(restored.tmdbKey, 'key');
+      expect(restored.timeoutMs, 1234);
+      expect(restored.mode, 'settings');
+    });
+
+    test('the payload contains only isolate-sendable values', () {
+      const request = NuvioEngineRequest(
+        code: 'x',
+        scraperId: 'a',
+        scraperName: 'A',
+        settings: {'n': 1, 's': 'v', 'b': false},
+      );
+      // jsonEncode succeeds only for plain values, which is exactly the
+      // constraint Isolate.send imposes on us.
+      expect(() => jsonEncode(request.toMap()), returnsNormally);
+    });
+
+    test('the pool answers with JSON instead of hanging or throwing', () async {
+      final pool = NuvioIsolatePool(size: 1);
+      addTearDown(pool.dispose);
+
+      // QuickJS is not available in the test host, so this exercises the
+      // spawn / send / reply / error path rather than real scraping: the
+      // contract is that a caller always gets a JSON document back.
+      final raw = await pool
+          .execute(
+            const NuvioEngineRequest(
+              code: 'module.exports = { getStreams: function () { return []; } };',
+              scraperId: 'test',
+              scraperName: 'Test',
+              tmdbId: '603',
+              timeoutMs: 4000,
+            ),
+          )
+          .timeout(const Duration(seconds: 40));
+
+      final decoded = jsonDecode(raw);
+      expect(decoded, isA<Map<String, dynamic>>());
+      expect(
+        (decoded as Map).containsKey('streams') || decoded.containsKey('error'),
+        isTrue,
+      );
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
+    test('a disposed pool refuses new work', () {
+      final pool = NuvioIsolatePool(size: 1)..dispose();
+      expect(
+        () => pool.execute(
+          const NuvioEngineRequest(code: '', scraperId: 'a', scraperName: 'A'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('scrapers are wrapped in the CommonJS shell Nuvio uses', () {
+      final wrapped = NuvioEngine.wrapScraper('var a = 1;');
+      expect(wrapped, contains('var module = { exports: {} };'));
+      expect(wrapped, contains('var exports = module.exports;'));
+      expect(wrapped, contains('var a = 1;'));
+      expect(wrapped.trim().endsWith('})();'), isTrue);
+    });
+  });
+
+  group('plugin HTTP layer', () {
+    late HttpServer server;
+    late String base;
+    final requests = <HttpRequest>[];
+
+    setUp(() async {
+      requests.clear();
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      base = 'http://127.0.0.1:${server.port}';
+      server.listen((request) async {
+        requests.add(request);
+        switch (request.uri.path) {
+          case '/plain':
+            request.response
+              ..statusCode = 200
+              ..headers.set('content-type', 'text/plain')
+              ..write('hello');
+          case '/set-cookie':
+            request.response
+              ..statusCode = 200
+              ..headers.add('set-cookie', 'sid=abc123; Path=/')
+              ..write('ok');
+          case '/echo-cookie':
+            request.response
+              ..statusCode = 200
+              ..write(request.headers.value('cookie') ?? 'none');
+          case '/echo-agent':
+            request.response
+              ..statusCode = 200
+              ..write(request.headers.value('user-agent') ?? 'none');
+          case '/redirect':
+            request.response
+              ..statusCode = 302
+              ..headers.set('location', '/plain');
+          case '/echo-body':
+            final body = await utf8.decoder.bind(request).join();
+            request.response
+              ..statusCode = 200
+              ..write('${request.method}:$body');
+          default:
+            request.response.statusCode = 404;
+        }
+        await request.response.close();
+      });
+    });
+
+    tearDown(() async => server.close(force: true));
+
+    test('returns status, body and headers', () async {
+      final http = NuvioEngineHttp();
+      addTearDown(http.close);
+      final result = await http.fetch({'url': '$base/plain'});
+      expect(result['ok'], isTrue);
+      expect(result['status'], 200);
+      expect(result['body'], 'hello');
+      expect((result['headers'] as Map)['content-type'], contains('text/plain'));
+    });
+
+    test('sends a browser user agent by default', () async {
+      final http = NuvioEngineHttp();
+      addTearDown(http.close);
+      final result = await http.fetch({'url': '$base/echo-agent'});
+      expect(result['body'], contains('Mozilla/5.0'));
+    });
+
+    test('keeps cookies for the rest of the scraper run', () async {
+      final http = NuvioEngineHttp();
+      addTearDown(http.close);
+      await http.fetch({'url': '$base/set-cookie'});
+      final result = await http.fetch({'url': '$base/echo-cookie'});
+      expect(result['body'], contains('sid=abc123'));
+    });
+
+    test('follows redirects, and reports them when asked not to', () async {
+      final http = NuvioEngineHttp();
+      addTearDown(http.close);
+
+      final followed = await http.fetch({'url': '$base/redirect'});
+      expect(followed['status'], 200);
+      expect(followed['body'], 'hello');
+      expect(followed['redirected'], isTrue);
+
+      final manual = await http.fetch({
+        'url': '$base/redirect',
+        'follow': false,
+      });
+      expect(manual['status'], 302);
+      expect((manual['headers'] as Map)['location'], '/plain');
+    });
+
+    test('posts a body', () async {
+      final http = NuvioEngineHttp();
+      addTearDown(http.close);
+      final result = await http.fetch({
+        'url': '$base/echo-body',
+        'method': 'POST',
+        'body': 'a=1',
+      });
+      expect(result['body'], 'POST:a=1');
+    });
+
+    test('a dead host is an error payload, never a throw', () async {
+      final http = NuvioEngineHttp();
+      addTearDown(http.close);
+      final result = await http.fetch({'url': 'http://127.0.0.1:1/nope'});
+      expect(result[NuvioEngineHttp.errorKey], isNotNull);
     });
   });
 }
