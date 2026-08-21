@@ -442,6 +442,27 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
     }
   }
 
+  /// What each SkyStream plugin actually matched.
+  ///
+  /// Plugins search by title, so a wrong match is the usual reason a film has
+  /// links that turn out to be a different film. Showing the matched title
+  /// makes that visible — and "Search with a different title" fixes it.
+  Map<String, String> get _skystreamMatches {
+    final titles = <String, String>{};
+    final counts = <String, int>{};
+    for (final stream in _pluginResult.streams) {
+      final provider = stream.providerName;
+      counts[provider] = (counts[provider] ?? 0) + 1;
+      final matched = stream.detailedItem.title.trim();
+      if (matched.isNotEmpty) titles.putIfAbsent(provider, () => matched);
+    }
+    return {
+      for (final provider in counts.keys)
+        provider:
+            '${titles[provider] ?? 'matched'} · ${counts[provider]} links',
+    };
+  }
+
   /// Per-plugin outcome, so "why did only three plugins answer?" has an
   /// answer in the app instead of needing a rebuild to find out.
   Widget _diagnosticsPanel(ThemeData theme, ColorScheme cs) {
@@ -458,6 +479,22 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_skystreamMatches.isNotEmpty) ...[
+            Text(
+              'SkyStream plugins · ${_skystreamMatches.length}',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            for (final entry in _skystreamMatches.entries)
+              Text(
+                '${entry.key}: ${entry.value}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            const SizedBox(height: 8),
+          ],
           Row(
             children: [
               Expanded(
@@ -517,6 +554,9 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
         'nuvio plugins: ${_nuvioResult.streams.length} links, '
         '${_nuvioResult.completedCount}/${_nuvioResult.totalCount} done',
       );
+    for (final entry in _skystreamMatches.entries) {
+      buffer.writeln('- ${entry.key} matched ${entry.value}');
+    }
     for (final status in _nuvioResult.statuses) {
       buffer.writeln(
         '- ${status.scraperName}: ${status.outcome.name}'
@@ -643,7 +683,8 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
                           borderRadius: BorderRadius.circular(2),
                         ),
                       )
-                    else if (_nuvioResult.hasWork)
+                    else if (_nuvioResult.hasWork ||
+                        _pluginResult.streams.isNotEmpty)
                       TextButton.icon(
                         onPressed: () => setState(
                           () => _showDiagnostics = !_showDiagnostics,
