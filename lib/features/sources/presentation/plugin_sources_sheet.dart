@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/link_probe_service.dart';
+import '../../../core/utils/source_text.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/extensions/extension_manager.dart';
 import '../../../core/nuvio/data/nuvio_stream_service.dart';
@@ -73,7 +74,19 @@ class _Row {
   String get providerName =>
       isNuvio ? nuvio!.scraperName : plugin!.providerName;
 
-  String get detail => isNuvio ? nuvio!.label : plugin!.stream.displaySource;
+  /// One consistent line for both systems: quality-adjacent facts first, then
+  /// whatever the provider called it, all cleaned the same way.
+  String get detail => buildSourceDetail(
+    isNuvio
+        ? [
+            nuvio!.size,
+            nuvio!.language,
+            nuvio!.seeders == null ? null : '${nuvio!.seeders} seeds',
+            nuvio!.name ?? nuvio!.title,
+          ]
+        : [plugin!.stream.displaySource],
+    fallback: providerName,
+  );
 
   Map<String, String>? get headers =>
       isNuvio ? nuvio!.headers : plugin!.stream.headers;
@@ -137,6 +150,10 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
   final Set<String> _probing = {};
 
   late SourcesMode _mode;
+  /// Title / TMDB id the user typed in "Search manually", used instead of the
+  /// TMDB metadata when a plugin lists the film under a different name.
+  String? _titleOverride;
+  String? _tmdbOverride;
   final Set<String> _providerFilter = {};
   bool _hdOnly = false;
   bool _verifiedOnly = false;
@@ -160,14 +177,19 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
     super.dispose();
   }
 
+  MultimediaItem get _searchTarget => _titleOverride == null
+      ? widget.target
+      : widget.target.copyWith(title: _titleOverride);
+
   void _startPlugins() {
     final manager = ref.read(extensionManagerProvider.notifier);
     final aggregator = ref.read(streamAggregatorProvider);
+    final target = _searchTarget;
     final stream = widget.episode == null
-        ? aggregator.aggregateForMovie(manager: manager, target: widget.target)
+        ? aggregator.aggregateForMovie(manager: manager, target: target)
         : aggregator.aggregateForEpisode(
             manager: manager,
-            target: widget.target,
+            target: target,
             episode: widget.episode!,
           );
     _pluginSub = stream.listen((result) {
@@ -178,7 +200,7 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
   }
 
   void _startNuvio() {
-    final tmdbId = widget.target.tmdbId?.toString() ?? '';
+    final tmdbId = _tmdbOverride ?? widget.target.tmdbId?.toString() ?? '';
     if (tmdbId.isEmpty) {
       setState(() => _nuvioResult = const NuvioProgress(isLoading: false));
       return;
@@ -203,9 +225,92 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
         });
   }
 
+  /// Re-runs the search with a title the user types.
+  ///
+  /// Plugins index films under their own names (regional titles, release
+  /// names, "Part 2" vs "Chapter 2"), so the TMDB title can miss even when the
+  /// plugin has the film. A pasted TMDB id or `tmdb:123` re-points the Nuvio
+  /// scrapers as well.
+  Future<void> _searchManually() async {
+    final controller = TextEditingController(
+      text: _titleOverride ?? widget.target.title,
+    );
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Search plugins manually'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Type the title a plugin would use. A TMDB id (or tmdb:123) '
+              'also re-points the Nuvio scrapers.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Title or TMDB id',
+              ),
+              onSubmitted: (text) => Navigator.pop(dialogContext, text.trim()),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          if (_titleOverride != null || _tmdbOverride != null)
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, ''),
+              child: const Text('Reset'),
+            ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Search'),
+          ),
+        ],
+      ),
+    );
+    if (value == null || !mounted) return;
+
+    final tmdbMatch = RegExp(r'^(?:tmdb:)?(\d{2,9})$').firstMatch(value);
+    setState(() {
+      if (value.isEmpty) {
+        _titleOverride = null;
+        _tmdbOverride = null;
+      } else if (tmdbMatch != null) {
+        _tmdbOverride = tmdbMatch.group(1);
+        _titleOverride = null;
+      } else {
+        _titleOverride = value;
+        _tmdbOverride = null;
+      }
+      _pluginResult = const StreamAggregateResult(isLoading: true);
+      _nuvioResult = const NuvioProgress(isLoading: true);
+      _probes.clear();
+      _probing.clear();
+    });
+    _pluginSub?.cancel();
+    _nuvioSub?.cancel();
+    _startPlugins();
+    _startNuvio();
+  }
+
+  /// Link checking runs for **every** row, SkyStream and Nuvio alike — the
+  /// old sixteen-row cap meant most of a long list never got a
+  /// working/dead badge. Six at a time keeps it off the network's back.
+  static const int _maxParallelProbes = 6;
+
   void _scheduleProbes() {
     final service = ref.read(linkProbeServiceProvider);
-    for (final row in _allRows.take(16)) {
+    for (final row in _allRows) {
+      if (_probing.length >= _maxParallelProbes) return;
       final url = row.url;
       if (!url.startsWith('http')) continue;
       if (_probes.containsKey(url) || _probing.contains(url)) continue;
@@ -217,6 +322,8 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
             _probes[url] = result;
             _probing.remove(url);
           });
+          // Free slot: keep working down the list.
+          _scheduleProbes();
         }),
       );
     }
@@ -459,8 +566,25 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
               ),
               SourceSheetHeader(
                 title: 'Available Sources',
-                subtitle: subtitle,
+                subtitle: _titleOverride == null && _tmdbOverride == null
+                    ? subtitle
+                    : 'Searching for "${_titleOverride ?? 'tmdb:$_tmdbOverride'}"',
                 trailing: const SourceTag(text: 'PLUGINS', color: Colors.teal),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => unawaited(_searchManually()),
+                    icon: const Icon(Icons.search_rounded, size: 16),
+                    label: Text(
+                      _titleOverride == null && _tmdbOverride == null
+                          ? 'Search with a different title'
+                          : 'Change search title',
+                    ),
+                  ),
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),

@@ -19,6 +19,7 @@ import '../data/lightweight_details_provider.dart';
 import 'widgets/movie_trailers_carousel.dart';
 import 'widgets/movie_production_companies.dart';
 import 'widgets/movie_seasons_list.dart';
+import 'widgets/episode_picker_sheet.dart';
 import '../../sources/presentation/plugin_sources_sheet.dart';
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../shared/widgets/shimmer_placeholder.dart';
@@ -105,6 +106,25 @@ class _TmdbMovieDetailsScreenState
     }
 
     _scrollOffset.value = offset;
+  }
+
+  @override
+  /// Movies open the sources sheet straight away; a series asks which episode
+  /// first. The button used to be rendered only `if (isMovie)`, so every
+  /// series poster looked like it had no plugin playback at all.
+  void _openPluginSources(dynamic data, bool isMovie) {
+    if (isMovie) {
+      PluginSourcesSheet.open(context, data);
+      return;
+    }
+    final seasons = (data.seasons as List?) ?? const <dynamic>[];
+    EpisodePickerSheet.open(
+      context,
+      movieId: widget.movieId,
+      seasons: seasons,
+      target: data,
+      source: widget.source,
+    );
   }
 
   @override
@@ -253,15 +273,14 @@ class _TmdbMovieDetailsScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 60),
-            if (isMovie)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: FilledButton.icon(
-                  onPressed: () => PluginSourcesSheet.open(context, data),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Play from plugins'),
-                ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: FilledButton.icon(
+                onPressed: () => _openPluginSources(data, isMovie),
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Play from plugins'),
               ),
+            ),
             if (!isMovie) ...[
               MovieSeasonsList(
                 movieId: widget.movieId,
@@ -574,15 +593,14 @@ class _TmdbMovieDetailsScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Cross-plugin stream launcher + provider results
-                if (isMovie)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: FilledButton.icon(
-                      onPressed: () => PluginSourcesSheet.open(context, data),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('Play from plugins'),
-                    ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: FilledButton.icon(
+                    onPressed: () => _openPluginSources(data, isMovie),
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('Play from plugins'),
                   ),
+                ),
                 ProviderSearchSection(
                   query: title,
                   parentMediaType: isMovie ? 'movie' : 'tv',

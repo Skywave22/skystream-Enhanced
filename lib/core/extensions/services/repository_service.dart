@@ -1,5 +1,5 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart'; // For kDebugMode
+import 'package:flutter/foundation.dart'; // kDebugMode, visibleForTesting
 import 'dart:io';
 import 'dart:convert';
 import '../models/extension_repository.dart';
@@ -11,50 +11,134 @@ class RepositoryService {
 
   RepositoryService(this._dio, {this.enableGithubProxy = false});
 
-  /// Resolves the actual URL from shortcodes or custom schemes
+  /// Resolves the actual URL from shortcodes, bare hosts or custom schemes.
+  ///
+  /// Previously this accepted exactly two shapes — a full `https://…` URL, or
+  /// a bare alphanumeric code looked up as `cutt.ly/sky-CODE`. Anything else
+  /// (`raw.githubusercontent.com/…`, `github.com/user/repo`, a `cutt.ly/xyz`
+  /// link that already carries the prefix) was rejected as "Invalid URL
+  /// format", and a shortener answering 200 with a meta-refresh instead of a
+  /// 302 resolved to nothing.
   Future<String?> parseRepoUrl(String url) async {
     final fixedUrl = url.trim();
+    if (fixedUrl.isEmpty) throw Exception('Enter a repository URL or code');
 
-    // Standard HTTP/HTTPS
+    // Standard HTTP/HTTPS.
     if (RegExp(r'^https?://').hasMatch(fixedUrl)) {
       return fixedUrl;
     }
 
-    // Shortcode (Alphanumeric) -> cutt.ly
-    if (RegExp(r'^[a-zA-Z0-9!_-]+$').hasMatch(fixedUrl)) {
-      try {
-        final response = await _dio.get<dynamic>(
-          "https://cutt.ly/sky-$fixedUrl",
-          options: Options(
-            followRedirects: false,
-            validateStatus: (status) => status != null && status < 400,
-          ),
-        );
-
-        // 3xx status codes usually have location header
-        if (response.statusCode == 301 ||
-            response.statusCode == 302 ||
-            response.statusCode == 303 ||
-            response.statusCode == 307) {
-          final location = response.headers.value('location');
-          if (location != null) {
-            if (location.startsWith("https://cutt.ly/404") ||
-                location.replaceAll(RegExp(r'/$'), '') == "https://cutt.ly") {
-              throw Exception("Shortcode not found");
-            }
-            return location;
-          }
-        }
-        throw Exception("Invalid response from shortcode service");
-      } on DioException catch (e) {
-        throw Exception("Network error resolving shortcode: ${e.message}");
-      } catch (e) {
-        throw Exception("Shortcode resolution failed: $e");
-      }
+    // Custom scheme used by share links: skystream://host/path.
+    final scheme = RegExp(
+      r'^[a-zA-Z][a-zA-Z0-9+.-]*://(.+)$',
+    ).firstMatch(fixedUrl);
+    if (scheme != null) {
+      return 'https://${scheme.group(1)}';
     }
 
-    throw Exception("Invalid URL format");
+    // Anything that looks like a host or a path is a URL missing its scheme.
+    if (fixedUrl.contains('/') ||
+        RegExp(r'^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+').hasMatch(fixedUrl)) {
+      return 'https://$fixedUrl';
+    }
+
+    // Shortcode: try the SkyStream namespace first, then the bare code.
+    if (RegExp(r'^[a-zA-Z0-9!_-]+$').hasMatch(fixedUrl)) {
+      Object? lastError;
+      for (final candidate in [
+        'https://cutt.ly/sky-$fixedUrl',
+        'https://cutt.ly/$fixedUrl',
+      ]) {
+        try {
+          final resolved = await resolveShortLink(candidate);
+          if (resolved != null) return resolved;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (lastError is DioException) {
+        throw Exception(
+          'Could not reach the shortcode service: ${lastError.message}',
+        );
+      }
+      throw Exception("That shortcode doesn't exist");
+    }
+
+    throw Exception('Invalid URL format');
   }
+
+  /// Follows one short link. Handles a redirect header, and the increasingly
+  /// common "200 + meta refresh / window.location" pages.
+  @visibleForTesting
+  Future<String?> resolveShortLink(String shortUrl) async {
+    final response = await _dio.get<dynamic>(
+      shortUrl,
+      options: Options(
+        followRedirects: false,
+        responseType: ResponseType.plain,
+        validateStatus: (status) => status != null && status < 500,
+        headers: const {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        },
+      ),
+    );
+
+    final status = response.statusCode ?? 0;
+    if (status >= 300 && status < 400) {
+      final location = response.headers.value('location');
+      if (location != null && !isDeadEnd(location)) return location;
+      return null;
+    }
+    if (status == 404 || status == 410) return null;
+
+    final body = response.data is String ? response.data as String : '';
+    if (body.isEmpty) return null;
+
+    final meta = RegExp(
+      r'<meta[^>]+http-equiv=["]?refresh["]?[^>]+content=["][^"]*url=([^">\s]+)',
+      caseSensitive: false,
+    ).firstMatch(body);
+    if (meta != null) {
+      final target = unescapeHtml(meta.group(1)!);
+      if (!isDeadEnd(target)) return target;
+    }
+
+    final js = RegExp(
+      r'(?:window\.)?location(?:\.href)?\s*=\s*["]([^"]+)["]',
+      caseSensitive: false,
+    ).firstMatch(body);
+    if (js != null) {
+      final target = unescapeHtml(js.group(1)!);
+      if (!isDeadEnd(target)) return target;
+    }
+
+    final jsSingle = RegExp(
+      r"(?:window\.)?location(?:\.href)?\s*=\s*'([^']+)'",
+      caseSensitive: false,
+    ).firstMatch(body);
+    if (jsSingle != null) {
+      final target = unescapeHtml(jsSingle.group(1)!);
+      if (!isDeadEnd(target)) return target;
+    }
+    return null;
+  }
+
+  @visibleForTesting
+  bool isDeadEnd(String location) {
+    final trimmed = location.replaceAll(RegExp(r'/$'), '').trim();
+    return trimmed.startsWith('https://cutt.ly/404') ||
+        trimmed == 'https://cutt.ly' ||
+        trimmed.isEmpty;
+  }
+
+  @visibleForTesting
+  String unescapeHtml(String value) => value
+      .replaceAll('&amp;', '&')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&quot;', '"')
+      .trim();
 
   /// Fetch and parse a Repository from a URL
   Future<ExtensionRepository?> fetchRepository(String url) async {
