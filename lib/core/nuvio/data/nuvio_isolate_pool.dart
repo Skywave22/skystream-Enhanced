@@ -24,7 +24,9 @@ class NuvioIsolatePool {
   /// because scrapers spend most of their time waiting on the network.
   final int size;
 
-  final List<_Worker> _workers = [];
+  /// Slots hold the *future* worker so that eight jobs starting at the same
+  /// moment reserve three isolates, not eight.
+  final List<Future<_Worker>> _slots = [];
   var _disposed = false;
   var _spawnFailed = false;
 
@@ -47,21 +49,33 @@ class NuvioIsolatePool {
   }
 
   Future<_Worker> _leastBusyWorker() async {
-    if (_workers.length < size) {
-      final worker = await _Worker.spawn();
-      _workers.add(worker);
-      return worker;
+    if (_slots.length < size) {
+      final slot = _Worker.spawn();
+      _slots.add(slot);
+      try {
+        return await slot;
+      } catch (error) {
+        _slots.remove(slot);
+        rethrow;
+      }
     }
-    _workers.sort((a, b) => a.pending.compareTo(b.pending));
-    return _workers.first;
+    final workers = await Future.wait(_slots);
+    workers.sort((a, b) => a.pending.compareTo(b.pending));
+    return workers.first;
   }
+
+  /// How many workers are alive; used by tests.
+  @visibleForTesting
+  int get workerCount => _slots.length;
 
   void dispose() {
     _disposed = true;
-    for (final worker in _workers) {
-      worker.dispose();
+    for (final slot in _slots) {
+      unawaited(
+        slot.then((worker) => worker.dispose()).catchError((Object _) {}),
+      );
     }
-    _workers.clear();
+    _slots.clear();
   }
 }
 

@@ -851,6 +851,28 @@ void main() {
       );
     }, timeout: const Timeout(Duration(seconds: 60)));
 
+    test('parallel jobs reserve at most `size` isolates', () async {
+      final pool = NuvioIsolatePool(size: 2);
+      addTearDown(pool.dispose);
+
+      // Eight jobs starting at once used to spawn eight isolates, because each
+      // of them checked the worker count before any of them had finished
+      // spawning.
+      await Future.wait([
+        for (var i = 0; i < 8; i++)
+          pool.execute(
+            NuvioEngineRequest(
+              code: 'module.exports = {};',
+              scraperId: 'p$i',
+              scraperName: 'P$i',
+              timeoutMs: 3000,
+            ),
+          ),
+      ]).timeout(const Duration(seconds: 45));
+
+      expect(pool.workerCount, lessThanOrEqualTo(2));
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
     test('a disposed pool refuses new work', () {
       final pool = NuvioIsolatePool(size: 1)..dispose();
       expect(
