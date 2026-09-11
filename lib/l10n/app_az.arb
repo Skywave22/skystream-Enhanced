@@ -1,0 +1,704 @@
+{
+  "@@locale": "az",
+  "appTitle": "SkyStream",
+  "languageName": "Azərbaycan dili",
+  "home": "Əsas səhifə",
+  "search": "Axtarış",
+  "explore": "Kəşf et",
+  "exploreAnime": "Anime kəşf et",
+  "exploreMovies": "Filmləri kəşf et",
+  "library": "Kitabxana",
+  "settings": "Parametrlər",
+  "extensions": "Genişləndirmələr",
+  "updateAvailable": "Yeniləmə mövcuddur",
+  "retry": "Yenidən cəhd et",
+  "factoryReset": "Zavod sıfırlaması",
+  "startupError": "Başlanğıc xətası",
+  "general": "Ümumi",
+  "appTheme": "Tətbiq teması",
+  "recordWatchHistory": "Baxış tarixçəsini yaz",
+  "defaultHomeScreen": "Standart əsas ekran",
+  "titlePosition": "Başlığın mövqeyi",
+  "titlePositionBelowPoster": "Posterin altında",
+  "titlePositionInsidePoster": "Posterin içində",
+  "player": "Pleyer",
+  "defaultPlayer": "Standart pleyer",
+  "leftGesture": "Sol jest",
+  "rightGesture": "Sağ jest",
+  "doubleTapToSeek": "Sarımaq üçün iki dəfə toxun",
+  "swipeToSeek": "Sarımaq üçün sürüşdür",
+  "seekDuration": "Sarma müddəti",
+  "bufferDepth": "Bufer dərinliyi",
+  "defaultResizeMode": "Standart ölçü rejimi",
+  "hardwareDecoding": "Aparat dekodlaşdırması",
+  "network": "Şəbəkə",
+  "dnsOverHttps": "HTTPS üzərindən DNS",
+  "dohProvider": "DoH provayderi",
+  "githubProxy": "GitHub proksisi",
+  "githubProxySubtitle": "Provayder bloklarını keçmək üçün genişləndirmə endirmələrini jsDelivr üzərindən yönləndir.",
+  "manageExtensions": "Genişləndirmələri idarə et",
+  "appData": "Tətbiq məlumatları",
+  "resetDataKeepExtensions": "Məlumatları sıfırla (genişləndirmələr qalsın)",
+  "developer": "Tərtibatçı",
+  "developerOptions": "Tərtibatçı seçimləri",
+  "about": "Haqqında",
+  "version": "Versiya",
+  "enabled": "Aktivdir",
+  "disabled": "Deaktiv",
+  "discord": "Discord",
+  "discordSubtitle": "Serverimizə qoşul",
+  "telegram": "Telegram",
+  "telegramSubtitle": "Kanalımıza qoşul",
+  "developedBy": "{name} tərəfindən hazırlanıb",
+  "@developedBy": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "system": "Sistem",
+  "dark": "Tünd",
+  "light": "Açıq",
+  "later": "Sonra",
+  "updateNow": "İndi yenilə",
+  "save": "Yadda saxla",
+  "cancel": "Ləğv et",
+  "close": "Bağla",
+  "delete": "Sil",
+  "viewDetails": "Ətraflı bax",
+  "clearAll": "Hamısını təmizlə",
+  "clearAllHistory": "Bütün tarixçəni təmizlə",
+  "all": "Hamısı",
+  "none": "Yoxdur",
+  "confirmDownload": "Endirməni təsdiqlə",
+  "downloadNow": "İndi endir",
+  "selectSource": "Mənbə seç",
+  "downloadUnavailable": "Endirmə mümkün deyil",
+  "selectAnotherSource": "Başqa mənbə seç",
+  "watchHistoryCleared": "Baxış tarixçəsi təmizləndi",
+  "downloadingUpdate": "Yeniləmə endirilir...",
+  "errorPrefix": "Xəta: {message}",
+  "@errorPrefix": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "updateAvailableTag": "Yeniləmə mövcuddur: {tag}",
+  "@updateAvailableTag": {
+    "placeholders": {
+      "tag": {
+        "type": "String"
+      }
+    }
+  },
+  "selectProviderToStart": "Baxmağa başlamaq üçün provayder seç",
+  "tapExtensionIcon": "Küncdəki genişləndirmə ikonuna toxun",
+  "continueWatching": "Baxışa davam et",
+  "noInternetConnection": "İnternet əlaqəsi yoxdur",
+  "siteNotReachable": "Sayt əlçatan deyil",
+  "checkConnectionOrDownloads": "Əlaqəni yoxla və ya endirdiyin məzmuna bax.",
+  "tryVpnOrConnection": "Zəhmət olmasa sayta VPN ilə daxil olmağa çalış və ya internet əlaqəni yoxla.",
+  "errorDetails": "Xəta təfərrüatları: {error}",
+  "@errorDetails": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "goToDownloads": "Endirmələrə keç",
+  "selectProvider": "Provayder seç",
+  "searchHint": "Film, serial axtar...",
+  "searchFavoriteContent": "Sevdiyin məzmunu axtar",
+  "pressSearchOrEnter": "Başlamaq üçün Axtarış düyməsinə və ya Enter-ə bas",
+  "noResultsFound": "Nəticə tapılmadı.",
+  "couldNotLoadTrending": "Trend elementlər yüklənmədi",
+  "popularMovies": "Populyar filmlər",
+  "popularTVShows": "Populyar seriallar",
+  "newMovies": "Yeni filmlər",
+  "newTVShows": "Yeni seriallar",
+  "featuredMovies": "Seçilmiş filmlər",
+  "featuredTVShows": "Seçilmiş seriallar",
+  "lastVideosTVShows": "Serialların son videoları",
+  "downloads": "Endirmələr",
+  "bookmarks": "Əlfəcinlər",
+  "noDownloadsYet": "Hələ endirmə yoxdur",
+  "episodesCount": "{count} epizod • {done} hazır",
+  "@episodesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "done": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteAllEpisodes": "Bütün epizodları sil",
+  "confirmDeleteAllEpisodes": "\"{title}\" serialının bütün {count} epizodunu və onların fayllarını silmək istədiyinə əminsən?",
+  "@confirmDeleteAllEpisodes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteAll": "Hamısını sil",
+  "completed": "Tamamlandı",
+  "statusQueued": "Növbədə...",
+  "statusDownloading": "Endirilir...",
+  "statusFinished": "Bitdi",
+  "statusFailed": "Uğursuz",
+  "statusCanceled": "Ləğv edildi",
+  "statusPaused": "Dayandırıldı",
+  "statusWaiting": "Gözlənilir...",
+  "fileNotFoundRemoving": "Fayl diskdə tapılmadı. Qeyd silinir.",
+  "fileNotFound": "Fayl tapılmadı",
+  "deleteDownload": "Endirməni sil",
+  "confirmDeleteDownload": "Bu endirməni və onun faylını silmək istədiyinə əminsən?",
+  "libraryEmpty": "Kitabxanan boşdur",
+  "language": "Dil",
+  "english": "İngilis dili",
+  "hindi": "Hind dili (हिंदी)",
+  "kannada": "Kannada dili (ಕನ್ನಡ)",
+  "unknown": "Naməlum",
+  "recommended": "Tövsiyə olunur",
+  "on": "Açıq",
+  "off": "Bağlı",
+  "installRemoveProviders": "Provayderləri quraşdır və ya çıxar",
+  "resetDataSubtitle": "Parametrləri və verilənlər bazasını təmizlə, plagini saxla",
+  "factoryResetSubtitle": "Bütün məlumatları, parametrləri və genişləndirmələri sil",
+  "developerOptionsSubtitle": "Sazlama alətləri və lokal oynatma",
+  "loading": "Yüklənir...",
+  "sec": "san",
+  "min": "dəq",
+  "internalPlayer": "Daxili (VLC)",
+  "builtInPlayer": "Daxili pleyer",
+  "customNotSet": "Fərdi (təyin edilməyib)",
+  "selectGesture": "{side} jesti seç",
+  "@selectGesture": {
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "left": "Sol",
+  "right": "Sağ",
+  "selectSeekDuration": "Sarma müddətini seç",
+  "selectBufferDepth": "Bufer dərinliyini seç",
+  "subtitleSettings": "Altyazı parametrləri",
+  "size": "Ölçü: {size}",
+  "@size": {
+    "placeholders": {
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "background": "Fon",
+  "customDohUrlLabel": "Fərdi DoH URL-i",
+  "enterCustomDohUrl": "Öz DoH URL-ini daxil et",
+  "chooseTheme": "Tema seç",
+  "resetDataDialogTitle": "Məlumatlar sıfırlansın?",
+  "resetDataDialogContent": "Bu, parametrləri, sevimliləri və tarixçəni təmizləyəcək. Quraşdırdığın genişləndirmələr SİLİNMƏYƏCƏK.",
+  "factoryResetDialogTitle": "Zavod sıfırlaması?",
+  "factoryResetDialogContent": "Bu, HƏR ŞEYİ siləcək: sevimlilər, tarixçə, parametrlər və BÜTÜN genişləndirmələr. Bunu geri qaytarmaq olmaz.",
+  "selectLanguage": "Dil seç",
+  "synopsis": "Qısa məzmun",
+  "noDescription": "Təsvir yoxdur.",
+  "videoAlreadyDownloadedPrompt": "Bu video artıq endirilib. Nə etmək istəyirsən?",
+  "playNow": "İndi oynat",
+  "upNext": "Növbəti",
+  "deleteDownloadPrompt": "Endirmə silinsin?",
+  "deleteDownloadConfirmation": "Bu faylı silmək istədiyinə əminsən? Bunu geri qaytarmaq olmaz.",
+  "no": "Xeyr",
+  "yesDelete": "Bəli, sil",
+  "downloadPaused": "Endirmə dayandırıldı",
+  "downloading": "Endirilir",
+  "speed": "Sürət",
+  "remaining": "Qalıb",
+  "resume": "Davam et",
+  "pause": "Fasilə",
+  "torrentContent": "Torrent məzmunu",
+  "audioTracks": "Audio treklər",
+  "noAudioTracks": "Audio trek tapılmadı",
+  "subtitles": "Altyazılar",
+  "options": "Seçimlər",
+  "noSubtitlesFound": "Altyazı treki tapılmadı",
+  "playbackSpeed": "Oxutma sürəti",
+  "subtitleOptions": "Altyazı seçimləri",
+  "hlsSubtitleWarning": "Bu platformada aktiv HLS pleyeri xarici altyazı fayllarını dəstəkləmir.",
+  "loadFromDevice": "Cihazdan yüklə",
+  "syncDelay": "Sinxronlaşdırma / gecikmə",
+  "styleSettings": "Üslub parametrləri",
+  "searchOnline": "Onlayn axtar (altyazı axtarışı)",
+  "subtitleSync": "Altyazı sinxronlaşdırması",
+  "subtitleDelayWarning": "Aktiv oxutma mühərriki altyazı gecikməsini dəstəkləmir.",
+  "resetDelay": "Gecikməni sıfırla",
+  "subtitleStyles": "Altyazı üslubları",
+  "resetToDefault": "Standarta qaytar",
+  "fontSize": "Şrift ölçüsü",
+  "verticalPosition": "Şaquli mövqe",
+  "textColor": "Mətn rəngi",
+  "backgroundColor": "Fon rəngi",
+  "backgroundOpacity": "Fon şəffaflığı",
+  "subtitleSearch": "Altyazı axtarışı",
+  "searchSubtitleNameHint": "Altyazı adını axtar...",
+  "enterSearchSubtitlePrompt": "Altyazı tapmaq üçün ad daxil et və ya axtar.",
+  "noSubtitleResults": "Nəticə tapılmadı. Başqa sorğu yoxla.",
+  "downloadingApplyingSubtitle": "Altyazı endirilir və tətbiq edilir...",
+  "failedToDownloadSubtitle": "Altyazı endirilmədi.",
+  "failedToLoadSubtitles": "Altyazılar yüklənmədi. Zəhmət olmasa yenidən cəhd et.",
+  "noReposFound": "Repozitoriya və ya plagin tapılmadı",
+  "downloadAllProviders": "Hamısını endir",
+  "removeRepository": "Repozitoriyanı çıxar",
+  "addRepo": "Repo əlavə et",
+  "extensionsNotInRepos": "Repozitoriyalarda olmayan genişləndirmələr",
+  "noLongerInRepo": "Artıq heç bir repozitoriyada göstərilmir",
+  "addRepoToBrowse": "Plaginlərə baxmaq və onları yeniləmək üçün repozitoriya əlavə et",
+  "debugExtensions": "Genişləndirmələri sazla",
+  "removeRepoConfirm": "{repoName} çıxarılsın?",
+  "@removeRepoConfirm": {
+    "placeholders": {
+      "repoName": {
+        "type": "String"
+      }
+    }
+  },
+  "removeRepoWarning": "Bu, repozitoriyanı çıxaracaq və onun BÜTÜN plaginlərini siləcək.",
+  "addRepository": "Repozitoriya əlavə et",
+  "repoUrlOrShortcode": "Repozitoriya URL-i və ya qısa kodu",
+  "assetPlugin": "Asset plagini",
+  "installed": "Quraşdırılıb",
+  "repositories": "Repozitoriyalar",
+  "noExtensionsInstalled": "Quraşdırılmış genişləndirmə yoxdur",
+  "browseRepositoriesToInstall": "Genişləndirmələri tapmaq və quraşdırmaq üçün Repozitoriyalar bölməsinə bax.",
+  "browseRepositories": "Repozitoriyalara bax",
+  "addRepoDescription": "Genişləndirmə plaginlərini tapmaq və quraşdırmaq üçün repozitoriya URL-i və ya qısa kodu əlavə et.",
+  "updateTo": "{version} versiyasına yenilə",
+  "@updateTo": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "install": "Quraşdır",
+  "error": "Xəta",
+  "ok": "OK",
+  "pluginSettings": "{pluginName} parametrləri",
+  "@pluginSettings": {
+    "placeholders": {
+      "pluginName": {
+        "type": "String"
+      }
+    }
+  },
+  "movies": "Filmlər",
+  "series": "Seriallar",
+  "anime": "Anime",
+  "liveStreams": "Canlı yayımlar",
+  "debug": "SAZLAMA",
+  "extensionsUpdated": "{count, plural, =1{1 genişləndirmə yeniləndi} other{{count} genişləndirmə yeniləndi}}",
+  "invalidNavigation": "Naviqasiya yanlışdır. Zəhmət olmasa geri qayıt.",
+  "startOver": "Yenidən başla",
+  "goBack": "Geri qayıt",
+  "resolving": "Həll edilir...",
+  "downloaded": "Endirilib",
+  "download": "Endir",
+  "debugOnlyFeature": "Bu funksiya yalnız sazlama buildlərində mövcuddur",
+  "streamUrl": "Yayım URL-i",
+  "play": "Oynat",
+  "verifyingSourceSize": "Mənbə və ölçü yoxlanılır...",
+  "fileSaveLocationNotification": "Fayl Endirmələr qovluğunda saxlanılacaq.",
+  "resumingPlayback": "Oxutma davam etdirilir",
+  "pausedAt": "{time} vaxtında dayandırılıb",
+  "@pausedAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "resumesAutomatically": "{count, plural, =1{1 saniyə sonra avtomatik davam edəcək} other{{count} saniyə sonra avtomatik davam edəcək}}",
+  "@resumesAutomatically": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "resumeNow": "İndi davam et",
+  "playbackError": "Oxutma xətası",
+  "confirmClearHistory": "Baxış tarixçəndəki bütün elementləri silmək istədiyinə əminsən?",
+  "seasonWithNumber": "Mövsüm {number}",
+  "@seasonWithNumber": {
+    "placeholders": {
+      "number": {
+        "type": "Object"
+      }
+    }
+  },
+  "starting": "Başlayır...",
+  "percentWatched": "{percent}% baxılıb",
+  "@percentWatched": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "sub": "Altyazılı",
+  "dub": "Dublyajlı",
+  "playEpisode": "{label} S{season} E{episode}",
+  "@playEpisode": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "season": {
+        "type": "Object"
+      },
+      "episode": {
+        "type": "Object"
+      }
+    }
+  },
+  "playEpisodeOnly": "{label} E{episode}",
+  "@playEpisodeOnly": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "episode": {
+        "type": "int"
+      }
+    }
+  },
+  "debugTools": "Sazlama alətləri",
+  "playLocalVideo": "Lokal video faylını oynat",
+  "playLocalVideoSubtitle": "Cihazdakı istənilən videonu oynat",
+  "streamUrlSubtitle": "Şəbəkə URL-indən oynat",
+  "streamTorrent": "Torrenti yayımla",
+  "streamTorrentSubtitle": "Oynatmaq üçün lokal torrent faylı seç",
+  "loadPluginFromAssets": "Plagini asset-lərdən yüklə",
+  "enterVideoUrlHint": "Video URL-ini daxil et (http, magnet və s.)",
+  "networkStream": "Şəbəkə yayımı",
+  "removedFromHistory": "{title} tarixçədən çıxarıldı",
+  "@removedFromHistory": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "custom": "Fərdi",
+  "refreshingLiveStream": "Canlı yayım yenilənir...",
+  "removeFromHistory": "Tarixçədən çıxar",
+  "live": "CANLI",
+  "volume": "Səs",
+  "brightness": "Parlaqlıq",
+  "fit": "Sığdır",
+  "zoom": "Yaxınlaşdır",
+  "stretch": "Uzat",
+  "titleWithParam": "Başlıq: {title}",
+  "@titleWithParam": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "sourceWithParam": "Mənbə: {source}",
+  "@sourceWithParam": {
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "sizeWithParam": "Ölçü: {size}",
+  "@sizeWithParam": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "usingInternalPlayerError": "Xəta: {error}. Daxili pleyer işlədilir.",
+  "@usingInternalPlayerError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "playerNotDetected": "{playerName} tapılmadı. Daxili pleyer başladılır.",
+  "@playerNotDetected": {
+    "placeholders": {
+      "playerName": {
+        "type": "String"
+      }
+    }
+  },
+  "seasonWithEpisodes": "Mövsüm {number} ({count} epizod)",
+  "@seasonWithEpisodes": {
+    "placeholders": {
+      "number": {
+        "type": "Object"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudflare": "Cloudflare",
+  "google": "Google",
+  "adguard": "AdGuard",
+  "dnsWatch": "DNS.Watch",
+  "quad9": "Quad9",
+  "dnsSb": "DNS.SB",
+  "canadianShield": "Canadian Shield",
+  "tmdb": "TMDB",
+  "selectSourceForPlayer": "{playerName} üçün mənbə seç",
+  "@selectSourceForPlayer": {
+    "placeholders": {
+      "playerName": {
+        "type": "String"
+      }
+    }
+  },
+  "noPluginsInstalled": "Quraşdırılmış plagin yoxdur",
+  "noPluginsMessage": "Məzmuna baxmaq və onu yayımlamaq üçün genişləndirmə quraşdır.",
+  "goToExtensions": "Genişləndirmələrə keç",
+  "availableSources": "Mövcud mənbələr",
+  "seasons": "Mövsümlər",
+  "episodes": "Epizodlar",
+  "selectSourceToPlay": "Oynatmaq üçün yuxarıdakı 'Mövcud mənbələr' bölməsindən mənbə seç.",
+  "episodeCountOnly": "{count, plural, =1{1 epizod} other{{count} epizod}}",
+  "noEpisodesFound": "Epizod tapılmadı",
+  "local": "Lokal",
+  "remote": "Uzaq",
+  "torrent": "Torrent",
+  "unlock": "Kilidi aç",
+  "lock": "Kilidlə",
+  "sources": "Mənbələr",
+  "tracks": "Treklər",
+  "content": "Məzmun",
+  "stats": "Statistika",
+  "resize": "Ölçünü dəyiş",
+  "next": "Növbəti",
+  "pip": "PiP",
+  "rotate": "Döndər",
+  "windowed": "Pəncərədə",
+  "fullscreen": "Tam ekran",
+  "movieDetails": "Film təfərrüatları",
+  "showDetails": "Serial təfərrüatları",
+  "tagline": "Şüar",
+  "status": "Vəziyyət",
+  "releaseDate": "Buraxılış tarixi",
+  "firstAirDate": "İlk yayım tarixi",
+  "originalLanguage": "Orijinal dil",
+  "originCountry": "Mənşə ölkəsi",
+  "budgetLabel": "Büdcə",
+  "revenueLabel": "Gəlir",
+  "paused": "Dayandırılıb",
+  "watched": "Baxılıb",
+  "watching": "Baxılır",
+  "lastWatched": "Son baxılan",
+  "movie": "Film",
+  "tvShow": "Serial",
+  "failedToLoadContent": "Məzmun yüklənmədi",
+  "director": "Rejissor",
+  "creator": "Yaradan",
+  "showMore": "Daha çox göstər",
+  "showLess": "Daha az göstər",
+  "viewAll": "Hamısına bax",
+  "seasonsCount": "{count} mövsüm",
+  "@seasonsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noInternetError": "İnternet əlaqəsi yoxdur",
+  "timeoutError": "Sorğunun vaxtı bitdi. Zəhmət olmasa yenidən cəhd et.",
+  "serverError": "Server xətası. Zəhmət olmasa bir az sonra yenidən cəhd et.",
+  "contentNotFoundError": "Məzmun tapılmadı.",
+  "accessDeniedError": "Giriş rədd edildi. Hesab məlumatlarını yoxla.",
+  "serviceUnavailableError": "Server əlçatan deyil. Bir az sonra yenidən cəhd et.",
+  "generalError": "Nəsə səhv getdi. Zəhmət olmasa yenidən cəhd et.",
+  "skip": "Keç",
+  "skipIntro": "İntronu keç",
+  "skipOutro": "Sonluğu keç",
+  "skipRecap": "Xülasəni keç",
+  "goLive": "Canlıya keç",
+  "dismiss": "Gizlət",
+  "nextUp": "Sıradakı",
+  "sourceAttempt": "Mənbə {index}/{total}",
+  "@sourceAttempt": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trying": "Yoxlanılır",
+  "failed": "Uğursuz",
+  "selected": "Seçildi",
+  "playing": "Oynadılır",
+  "pending": "Gözləyir",
+  "openSubtitles": "OpenSubtitles",
+  "subDl": "SubDL",
+  "subSource": "SubSource",
+  "wifiQualityPreference": "Wi-Fi keyfiyyət tərcihi",
+  "mobileQualityPreference": "Mobil keyfiyyət tərcihi",
+  "anyNoPreference": "İstənilən (tərcih yoxdur)",
+  "subtitleAccounts": "Altyazı hesabları",
+  "accounts": "Hesablar",
+  "notLoggedIn": "Daxil olunmayıb",
+  "loggedInAs": "{username} kimi daxil olunub",
+  "@loggedInAs": {
+    "placeholders": {
+      "username": {
+        "type": "String"
+      }
+    }
+  },
+  "apiKeyConfigured": "API açarı konfiqurasiya edilib",
+  "keyNotSet": "Açar təyin edilməyib",
+  "testConnection": "Əlaqəni yoxla",
+  "connectedSuccessfully": "Uğurla qoşuldu",
+  "connectionFailed": "Əlaqə alınmadı",
+  "username": "İstifadəçi adı",
+  "password": "Parol",
+  "noAccountRegister": "Hesabın yoxdur? Buradan qeydiyyatdan keç",
+  "apiKey": "API açarı",
+  "email": "E-poçt",
+  "fetchMyApiKey": "API açarımı gətir",
+  "keyVerified": "Açar təsdiqləndi",
+  "invalidApiKey": "API açarı yanlışdır",
+  "openSubtitlesAuthSubtitle": "Daha yüksək limitlər və reklamsız altyazılar üçün hesab məlumatlarını daxil et.",
+  "subDlAuthSubtitle": "SubDL API açarını birbaşa daxil et və ya aşağıdakı hesab məlumatları ilə onu gətir.",
+  "orFetchViaAccount": "VƏ YA HESAB VASİTƏSİLƏ GƏTİR",
+  "subSourceAuthSubtitle": "SubSource əlavə quraşdırma olmadan işləyir, lakin daha etibarlı olsun deyə standartı əvəz edən şəxsi rəsmi API açarı əlavə edə bilərsən.",
+  "apiKeyOptionalOverride": "API açarı (istəyə bağlı əvəzləmə)",
+  "enterKeyToOverrideDefault": "Standartı əvəz etmək üçün açar daxil et",
+  "getApiKeyFromProfile": "API açarını SubSource profilindən götür",
+  "qualityNotGuaranteed": "Keyfiyyətə zəmanət verilmir. Mənbələr tərcihə görə sıralanır, lakin oxutma provayderin həqiqətən təklif etdiyindən asılıdır.",
+  "keepSourcesOriginalOrder": "Mənbələri orijinal sırada saxla",
+  "openLink": "Keçidi aç",
+  "diagnostics": "Diaqnostika",
+  "viewLogs": "Loglara bax",
+  "viewLogsSubtitle": "Tətbiqin fəaliyyətinə və xətalarına bax",
+  "clearCache": "Şəkil və video keşini təmizlə",
+  "clearCacheSubtitle": "Keşlənmiş şəkil və videoların tutduğu yaddaşı boşaldır",
+  "clearCacheDialogTitle": "Keş təmizlənsin?",
+  "clearCacheDialogContent": "Bu, keşlənmiş şəkil və video fayllarını siləcək. Parametrlərinə, tarixçənə və genişləndirmələrinə toxunulmayacaq.",
+  "clearCacheNow": "Keşi təmizlə",
+  "cacheCleared": "Keş təmizləndi",
+  "calculating": "Hesablanır…",
+  "playerControls": "Pleyer düymələri",
+  "playerControlsSubtitle": "Pleyerin idarə düymələrini göstər və ya gizlət",
+  "showPip": "Şəkil içində şəkil düyməsi",
+  "showResize": "Ölçü düyməsi",
+  "showRotate": "Döndərmə düyməsi",
+  "showPlaybackSpeed": "Oxutma sürəti düyməsi",
+  "showEpisodes": "Epizodlar düyməsi",
+  "playerSourceReachable": "Əlçatan",
+  "playerFinished": "{title} sona çatdı",
+  "@playerFinished": {
+    "description": "Headline on the card that replaces the frozen last frame when playback runs out with nothing queued behind it: a film, the last episode of a series, or an episode whose automatic advance the viewer declined during the credits. Below it sit startOver and close, plus a next-episode action when one was declined.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "playerCouldNotReadTracks": "Treklər oxunmadı: {error}",
+  "@playerCouldNotReadTracks": {
+    "description": "The engine refused to list its audio and subtitle tracks. {error} is a raw, untranslated engine message.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "playerTrackNumber": "Trek {id}",
+  "@playerTrackNumber": {
+    "description": "Fallback name for an audio or subtitle track the stream left unnamed. {id} is the engine's track number.",
+    "placeholders": {
+      "id": {
+        "type": "int"
+      }
+    }
+  },
+  "subtitleDelay": "Altyazı gecikməsi",
+  "torrentFiles": "Torrent faylları",
+  "audio": "Audio",
+  "noAudioTracksReported": "Audio trek bildirilmədi",
+  "loadSubtitleFile": "Altyazı faylını yüklə",
+  "searchSubtitlesOnline": "Onlayn axtar",
+  "searchOnlineSubtitles": "Onlayn altyazı axtar",
+  "subtitleLanguage": "Altyazı dili",
+  "subtitleDownloadFailed": "Həmin altyazı endirilmədi. Başqa nəticəni yoxla.",
+  "subtitleSearchFailed": "Axtarış alınmadı: {error}",
+  "@subtitleSearchFailed": {
+    "description": "The online subtitle search itself failed rather than one provider within it. {error} is a raw, untranslated message.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "subtitleSearchPrompt": "Altyazı tapmaq üçün başlıq axtar.",
+  "noSubtitlesFoundTryAnother": "Altyazı tapılmadı. Başqa başlıq və ya dil yoxla.",
+  "playerNowPlaying": "İndi oynadılır",
+  "playerQualityFilterDropped": "Keyfiyyət tərcihinə uyğun gələn olmadı, ona görə bütün mənbələr göstərilir.",
+  "playerSeeders": "{count, plural, =1{1 sid} other{{count} sid}}",
+  "@playerSeeders": {
+    "description": "Seeder count badge on a torrent source row.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playerFiles": "Fayllar",
+  "playerSeasonEpisode": "S{season} E{episode}",
+  "@playerSeasonEpisode": {
+    "description": "Compact episode number for a series with seasons.",
+    "placeholders": {
+      "season": {
+        "type": "int"
+      },
+      "episode": {
+        "type": "int"
+      }
+    }
+  },
+  "playerRuntimeMinutes": "{count} dəq",
+  "@playerRuntimeMinutes": {
+    "description": "Episode runtime, in minutes, on a side-panel episode row.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioDelay": "Audio gecikməsi",
+  "subtitleSearchTitleFallback": "Bu başlığın ID-sinə uyğun heç nə tapılmadı. Əvəzində başlığa uyğun nəticələr göstərilir.",
+  "subtitleSearchSeasonFallback": "Bu epizod üçün altyazı yoxdur. Bunlar bütün mövsümə aiddir, ona görə fayl adındakı epizod nömrəsini yoxla.",
+  "subtitleAccountsNotConfigured": "Heç bir altyazı hesabı qurulmayıb. Onlayn axtarış üçün Parametrlərdə OpenSubtitles, SubDL və ya SubSource açarı əlavə et."
+}

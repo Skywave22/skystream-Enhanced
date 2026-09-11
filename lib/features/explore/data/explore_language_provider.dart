@@ -32,6 +32,7 @@ List<LanguageOption> languageList(Ref ref) {
     LanguageOption('ar-SA', 'Arabic', 'عربي'),
     LanguageOption('ar-AE', 'Levantine Arabic', 'عربي (الشام)'),
     LanguageOption('as-IN', 'Assamese', 'অসমীয়া'),
+    LanguageOption('az-AZ', 'Azerbaijani', 'Azərbaycan dili'),
     LanguageOption('be-BY', 'Belarusian', 'беларуская'),
     LanguageOption('bg-BG', 'Bulgarian', 'български'),
     LanguageOption('bn-IN', 'Bengali', 'বাংলা'),
