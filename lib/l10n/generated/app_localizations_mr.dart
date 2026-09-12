@@ -60,6 +60,13 @@ class AppLocalizationsMr extends AppLocalizations {
   String get recordWatchHistory => 'पाहिलेला इतिहास जतन करा';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => 'डीफॉल्ट मुख्यपृष्ठ स्क्रीन';
 
   @override

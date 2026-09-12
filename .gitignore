@@ -92,3 +92,9 @@ tree-shaking-test*.js
 node_modules/
 # Widget Preview related
 .widget_preview/
+
+# Secrets. TMDB credentials come from --dart-define or Settings at runtime
+# (lib/core/config/tmdb_config.dart), never from a tracked file.
+.env
+.env.*
+!.env.example

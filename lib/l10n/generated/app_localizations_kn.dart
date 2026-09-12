@@ -60,6 +60,13 @@ class AppLocalizationsKn extends AppLocalizations {
   String get recordWatchHistory => 'ವೀಕ್ಷಣೆಯ ಇತಿಹಾಸವನ್ನು ದಾಖಲಿಸಿ';
 
   @override
+  String get bigPictureMode => 'ಬಿಗ್ ಪಿಕ್ಚರ್ ಮೋಡ್';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'ಟಿವಿಗೆ ಸಂಪರ್ಕಿಸಿದ ಕಂಪ್ಯೂಟರ್‌ಗಾಗಿ, ಟಿವಿಯ ದೊಡ್ಡ ವಿನ್ಯಾಸದೊಂದಿಗೆ ಪೂರ್ಣ ಪರದೆ';
+
+  @override
   String get defaultHomeScreen => 'ಡೀಫಾಲ್ಟ್ ಮುಖಪುಟ';
 
   @override

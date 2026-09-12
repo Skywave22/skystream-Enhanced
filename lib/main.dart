@@ -30,10 +30,20 @@ import 'core/providers/device_info_provider.dart';
 import 'shared/widgets/loading_indicator.dart';
 import 'core/widgets/m3_toast_overlay.dart';
 import 'features/settings/presentation/general_settings_provider.dart';
+import 'features/settings/presentation/big_picture_provider.dart';
 import 'features/player/presentation/player_platform_service.dart'
     show immersiveRouteActive;
 
-void main() async {
+/// The process's launch arguments, kept for the one consumer that needs them.
+///
+/// `main` is the only place they exist, and the provider that reads them
+/// (`bigPictureModeProvider`) cannot be touched until a [ProviderScope] is
+/// mounted - so they are parked here and applied from [_MyAppState.initState].
+/// Empty on mobile, where the platform never passes any.
+List<String> appLaunchArgs = const <String>[];
+
+void main(List<String> args) async {
+  appLaunchArgs = args;
   WidgetsFlutterBinding.ensureInitialized();
 
   // Cap Flutter's image cache. Default is 1000 entries / 100 MB which is too
@@ -186,6 +196,10 @@ class _MyAppState extends ConsumerState<MyApp> {
   void initState() {
     super.initState();
     FocusManager.instance.addEarlyKeyEventHandler(_handleEarlyKeyEvent);
+    // `--big-picture` asks for the ten-foot layout on a desktop wired to a
+    // television. Applied here rather than in `main` because it writes through
+    // a provider, which needs the scope this widget sits inside.
+    ref.read(bigPictureModeProvider.notifier).initialize(appLaunchArgs);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(downloadServiceProvider).init();
       _checkExtensionsUpdates();

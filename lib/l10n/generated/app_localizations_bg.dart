@@ -60,6 +60,13 @@ class AppLocalizationsBg extends AppLocalizations {
   String get recordWatchHistory => 'История на гледане';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => 'Начален екран по подразбиране';
 
   @override

@@ -60,6 +60,13 @@ class AppLocalizationsPl extends AppLocalizations {
   String get recordWatchHistory => 'Zapisuj historię oglądania';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => 'Domyślny ekran główny';
 
   @override

@@ -188,14 +188,22 @@ class DetailsActionButtons extends HookConsumerWidget {
       ),
     );
 
-    // Download feature: only for single episode VOD content
+    // Download feature: single-target VOD content. A movie is one downloadable
+    // title however many entries its provider puts in `episodes` - some return
+    // none at all, some return one per mirror - so gate on the controller's
+    // `isMovie` verdict as well as the one-episode series case. `details`
+    // resolves a frame or more after the item is handed to us, so fall back to
+    // whatever episodes the item already carries.
     final isLivestream = item.contentType == MultimediaContentType.livestream;
+    final episodeList = details?.episodes ?? item.episodes;
     final showDownload =
-        details?.episodes != null &&
-        details?.episodes?.length == 1 &&
-        !isLivestream;
+        !isLivestream &&
+        (isMovie || (episodeList != null && episodeList.length == 1));
 
-    final episodeUrl = details?.episodes?.firstOrNull?.url ?? item.url;
+    final episodeUrl =
+        details?.episodes?.firstOrNull?.url ??
+        item.episodes?.firstOrNull?.url ??
+        item.url;
     final activeDownloads = ref.watch(activeDownloadsProvider);
     final isDownloading = activeDownloads.contains(episodeUrl);
     final progressMap = ref.watch(downloadProgressProvider);
@@ -868,12 +876,17 @@ class DetailsProviderChip extends ConsumerWidget {
     String displayName = providerName;
     try {
       final manager = ref.read(extensionManagerProvider.notifier);
-      final p = manager.getAllProviders().firstWhere(
+      // An item can outlive the extension that produced it (library, history,
+      // a deep link), so "no such provider" is an ordinary state, not an
+      // error. firstWhere would throw StateError out of build on every frame
+      // for those items; the try/catch below already swallowed it, but only
+      // after paying for the throw and logging it once per rebuild.
+      final p = manager.getAllProviders().firstWhereOrNull(
         (p) => p.packageName == providerName || p.name == providerName,
       );
-      displayName = p.name;
-      if (p.isDebug) {
-        isDebug = true;
+      if (p != null) {
+        displayName = p.name;
+        isDebug = p.isDebug;
       }
     } catch (e) {
       if (kDebugMode) debugPrint('DetailsProviderChip.build: $e');

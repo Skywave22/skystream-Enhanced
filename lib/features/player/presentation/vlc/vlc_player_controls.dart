@@ -11,6 +11,7 @@ import '../../../../core/providers/device_info_provider.dart';
 import '../../../../core/models/torrent_status.dart';
 import '../../../skip/data/skip_service.dart';
 import '../../domain/skip_segments.dart';
+import '../player_platform_service.dart';
 import '../../../../l10n/generated/app_localizations.dart';
 import '../widgets/hotstar_player_style.dart';
 import '../widgets/player_control_components.dart';
@@ -269,7 +270,15 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     return Duration(seconds: s > 0 ? s : 10);
   }
 
-  bool get _isTv => ref.read(deviceProfileProvider).asData?.value.isTv ?? false;
+  /// Whether the player should wear its ten-foot clothes.
+  ///
+  /// Through [playerFormFactorOf], not the raw profile, so Big Picture on a
+  /// desktop plugged into a television reaches the same verdict the screen
+  /// already reaches - otherwise the screen adopts the TV layout and the bar
+  /// inside it does not.
+  bool get _isTv =>
+      playerFormFactorOf(ref.read(deviceProfileProvider).asData?.value) ==
+      PlayerFormFactor.tv;
 
   /// Desktop is whatever can toggle fullscreen: the screen passes it only
   /// where the window is not already full screen.
@@ -479,6 +488,14 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// Speed to restore when a long-press boost ends. Null when not boosting.
   double? _speedBeforeBoost;
 
+  /// Whether a bare Space is down and this widget has claimed the press.
+  ///
+  /// The keyboard's half of hold-to-2x. Set only on the press this file would
+  /// have acted on anyway - nothing focused - so a Space aimed at a focused
+  /// button is never claimed here, and neither is its repeat or its release.
+  /// See [_handleKey] for why the toggle waits for the release.
+  bool _spaceHeld = false;
+
   bool _appliedInitialFit = false;
 
   @override
@@ -555,6 +572,19 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     // pin those bars up instead. Before _ownChrome is disposed, so the
     // private controller re-arms rather than being written to dead.
     _endSeekHold(null);
+    // Same rule, and the same reason: a boost is a hold on the *controller*,
+    // which the screen owns and which outlives these controls. A press still
+    // down when the player goes - Back during a long-press, an episode
+    // advance under a held Space - would otherwise start the next media at
+    // 2x. Before [_toast] is disposed, since ending a boost clears it.
+    try {
+      _endSpeedBoost();
+    } catch (e) {
+      // A boost that spanned a controller swap has nothing left to give the
+      // speed back to: the engine call asserts on a disposed controller, and
+      // an exception thrown out of dispose takes the route with it.
+      if (kDebugMode) debugPrint('Failed to end speed boost: $e');
+    }
     _chrome.removeListener(_onChromeChanged);
     _seekBaseReset?.cancel();
     _ownChrome?.dispose();
@@ -789,6 +819,90 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     );
   }
 
+  /// The gap between rows of [_pickVolume], and deliberately not
+  /// [_volumeStep].
+  ///
+  /// A keyboard repeats, so 5% steps are a held key; a remote does not, and
+  /// 41 rows would be 41 presses. 20% is coarse enough that the whole range
+  /// including the boost is one short list that fits a sheet without
+  /// scrolling - which matters because the autofocus below is the only thing
+  /// putting the remote on the current value, and a row it has to scroll to
+  /// is a row it cannot find.
+  static const int _volumePickerStep = 20;
+
+  /// The volume affordance a remote can reach.
+  ///
+  /// Every other route into the player's own gain needs hardware a sofa does
+  /// not have. The AudioVolumeUp/Down keys are claimed on desktop only, and
+  /// on purpose - see [_ownsVolumeKeys]. The bare Up/Down arrows are a
+  /// keyboard idiom that television deliberately spends on revealing the
+  /// chrome instead. M is a keyboard key. The vertical rail is a drag. So the
+  /// one device this app is built for was the one device with no way to turn
+  /// the sound up.
+  ///
+  /// Ranged over [_maxVolume] rather than 100: the 100-200% boost is the
+  /// whole point of the setting behind it, and a picker that stopped at 100%
+  /// would hide exactly the range it exists to expose.
+  ///
+  /// Same shape as [_pickSpeed] - a short sheet, one row marked current, and
+  /// on television that row autofocused - so the two read as one control.
+  Future<void> _pickVolume() async {
+    final int max = _maxVolume;
+    final levels = <int>[
+      for (var level = 0; level <= max; level += _volumePickerStep) level,
+    ];
+    // A max that is not a multiple of the step would otherwise be the one
+    // level the picker could not reach.
+    if (levels.last != max) levels.add(max);
+    final current = _volume;
+    // Marked by proximity, not equality: the keyboard steps 5% at a time and
+    // the rail lands anywhere at all, so the level in force is usually
+    // between two rows. The speed sheet marks its current row the same way,
+    // with a tolerance instead of an exact match.
+    final selected = levels.reduce(
+      (a, b) => (a - current).abs() <= (b - current).abs() ? a : b,
+    );
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF141414),
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final level in levels)
+              ListTile(
+                dense: true,
+                autofocus: _isTv && level == selected,
+                selected: level == selected,
+                selectedColor: Colors.white,
+                leading: Icon(
+                  level == selected
+                      ? Icons.check_rounded
+                      : (level == 0
+                            ? Icons.volume_off_rounded
+                            : (level > 100
+                                  ? Icons.volume_up_rounded
+                                  : Icons.volume_down_rounded)),
+                  color: Colors.white70,
+                ),
+                title: Text(
+                  '$level%',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  // The same apply every other route uses, so the rail shows
+                  // and the mute memory is written here too.
+                  _setVolume(level);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Starts a brightness or volume drag based on user gesture configuration.
   Future<void> _railDragStart(DragStartDetails d) async {
     if (_isDesktop) return; // no touch rails
@@ -927,6 +1041,36 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
       key == LogicalKeyboardKey.arrowRight;
 
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    // Hold-to-2x is the one shortcut that needs the whole press rather than
+    // its leading edge, so the repeat and the release are read before the
+    // down-only fast path. Both are gated on [_spaceHeld], which is set only
+    // by a Space this file already claimed, so every other key behaves
+    // exactly as it did: seen once, on the way down.
+    if (event is KeyRepeatEvent) {
+      if (!_spaceHeld || event.logicalKey != LogicalKeyboardKey.space) {
+        return KeyEventResult.ignored;
+      }
+      // A key still down is still interaction; the bars stay up for the life
+      // of the boost. [_startSpeedBoost] is idempotent, so every further
+      // repeat is a poke and nothing else.
+      _chrome.poke();
+      _startSpeedBoost();
+      return KeyEventResult.handled;
+    }
+    if (event is KeyUpEvent) {
+      if (!_spaceHeld || event.logicalKey != LogicalKeyboardKey.space) {
+        return KeyEventResult.ignored;
+      }
+      _spaceHeld = false;
+      // A hold ends by giving the speed back. A tap - a press that never
+      // repeated - is the play/pause toggle the down press deferred.
+      if (_speedBeforeBoost != null) {
+        _endSpeedBoost();
+      } else {
+        _togglePlayback();
+      }
+      return KeyEventResult.handled;
+    }
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
     // Back is not ours, and must not poke. Android delivers it as this key
@@ -958,19 +1102,31 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     // destructive. poke() above already revealed them and focus lands on
     // play/pause after the frame, so this press is spent doing exactly that.
     if (bare && _isTv && _isDirectional(key)) return KeyEventResult.handled;
+    // K and the media keys have no activation meaning, so they stay global.
+    if (key == LogicalKeyboardKey.mediaPlayPause ||
+        key == LogicalKeyboardKey.keyK) {
+      _togglePlayback();
+      return KeyEventResult.handled;
+    }
     // Space is the activation key for whatever is focused, so it is a
     // shortcut only while nothing is: claimed with a button focused it would
     // toggle playback instead of pressing the button, which is what the old
-    // player's rootHasFocus guard was for. K and the media keys have no
-    // activation meaning and stay global.
-    if ((bare && key == LogicalKeyboardKey.space) ||
-        key == LogicalKeyboardKey.mediaPlayPause ||
-        key == LogicalKeyboardKey.keyK) {
-      // Same reading as the glyph, so the key does what the button shows.
-      final running = widget.controller.value;
-      running.isPlaying || running.isBuffering
-          ? widget.controller.pause()
-          : widget.controller.play();
+    // player's rootHasFocus guard was for.
+    //
+    // And a bare Space is two shortcuts on one key - tap toggles, hold runs
+    // at 2x - which is exactly what the touch build's tap and long-press
+    // already are. Only the release tells them apart, so the down press
+    // claims the key and does nothing else.
+    //
+    // Toggling here instead, and boosting on the first repeat, is the wiring
+    // that looks right: the leading edge pauses the film, and the viewer who
+    // meant to skim gets a still frame that is still a still frame when they
+    // let go. In production it is also inert - [_startSpeedBoost] wants
+    // something playing, and by the time the key repeats the engine has
+    // published the pause - but the pause is the part a test can see, so that
+    // is what controls_focus_test.dart pins.
+    if (bare && key == LogicalKeyboardKey.space) {
+      _spaceHeld = true;
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.mediaPlay) {
@@ -981,11 +1137,22 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
       widget.controller.pause();
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.keyJ) {
+    // LB/RB, alongside J/L and through the same [_seekBy], so a pad inherits
+    // the chain window and the toast rather than growing a second seek path.
+    //
+    // A shoulder button has no traversal meaning and no activation meaning,
+    // so unlike the arrows and unlike Space it needs no `bare` guard and is
+    // not spent revealing the chrome on television: the press that wakes the
+    // bars also seeks, exactly as J and L do. Without this, seeking with a
+    // controller meant waking the chrome, walking the D-pad to the scrubber
+    // and only then pressing Left or Right.
+    if (key == LogicalKeyboardKey.keyJ ||
+        key == LogicalKeyboardKey.gameButtonLeft1) {
       _seekBy(-_seekStep);
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.keyL) {
+    if (key == LogicalKeyboardKey.keyL ||
+        key == LogicalKeyboardKey.gameButtonRight1) {
       _seekBy(_seekStep);
       return KeyEventResult.handled;
     }
@@ -1046,6 +1213,15 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
       }
     }
     return KeyEventResult.ignored;
+  }
+
+  /// Play or pause, read exactly as the glyph reads it: a rebuffer is still
+  /// playback, so the key does what the button shows.
+  void _togglePlayback() {
+    final running = widget.controller.value;
+    running.isPlaying || running.isBuffering
+        ? widget.controller.pause()
+        : widget.controller.play();
   }
 
   /// Seeks relative to the current position, clamped at both ends because
@@ -1287,6 +1463,28 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
             onPressed: () => unawaited(_chrome.whileHeld(_pickSpeed)),
           ),
         ),
+      // The remote's volume, and only the remote's: absent-not-disabled, on
+      // the same rule as the lock, the rotate and the fullscreen buttons -
+      // rendered where the device has no other way in. A desktop keyboard
+      // owns AudioVolumeUp/Down outright ([_ownsVolumeKeys]) and steps the
+      // gain on a bare arrow besides; touch has the vertical rail. A remote
+      // has neither, which is the gap [_pickVolume] exists to close.
+      //
+      // [_isDesktop] is `onToggleFullscreen != null`, so it means exactly
+      // "the screen put a fullscreen button in this row" - which is the
+      // correlate that matters twice over: a machine with that button has a
+      // keyboard, and a 960 dp television reporting a desktop OS is already
+      // carrying the widest action row this bar can lay out.
+      //
+      // Not gated on `!widget.isLive` the way speed is: a live edge still has
+      // a volume.
+      if (isTv && !_isDesktop)
+        PlayerIconButton(
+          icon: Icons.volume_up_rounded,
+          tooltip: l10n.volume,
+          isTv: isTv,
+          onPressed: () => unawaited(_chrome.whileHeld(_pickVolume)),
+        ),
       if (_hasPanelTab(PlayerPanelTab.files))
         PlayerIconButton(
           icon: Icons.video_library_outlined,
@@ -1424,7 +1622,9 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// that stopped saying what it was doing would just look broken.
   Widget _buildBody(BuildContext context, {required bool locked}) {
     final l10n = AppLocalizations.of(context)!;
-    final isTv = ref.watch(deviceProfileProvider).asData?.value.isTv ?? false;
+    final isTv =
+        playerFormFactorOf(ref.watch(deviceProfileProvider).asData?.value) ==
+        PlayerFormFactor.tv;
     final isTouch = !isTv && (Platform.isAndroid || Platform.isIOS);
     final settings =
         ref.watch(playerSettingsProvider).asData?.value ??

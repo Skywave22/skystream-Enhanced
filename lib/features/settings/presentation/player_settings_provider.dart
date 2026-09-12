@@ -98,9 +98,8 @@ class PlayerSettings {
   preferredPlayer; // null = internal, 'vlc' / 'mpv' etc. = external
   final int readaheadSeconds;
 
-  // New subtitle appearance properties
-
-  /// Quality to prefer when on Wi-Fi. Default: 4K (best available).
+  /// Quality to prefer when on Wi-Fi. Defaults to [kDefaultWifiQuality]
+  /// (1080p), not 4K — see that constant for why.
   final QualityPreference wifiQuality;
 
   /// Quality to prefer when on mobile data. Default: 1080p.
@@ -137,11 +136,6 @@ class PlayerSettings {
   /// across sessions because users who prefer one view almost always
   /// want it always.
   final bool showRemainingTime;
-
-  /// Default playback speed restored on every new playback session.
-  /// 1.0 = normal. Stored as a double to support fractional values
-  /// (1.25, 1.5, 1.75, 2.0). Capped at the engine's supported range
-  /// at playback time (`maxPlaybackSpeed`).
 
   /// Toggles for individual player control-bar buttons. All default to
   /// visible. Sources, Audio Tracks and Subtitles are intentionally not
@@ -214,12 +208,6 @@ class PlayerSettings {
     String? preferredPlayer,
     bool clearPreferredPlayer = false,
     int? readaheadSeconds,
-    double? Function()? subFixedTextSize,
-    int? Function()? subTypeface,
-    String? Function()? subTypefaceFilePath,
-    double? Function()? subEdgeSize,
-    double? Function()? subBackgroundRadius,
-    int? Function()? subAlignment,
     QualityPreference? wifiQuality,
     QualityPreference? mobileQuality,
     QualityFilterMode? qualityFilterMode,

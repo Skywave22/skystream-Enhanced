@@ -399,6 +399,16 @@ class ViewAllRoute extends GoRouteData with $ViewAllRoute {
   }
 }
 
+/// Location of [PlayerRoute], as a value other layers can compare against.
+///
+/// The player is a *top-level* route, not a shell child, so the root Navigator
+/// builds it underneath everything `MaterialApp.router`'s builder wraps around
+/// the router - the global toast overlay included. Anything that has to stand
+/// down while a full-screen video is on needs to recognise this location, and
+/// `@TypedGoRoute` only accepts a literal, so the literal is mirrored here and
+/// pinned to `PlayerRoute.location` by a test rather than left to drift.
+const String kPlayerRoutePath = '/player';
+
 @TypedGoRoute<PlayerRoute>(path: '/player')
 class PlayerRoute extends GoRouteData with $PlayerRoute {
   const PlayerRoute({required this.$extra});

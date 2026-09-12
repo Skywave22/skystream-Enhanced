@@ -60,6 +60,13 @@ class AppLocalizationsUk extends AppLocalizations {
   String get recordWatchHistory => 'Записувати історію переглядів';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => 'Головний екран за замовчуванням';
 
   @override

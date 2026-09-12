@@ -60,6 +60,13 @@ class AppLocalizationsAz extends AppLocalizations {
   String get recordWatchHistory => 'Baxış tarixçəsini yaz';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => 'Standart əsas ekran';
 
   @override
@@ -407,7 +414,7 @@ class AppLocalizationsAz extends AppLocalizations {
       'Bütün məlumatları, parametrləri və genişləndirmələri sil';
 
   @override
-  String get developerOptionsSubtitle => 'Sazlama alətləri və lokal oxutma';
+  String get developerOptionsSubtitle => 'Sazlama alətləri və lokal oynatma';
 
   @override
   String get loading => 'Yüklənir...';
@@ -799,7 +806,7 @@ class AppLocalizationsAz extends AppLocalizations {
 
   @override
   String seasonWithNumber(Object number) {
-    return 'Sezon $number';
+    return 'Mövsüm $number';
   }
 
   @override
@@ -912,7 +919,7 @@ class AppLocalizationsAz extends AppLocalizations {
 
   @override
   String seasonWithEpisodes(Object number, int count) {
-    return 'Sezon $number ($count epizod)';
+    return 'Mövsüm $number ($count epizod)';
   }
 
   @override
@@ -958,7 +965,7 @@ class AppLocalizationsAz extends AppLocalizations {
   String get availableSources => 'Mövcud mənbələr';
 
   @override
-  String get seasons => 'Sezonlar';
+  String get seasons => 'Mövsümlər';
 
   @override
   String get episodes => 'Epizodlar';
@@ -1094,7 +1101,7 @@ class AppLocalizationsAz extends AppLocalizations {
 
   @override
   String seasonsCount(int count) {
-    return '$count sezon';
+    return '$count mövsüm';
   }
 
   @override
@@ -1603,7 +1610,7 @@ class AppLocalizationsAz extends AppLocalizations {
 
   @override
   String get subtitleSearchSeasonFallback =>
-      'Bu epizod üçün altyazı yoxdur. Bunlar bütün sezona aiddir, ona görə fayl adındakı epizod nömrəsini yoxla.';
+      'Bu epizod üçün altyazı yoxdur. Bunlar bütün mövsümə aiddir, ona görə fayl adındakı epizod nömrəsini yoxla.';
 
   @override
   String get subtitleAccountsNotConfigured =>

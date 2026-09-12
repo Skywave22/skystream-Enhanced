@@ -19,6 +19,7 @@ import 'package:skystream/features/player/presentation/widgets/player_control_co
     show PlayerActionButton, PlayerCenterPlayButton;
 import 'package:skystream/features/player/presentation/widgets/player_stream_widgets.dart'
     show PlayerBufferingIndicator, PlayerSeekBar;
+import 'package:skystream/features/player/presentation/player_platform_service.dart';
 import 'package:skystream/features/settings/presentation/player_settings_provider.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 import 'package:vlc_player/vlc_player.dart';
@@ -101,6 +102,29 @@ List<int> _volumes(FakeVlcEngine engine) => engine
     .callsTo('setVolume')
     .map((call) => (call.arguments as Map)['volume'] as int)
     .toList(growable: false);
+
+/// Every setPlaybackSpeed the engine received, as the rate it was asked for.
+List<double> _speeds(FakeVlcEngine engine) => engine
+    .callsTo('setPlaybackSpeed')
+    .map((call) => (call.arguments as Map)['speed'] as double)
+    .toList(growable: false);
+
+/// A game controller's shoulder button, down and up.
+///
+/// flutter_test resolves a key code per platform and BUTTON_L1/R1 are in
+/// Android's table - which is the platform that has the controllers, exactly
+/// as for BUTTON_A below.
+Future<void> _shoulder(WidgetTester tester, LogicalKeyboardKey key) async {
+  final forward = key == LogicalKeyboardKey.gameButtonRight1;
+  await tester.sendKeyEvent(
+    key,
+    platform: 'android',
+    physicalKey: forward
+        ? PhysicalKeyboardKey.gameButtonRight1
+        : PhysicalKeyboardKey.gameButtonLeft1,
+  );
+  await tester.pump();
+}
 
 Widget _host(
   Widget child, {
@@ -900,6 +924,108 @@ void main() {
       );
       expect(nextPressed, 1);
     });
+
+    // Hold-to-2x existed on a touch long-press only, so the same gesture was
+    // missing from every keyboard. Space is the natural key and it is already
+    // the bare play/pause toggle, so the two share it the way tap and
+    // long-press share the video surface: the down press claims the key and
+    // commits to nothing, the first auto-repeat starts the boost, and the
+    // release either gives the speed back or - never having repeated - is the
+    // toggle.
+    //
+    // The first expectation is the one that matters. Toggling on the down
+    // press instead - the wiring that looks right - pauses the film under a
+    // viewer who meant to skim, and it is still paused when they let go. (On
+    // a device it is inert as well, since _startSpeedBoost wants something
+    // playing and the engine has published the pause by the time the key
+    // repeats; the fake never echoes a pause back, so the pause itself is the
+    // half of that this can see.)
+    testWidgets('holding Space runs at 2x, and the release gives it back', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, isTv: false, desktop: true, engine: engine);
+      _byLabel('player-key-sink').requestFocus();
+      await tester.pump();
+      engine.calls.clear();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(
+        engine.methods,
+        isEmpty,
+        reason: 'the down press only claims the key; the release decides',
+      );
+
+      await tester.sendKeyRepeatEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(_speeds(engine), <double>[2.0]);
+      expect(find.text('2x'), findsOneWidget);
+      expect(
+        engine.methods.where((m) => m == 'play' || m == 'pause'),
+        isEmpty,
+        reason: 'a hold is not a toggle',
+      );
+
+      // Idempotent: a key held down repeats many times over, and every
+      // further repeat must be a poke and nothing else.
+      await tester.sendKeyRepeatEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(_speeds(engine), <double>[2.0]);
+
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(
+        _speeds(engine),
+        <double>[2.0, 1.0],
+        reason: 'the release restores the speed the hold interrupted',
+      );
+      expect(find.text('2x'), findsNothing);
+      expect(
+        engine.methods.where((m) => m == 'play' || m == 'pause'),
+        isEmpty,
+        reason: 'a release that ended a hold is not also a tap',
+      );
+
+      await _snapshot(tester, state: 'paused');
+    });
+
+    // The same guard the tap has, on the other two events. Space belongs to
+    // whatever is focused, so a held Space on a focused button must repeat
+    // that button and never touch the playback rate.
+    testWidgets('holding Space on a focused button never boosts', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      var nextPressed = 0;
+      await _pumpControls(
+        tester,
+        isTv: false,
+        desktop: true,
+        onNextEpisode: () => nextPressed++,
+        engine: engine,
+      );
+      _button(tester, 'Next').requestFocus();
+      await tester.pump();
+      engine.calls.clear();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      await tester.sendKeyRepeatEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+
+      expect(_speeds(engine), isEmpty, reason: 'Space belonged to the button');
+      expect(
+        engine.methods.where((m) => m == 'play' || m == 'pause'),
+        isEmpty,
+        reason: 'and the release is not a deferred toggle either',
+      );
+      expect(nextPressed, greaterThanOrEqualTo(1));
+
+      await _snapshot(tester, state: 'paused');
+    });
   });
 
   group('VlcPlayerControls mouse on desktop', () {
@@ -1245,6 +1371,87 @@ void main() {
       await _snapshot(tester, state: 'paused');
     });
 
+    // On a pad the shoulder buttons are the whole seek affordance. Without
+    // them, seeking with a controller meant waking the chrome, walking the
+    // D-pad down to the scrubber and only then pressing Left or Right - four
+    // presses for what LB and RB do in one. They are routed through the same
+    // _seekBy as J and L rather than a parallel mechanism, so they inherit
+    // the chain window and the centred pill for free.
+    testWidgets(
+      'LB and RB seek by the configured step and chain like J and L',
+      (tester) async {
+        final engine = FakeVlcEngine();
+        await _pumpControls(tester, engine: engine);
+        await _snapshot(tester, position: 10000);
+        engine.calls.clear();
+
+        await _shoulder(tester, LogicalKeyboardKey.gameButtonRight1);
+        expect(_seeks(engine), <int>[20000]);
+
+        // Still inside the window and no snapshot has come back: the second
+        // press counts from the first target, exactly as a second L does.
+        await _shoulder(tester, LogicalKeyboardKey.gameButtonRight1);
+        expect(
+          _seeks(engine),
+          <int>[20000, 30000],
+          reason: 'chained, not undone',
+        );
+        expect(find.text('+20s'), findsOneWidget, reason: 'the shared toast');
+        expect(
+          find.byType(PlayerSeekBurst),
+          findsNothing,
+          reason: 'a button press has no half of the screen to point at',
+        );
+
+        await _shoulder(tester, LogicalKeyboardKey.gameButtonLeft1);
+        expect(_seeks(engine), <int>[20000, 30000, 20000]);
+        expect(find.text('+10s'), findsOneWidget);
+
+        await _snapshot(tester, state: 'paused', position: 20000);
+      },
+    );
+
+    // A shoulder button has no traversal meaning and no activation meaning,
+    // which is exactly why it is bound: unlike a bare arrow it does not have
+    // to be given up to the focus system when a control is focused, and
+    // unlike a bare arrow on television it is not spent revealing the chrome.
+    testWidgets('a shoulder press seeks with a control focused, and the press '
+        'that wakes the bars seeks too', (tester) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, engine: engine);
+      expect(_primary.debugLabel, 'player-play-pause');
+      engine.calls.clear();
+
+      await _shoulder(tester, LogicalKeyboardKey.gameButtonRight1);
+      expect(
+        _seeks(engine),
+        <int>[10000],
+        reason: 'the focused play/pause is not a traversal stop for LB/RB',
+      );
+      expect(
+        engine.methods.where((m) => m == 'play' || m == 'pause'),
+        isEmpty,
+        reason: 'the button under focus was not pressed',
+      );
+
+      // Past the chain window, so the second press counts from the engine's
+      // position - still 0 - rather than from the first target.
+      await _letHide(tester);
+      _expectHidden(tester);
+
+      await _shoulder(tester, LogicalKeyboardKey.gameButtonRight1);
+      expect(
+        _seeks(engine),
+        <int>[10000, 10000],
+        reason:
+            'a bare arrow on TV is spent on the reveal; a shoulder button is '
+            'unambiguous and seeks as well',
+      );
+      _expectShown(tester);
+
+      await _snapshot(tester, state: 'paused', position: 10000);
+    });
+
     // The chain counts from its own target for a second and a half, and the
     // scrubber is reachable throughout: a click on the track lands somewhere
     // the chain knows nothing about, and the engine will not publish it for a
@@ -1534,6 +1741,59 @@ void main() {
     });
   });
 
+  group('VlcPlayerControls in Big Picture', () {
+    // The screen resolves its form factor through playerFormFactorOf, which
+    // Big Picture widens to `tv`. The bar inside it used to read the raw
+    // hardware profile instead, so a desktop wired to a television adopted the
+    // ten-foot layout at the screen level and kept the phone bar inside it.
+    tearDown(() => bigPictureActive.value = false);
+
+    testWidgets('a non-TV device in Big Picture gets the ten-foot bar', (
+      tester,
+    ) async {
+      bigPictureActive.value = true;
+      await _pumpControls(tester, isTv: false);
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      expect(
+        find.byTooltip(l10n.volume),
+        findsOneWidget,
+        reason: 'the volume button is the TV-only affordance; Big Picture '
+            'must reach the same verdict the screen already reaches',
+      );
+    });
+
+    testWidgets('and the same device without it does not', (tester) async {
+      await _pumpControls(tester, isTv: false);
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      expect(find.byTooltip(l10n.volume), findsNothing);
+    });
+
+    // _showCenterGlyph is `!_isTv && !_isDesktop`, so this pair pins the
+    // getter, where the volume pair above pins the build-local flag. The two
+    // reads are separate and both had to move. One _pumpControls per test:
+    // the harness's tear-downs are LIFO around a single channel mock, so a
+    // second install in the same test unregisters the first fake's handler.
+    testWidgets('a touch device gets the centre glyph', (tester) async {
+      await _pumpControls(tester, isTv: false);
+      expect(find.byType(PlayerCenterPlayButton), findsOneWidget);
+    });
+
+    testWidgets('and the touch centre glyph goes away in Big Picture', (
+      tester,
+    ) async {
+      bigPictureActive.value = true;
+      await _pumpControls(tester, isTv: false);
+      expect(
+        find.byType(PlayerCenterPlayButton),
+        findsNothing,
+        reason: 'in Big Picture the same device is a ten-foot one, and a '
+            'remote steers around a glyph in the middle of the frame',
+      );
+    });
+  });
+
   group('VlcPlayerControls volume', () {
     // On Android the AudioVolumeUp/Down logical key *is* the hardware rocker,
     // and the embedder gives the framework first refusal:
@@ -1618,6 +1878,72 @@ void main() {
       );
 
       await tester.pump(const Duration(seconds: 1));
+      await _snapshot(tester, state: 'paused');
+    });
+
+    // Every route into the player's own gain needed hardware a sofa does not
+    // have: the AudioVolume keys are claimed on desktop only, the bare Up and
+    // Down arrows are a keyboard idiom that television deliberately spends on
+    // revealing the chrome, M is a keyboard key and the rail is a drag. So the
+    // one device this app is built for was the one device that could not turn
+    // the sound up - and in particular could not reach the 100-200% boost the
+    // settings screen offers, which is the half of the range that exists
+    // precisely because a television's own amplifier is often not enough.
+    testWidgets('the OSD volume picker reaches the boost above 100%', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, engine: engine);
+
+      await tester.tap(find.byTooltip('Volume'));
+      await tester.pumpAndSettle();
+
+      final selected = tester.widget<ListTile>(
+        find.ancestor(of: find.text('100%'), matching: find.byType(ListTile)),
+      );
+      expect(selected.selected, isTrue, reason: 'the level in force');
+      expect(
+        selected.autofocus,
+        isTrue,
+        reason:
+            'the remote opens onto the current level, as the speed sheet '
+            'does, so a press lands somewhere meaningful',
+      );
+
+      expect(
+        find.text('200%'),
+        findsOneWidget,
+        reason: 'ranged over the max, not clamped to 100',
+      );
+      await tester.tap(find.text('200%'));
+      await tester.pumpAndSettle();
+
+      expect(_volumes(engine), <int>[200]);
+
+      await tester.pump(const Duration(seconds: 1));
+      await _snapshot(tester, state: 'paused');
+    });
+
+    // Absent, not disabled, on the same rule as the lock, the rotate and the
+    // fullscreen buttons: rendered where the device has no other way in. A
+    // desktop keyboard owns AudioVolumeUp/Down outright and steps the gain on
+    // a bare arrow besides, and touch has the vertical rail. Keeping it off
+    // the desktop build also keeps the widest row this bar can lay out - a
+    // 960 dp television that also reports a desktop OS, so the fullscreen
+    // button is in the row as well - inside its own bounds.
+    testWidgets('there is no volume button where a keyboard owns the keys', (
+      tester,
+    ) async {
+      await _pumpControls(tester, isTv: false, desktop: true);
+      expect(find.byTooltip('Volume'), findsNothing);
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('and none on touch, where the rail is the affordance', (
+      tester,
+    ) async {
+      await _pumpControls(tester, isTv: false);
+      expect(find.byTooltip('Volume'), findsNothing);
       await _snapshot(tester, state: 'paused');
     });
   });

@@ -60,6 +60,13 @@ class AppLocalizationsTa extends AppLocalizations {
   String get recordWatchHistory => 'பார்த்த வரலாற்றைப் பதிவு செய்';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => 'இயல்புநிலை முகப்புத் திரை';
 
   @override

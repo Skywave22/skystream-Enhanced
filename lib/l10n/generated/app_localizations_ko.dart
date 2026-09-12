@@ -60,6 +60,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get recordWatchHistory => '시청 기록 남기기';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => '기본 홈 화면';
 
   @override

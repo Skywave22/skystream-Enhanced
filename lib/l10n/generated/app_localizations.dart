@@ -279,6 +279,18 @@ abstract class AppLocalizations {
   /// **'Record Watch History'**
   String get recordWatchHistory;
 
+  /// No description provided for @bigPictureMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Big Picture Mode'**
+  String get bigPictureMode;
+
+  /// No description provided for @bigPictureModeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Full screen with the ten-foot TV layout, for a computer plugged into a television'**
+  String get bigPictureModeSubtitle;
+
   /// No description provided for @defaultHomeScreen.
   ///
   /// In en, this message translates to:

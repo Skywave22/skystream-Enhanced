@@ -63,6 +63,19 @@ void setImmersiveRoute({required bool active}) {
   });
 }
 
+/// Set while the app is running in Big Picture — the ten-foot mode a desktop
+/// is put into when it is plugged into a television.
+///
+/// Owned by `BigPictureMode` in the settings feature, which is the only thing
+/// that writes it; it lives here because [playerFormFactorOf] is a plain
+/// function with no `ref` to read a provider through, and because the whole
+/// value of the flag is what it does to the form factor.
+///
+/// A [ValueNotifier] rather than a bare bool for the same reason
+/// [immersiveRouteActive] is one: the notifier is the single copy of the
+/// state, so a mirror can never drift from it.
+final ValueNotifier<bool> bigPictureActive = ValueNotifier<bool>(false);
+
 /// The orientation policy a device wants from the player.
 ///
 /// Derived from [DeviceProfile] rather than [Platform] because the two
@@ -119,10 +132,17 @@ enum PlayerFormFactor {
 /// callers need no null dance; a profile that has not resolved yet is
 /// [PlayerFormFactor.unknown] rather than a guess, because guessing "phone" on
 /// a television would pin a TV to portrait for the life of the process.
+///
+/// [bigPictureActive] is read here rather than at the call sites on purpose:
+/// this is the one place the player decides what shape of device it is on, so
+/// it is the one place "the user says this screen is across the room" has to
+/// be said. An unresolved profile stays [PlayerFormFactor.unknown] even then —
+/// Big Picture changes the verdict, it is not a substitute for having one.
 PlayerFormFactor playerFormFactorOf(DeviceProfile? profile) {
   if (kIsWeb || profile == null) return PlayerFormFactor.unknown;
   // isTv wins: a leanback device also measures wide enough to set isTablet.
-  if (profile.isTv) return PlayerFormFactor.tv;
+  // Big Picture reaches the same verdict by choice instead of by hardware.
+  if (profile.isTv || bigPictureActive.value) return PlayerFormFactor.tv;
   if (profile.isDesktopOS) return PlayerFormFactor.desktop;
   return profile.isTablet ? PlayerFormFactor.tablet : PlayerFormFactor.phone;
 }
@@ -325,6 +345,24 @@ class PlayerPlatformService {
       }
     } catch (e) {
       if (kDebugMode) debugPrint('PlayerPlatformService.exitFullscreen: $e');
+    }
+  }
+
+  /// Puts the window into or out of full screen.
+  ///
+  /// For a caller that already knows which state it wants — Big Picture, which
+  /// owns the flag it is acting on — where [toggleFullscreen] would depend on
+  /// a window state the OS window controls can change behind its back.
+  ///
+  /// Returns nothing for the same reason [toggleFullscreen] does not: the
+  /// window is the only thing that knows, and on macOS it is still animating
+  /// when this completes.
+  Future<void> setFullscreen(bool fullscreen) async {
+    if (Platform.isAndroid || Platform.isIOS) return;
+    try {
+      await windowManager.setFullScreen(fullscreen);
+    } catch (e) {
+      if (kDebugMode) debugPrint('PlayerPlatformService.setFullscreen: $e');
     }
   }
 

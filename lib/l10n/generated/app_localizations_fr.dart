@@ -60,6 +60,13 @@ class AppLocalizationsFr extends AppLocalizations {
   String get recordWatchHistory => 'Historique de lecture';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => 'Écran d\'accueil par défaut';
 
   @override

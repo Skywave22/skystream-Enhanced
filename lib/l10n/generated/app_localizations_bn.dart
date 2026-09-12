@@ -60,6 +60,13 @@ class AppLocalizationsBn extends AppLocalizations {
   String get recordWatchHistory => 'দেখার ইতিহাস রেকর্ড করুন';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => 'ডিফল্ট হোম স্ক্রিন';
 
   @override

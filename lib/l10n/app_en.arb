@@ -17,6 +17,8 @@
   "general": "General",
   "appTheme": "App Theme",
   "recordWatchHistory": "Record Watch History",
+  "bigPictureMode": "Big Picture Mode",
+  "bigPictureModeSubtitle": "Full screen with the ten-foot TV layout, for a computer plugged into a television",
   "defaultHomeScreen": "Default Home Screen",
   "titlePosition": "Title Position",
   "titlePositionBelowPoster": "Below Poster",

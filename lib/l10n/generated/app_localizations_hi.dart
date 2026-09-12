@@ -60,6 +60,13 @@ class AppLocalizationsHi extends AppLocalizations {
   String get recordWatchHistory => 'वॉच हिस्ट्री रिकॉर्ड करें';
 
   @override
+  String get bigPictureMode => 'बिग पिक्चर मोड';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'टीवी से जुड़े कंप्यूटर के लिए, टीवी वाले बड़े लेआउट के साथ फ़ुल स्क्रीन';
+
+  @override
   String get defaultHomeScreen => 'डिफ़ॉल्ट होम स्क्रीन';
 
   @override

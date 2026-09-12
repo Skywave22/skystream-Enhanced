@@ -60,6 +60,13 @@ class AppLocalizationsRo extends AppLocalizations {
   String get recordWatchHistory => 'Înregistrează istoricul vizionărilor';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => 'Ecran principal implicit';
 
   @override

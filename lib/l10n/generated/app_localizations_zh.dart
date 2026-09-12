@@ -60,6 +60,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get recordWatchHistory => '记录观看历史';
 
   @override
+  String get bigPictureMode => 'Big Picture Mode';
+
+  @override
+  String get bigPictureModeSubtitle =>
+      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+
+  @override
   String get defaultHomeScreen => '默认启动页';
 
   @override

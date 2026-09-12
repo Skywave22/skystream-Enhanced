@@ -7,6 +7,7 @@ import '../../../core/theme/theme_provider.dart';
 
 import 'widgets/settings_widgets.dart';
 import 'widgets/settings_dialogs.dart';
+import 'big_picture_provider.dart';
 import 'general_settings_provider.dart';
 import 'app_version_provider.dart';
 
@@ -93,6 +94,7 @@ class SettingsScreen extends ConsumerWidget {
     ThemeMode themeMode,
     GeneralSettings generalSettings,
   ) {
+    final bigPictureEnabled = ref.watch(bigPictureModeProvider);
     return SettingsGroup(
       title: l10n.general,
       children: [
@@ -147,6 +149,23 @@ class SettingsScreen extends ConsumerWidget {
             generalSettings.titlePosition,
           ),
         ),
+        // Big Picture only appears where it means something: it exists to turn
+        // a windowed computer into the ten-foot UI, and a phone, a tablet and
+        // an Android TV are already the shape they are going to be.
+        if (_supportsBigPicture(context))
+          SettingsTile(
+            icon: Icons.tv_rounded,
+            title: l10n.bigPictureMode,
+            subtitle: l10n.bigPictureModeSubtitle,
+            trailing: Switch(
+              value: bigPictureEnabled,
+              onChanged: (val) =>
+                  ref.read(bigPictureModeProvider.notifier).setEnabled(val),
+            ),
+            onTap: () => ref
+                .read(bigPictureModeProvider.notifier)
+                .setEnabled(!bigPictureEnabled),
+          ),
         SettingsTile(
           icon: Icons.play_circle_outline_rounded,
           title: l10n.player,
@@ -271,4 +290,20 @@ String _formatBytes(int bytes) {
       ? size.toStringAsFixed(0)
       : size.toStringAsFixed(1);
   return '$value ${units[unitIndex]}';
+}
+
+/// Whether Big Picture is offered at all.
+///
+/// It needs a window to make full screen and a form factor worth overriding,
+/// which is the three desktops and nowhere else. Read through
+/// [ThemeData.platform] rather than dart:io so a test can state which device
+/// it is pretending to be.
+bool _supportsBigPicture(BuildContext context) {
+  if (kIsWeb) return false;
+  return switch (Theme.of(context).platform) {
+    TargetPlatform.windows ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => true,
+    _ => false,
+  };
 }

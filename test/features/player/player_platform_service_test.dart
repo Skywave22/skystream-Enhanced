@@ -66,6 +66,28 @@ void main() {
       expect(playerFormFactorOf(const DeviceProfile()), PlayerFormFactor.phone);
     });
 
+    test('Big Picture is a television, whatever the hardware says', () {
+      // The whole point of the flag: a desktop plugged into a TV gets the
+      // ten-foot player without a single widget learning a new parameter.
+      addTearDown(() => bigPictureActive.value = false);
+      const desktop = DeviceProfile(isDesktopOS: true);
+
+      expect(playerFormFactorOf(desktop), PlayerFormFactor.desktop);
+
+      bigPictureActive.value = true;
+      expect(playerFormFactorOf(desktop), PlayerFormFactor.tv);
+      expect(
+        playerFormFactorOf(null),
+        PlayerFormFactor.unknown,
+        reason:
+            'Big Picture changes the verdict, it does not manufacture one '
+            'before the device profile has resolved',
+      );
+
+      bigPictureActive.value = false;
+      expect(playerFormFactorOf(desktop), PlayerFormFactor.desktop);
+    });
+
     test('only phone and tablet may be pinned', () {
       expect(
         PlayerFormFactor.values.where((f) => f.pinsOrientation),

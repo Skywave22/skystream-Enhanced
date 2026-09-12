@@ -1,7 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
+import 'package:skystream/core/router/app_router.dart';
 import 'package:skystream/core/services/notification_service.dart';
 
 /// Exact Material 3 Expressive animation curves & timings.
@@ -30,9 +32,26 @@ class M3ToastOverlay extends ConsumerStatefulWidget {
 }
 
 class _M3ToastOverlayState extends ConsumerState<M3ToastOverlay> {
+  /// Whether the route on top of the root Navigator is the player.
+  ///
+  /// [kPlayerRoutePath] is a top-level route, so it is built *under* this
+  /// overlay - `MaterialApp.router`'s builder wraps the router's Navigator,
+  /// and that is where [M3ToastOverlay] is mounted. Every entry point pushes
+  /// it (`PlayerRoute(...).push(context)`), and go_router deliberately leaves
+  /// `RouteMatchList.uri` on the location that did the pushing, so the pushed
+  /// location has to be read off the top match's state rather than off the
+  /// match list.
+  static bool _onPlayer(GoRouter router) {
+    // `state` reads `currentConfiguration.last`, which throws on the empty
+    // match list the delegate starts life with.
+    if (router.routerDelegate.currentConfiguration.isEmpty) return false;
+    return router.state.uri.path == kPlayerRoutePath;
+  }
+
   @override
   Widget build(BuildContext context) {
     final notificationService = ref.watch(notificationServiceProvider);
+    final router = ref.watch(appRouterProvider);
     final profile = ref.watch(deviceProfileProvider).asData?.value;
     final isDesktopOrTv =
         (profile?.isDesktopOS ?? false) ||
@@ -44,57 +63,75 @@ class _M3ToastOverlayState extends ConsumerState<M3ToastOverlay> {
       children: [
         widget.child,
         Positioned.fill(
+          // Outside the toast list on purpose: navigating has to re-evaluate
+          // the layer even when no toast came or went.
           child: ListenableBuilder(
-            listenable: notificationService,
+            listenable: router.routerDelegate,
             builder: (context, _) {
-              final toasts = notificationService.toasts;
-              if (toasts.isEmpty) {
-                return const SizedBox.shrink();
-              }
+              // The player is full-screen video with its own bottom bar, and
+              // it carries its own transient layer (TransientOverlay) for its
+              // own messages. A card from a background job - a finished
+              // download, a repo refresh - would land on top of that bar, and
+              // because the card is a live InkWell inside a MouseRegion the
+              // `IgnorePointer(ignoring: false)` below does not save it: the
+              // toast would swallow the tap aimed at the control underneath.
+              // So the global layer stands down for the duration; queued
+              // toasts still expire on their own timers.
+              if (_onPlayer(router)) return const SizedBox.shrink();
 
-              return IgnorePointer(
-                ignoring: false,
-                child: SafeArea(
-                  child: Align(
-                    alignment: isDesktopOrTv
-                        ? Alignment.bottomRight
-                        : Alignment.bottomCenter,
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        left: isDesktopOrTv ? 24 : 16,
-                        right: isDesktopOrTv ? 24 : 16,
-                        bottom: isDesktopOrTv ? 24 : 16,
-                      ),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          maxWidth: 360,
-                          minWidth: 160,
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: isDesktopOrTv
-                              ? CrossAxisAlignment.end
-                              : CrossAxisAlignment.center,
-                          children: [
-                            for (int i = 0; i < toasts.length; i++) ...[
-                              if (i > 0) const SizedBox(height: 10),
-                              _M3ToastCard(
-                                key: ValueKey(toasts[i].id),
-                                item: toasts[i],
-                                onDismiss: () => notificationService
-                                    .dismissToast(toasts[i].id),
-                                onHoverStart: () => notificationService
-                                    .pauseTimer(toasts[i].id),
-                                onHoverEnd: () => notificationService
-                                    .resumeTimer(toasts[i].id),
-                              ),
-                            ],
-                          ],
+              return ListenableBuilder(
+                listenable: notificationService,
+                builder: (context, _) {
+                  final toasts = notificationService.toasts;
+                  if (toasts.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return IgnorePointer(
+                    ignoring: false,
+                    child: SafeArea(
+                      child: Align(
+                        alignment: isDesktopOrTv
+                            ? Alignment.bottomRight
+                            : Alignment.bottomCenter,
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            left: isDesktopOrTv ? 24 : 16,
+                            right: isDesktopOrTv ? 24 : 16,
+                            bottom: isDesktopOrTv ? 24 : 16,
+                          ),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: 360,
+                              minWidth: 160,
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: isDesktopOrTv
+                                  ? CrossAxisAlignment.end
+                                  : CrossAxisAlignment.center,
+                              children: [
+                                for (int i = 0; i < toasts.length; i++) ...[
+                                  if (i > 0) const SizedBox(height: 10),
+                                  _M3ToastCard(
+                                    key: ValueKey(toasts[i].id),
+                                    item: toasts[i],
+                                    onDismiss: () => notificationService
+                                        .dismissToast(toasts[i].id),
+                                    onHoverStart: () => notificationService
+                                        .pauseTimer(toasts[i].id),
+                                    onHoverEnd: () => notificationService
+                                        .resumeTimer(toasts[i].id),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               );
             },
           ),

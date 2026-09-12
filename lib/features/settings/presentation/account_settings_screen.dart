@@ -14,6 +14,7 @@ import 'player_settings_provider.dart';
 import 'general_settings_provider.dart';
 import '../../../core/network/doh_service.dart';
 
+import '../../../core/logger/app_logger.dart';
 import '../../../core/config/tmdb_config.dart';
 import '../../../core/config/sync_config.dart';
 import '../../tracking/presentation/tracking_auth_provider.dart';
@@ -161,38 +162,47 @@ class _AccountSettingsScreenState extends ConsumerState<AccountSettingsScreen> {
                               bool isCancelled = false;
                               bool isDialogShowing = false;
                               BuildContext? dialogContext;
-                              final success = await ref
-                                  .read(simklServiceProvider)
-                                  .login(
-                                    isCancelled: () => isCancelled,
-                                    onDeviceCodeGenerated: (url, code) async {
-                                      if (context.mounted) {
-                                        isDialogShowing = true;
-                                        unawaited(
-                                          showDialog<void>(
-                                            context: context,
-                                            barrierDismissible: true,
-                                            builder: (ctx) {
-                                              dialogContext = ctx;
-                                              return TrackingAuthDialog(
-                                                providerName: 'Simkl',
-                                                verificationUrl: url,
-                                                userCode: code,
-                                              );
-                                            },
-                                          ).then((_) {
-                                            isCancelled = true;
-                                            isDialogShowing = false;
-                                            if (context.mounted) {
-                                              FocusScope.of(
-                                                context,
-                                              ).requestFocus();
-                                            }
-                                          }),
-                                        );
-                                      }
-                                    },
-                                  );
+                              bool success = false;
+                              try {
+                                success = await ref
+                                    .read(simklServiceProvider)
+                                    .login(
+                                      isCancelled: () => isCancelled,
+                                      onDeviceCodeGenerated: (url, code) async {
+                                        if (context.mounted) {
+                                          isDialogShowing = true;
+                                          unawaited(
+                                            showDialog<void>(
+                                              context: context,
+                                              barrierDismissible: true,
+                                              builder: (ctx) {
+                                                dialogContext = ctx;
+                                                return TrackingAuthDialog(
+                                                  providerName: 'Simkl',
+                                                  verificationUrl: url,
+                                                  userCode: code,
+                                                );
+                                              },
+                                            ).then((_) {
+                                              isCancelled = true;
+                                              isDialogShowing = false;
+                                              if (context.mounted) {
+                                                FocusScope.of(
+                                                  context,
+                                                ).requestFocus();
+                                              }
+                                            }),
+                                          );
+                                        }
+                                      },
+                                    );
+                              } catch (error, stackTrace) {
+                                talker.error(
+                                  'AccountSettingsScreen: Simkl login threw',
+                                  error,
+                                  stackTrace,
+                                );
+                              }
                               if (success && context.mounted) {
                                 ref
                                     .read(notificationServiceProvider)
@@ -200,6 +210,20 @@ class _AccountSettingsScreenState extends ConsumerState<AccountSettingsScreen> {
                                       'Successfully connected to Simkl!',
                                       title: 'Simkl',
                                       icon: Icons.sync_rounded,
+                                    );
+                              } else if (!isCancelled && context.mounted) {
+                                // A device-code login that times out, is denied, or
+                                // throws all land here. Without this branch the tile
+                                // just falls back to "Not logged in" and the viewer
+                                // is told nothing at all. A dialog the viewer
+                                // dismissed is not a failure, hence the isCancelled
+                                // guard.
+                                ref
+                                    .read(notificationServiceProvider)
+                                    .showError(
+                                      l10n.connectionFailed,
+                                      title: 'Simkl',
+                                      icon: Icons.sync_problem_rounded,
                                     );
                               }
                               if (isDialogShowing &&
@@ -240,36 +264,45 @@ class _AccountSettingsScreenState extends ConsumerState<AccountSettingsScreen> {
                               bool isCancelled = false;
                               bool isDialogShowing = false;
                               BuildContext? dialogContext;
-                              final success = await ref
-                                  .read(traktServiceProvider)
-                                  .login(
-                                    isCancelled: () => isCancelled,
-                                    onDeviceCodeGenerated: (url, code) async {
-                                      if (context.mounted) {
-                                        isDialogShowing = true;
-                                        unawaited(
-                                          showDialog<void>(
-                                            context: context,
-                                            barrierDismissible: true,
-                                            builder: (ctx) {
-                                              dialogContext = ctx;
-                                              return TrackingAuthDialog(
-                                                providerName: 'Trakt',
-                                                verificationUrl: url,
-                                                userCode: code,
-                                              );
-                                            },
-                                          ).then((_) {
-                                            isCancelled = true;
-                                            isDialogShowing = false;
-                                            if (context.mounted) {
-                                              _traktFocusNode.requestFocus();
-                                            }
-                                          }),
-                                        );
-                                      }
-                                    },
-                                  );
+                              bool success = false;
+                              try {
+                                success = await ref
+                                    .read(traktServiceProvider)
+                                    .login(
+                                      isCancelled: () => isCancelled,
+                                      onDeviceCodeGenerated: (url, code) async {
+                                        if (context.mounted) {
+                                          isDialogShowing = true;
+                                          unawaited(
+                                            showDialog<void>(
+                                              context: context,
+                                              barrierDismissible: true,
+                                              builder: (ctx) {
+                                                dialogContext = ctx;
+                                                return TrackingAuthDialog(
+                                                  providerName: 'Trakt',
+                                                  verificationUrl: url,
+                                                  userCode: code,
+                                                );
+                                              },
+                                            ).then((_) {
+                                              isCancelled = true;
+                                              isDialogShowing = false;
+                                              if (context.mounted) {
+                                                _traktFocusNode.requestFocus();
+                                              }
+                                            }),
+                                          );
+                                        }
+                                      },
+                                    );
+                              } catch (error, stackTrace) {
+                                talker.error(
+                                  'AccountSettingsScreen: Trakt login threw',
+                                  error,
+                                  stackTrace,
+                                );
+                              }
                               if (success && context.mounted) {
                                 ref
                                     .read(notificationServiceProvider)
@@ -277,6 +310,20 @@ class _AccountSettingsScreenState extends ConsumerState<AccountSettingsScreen> {
                                       'Successfully connected to Trakt!',
                                       title: 'Trakt',
                                       icon: Icons.sync_rounded,
+                                    );
+                              } else if (!isCancelled && context.mounted) {
+                                // A device-code login that times out, is denied, or
+                                // throws all land here. Without this branch the tile
+                                // just falls back to "Not logged in" and the viewer
+                                // is told nothing at all. A dialog the viewer
+                                // dismissed is not a failure, hence the isCancelled
+                                // guard.
+                                ref
+                                    .read(notificationServiceProvider)
+                                    .showError(
+                                      l10n.connectionFailed,
+                                      title: 'Trakt',
+                                      icon: Icons.sync_problem_rounded,
                                     );
                               }
                               if (isDialogShowing &&
