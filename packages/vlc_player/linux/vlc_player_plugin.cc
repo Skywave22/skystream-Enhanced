@@ -28,6 +28,11 @@ class LinuxVlcPlayer;
 
 typedef struct _VlcPixelBufferTexture {
   FlPixelBufferTexture parent_instance;
+  // Orders the raster thread's use of `player` against the platform thread
+  // clearing it during teardown. Without it, fl_engine's populate path
+  // dereferenced a player - and through it a pixel sink - that Dispose had
+  // already freed. See LinuxVlcPlayer::Dispose.
+  GMutex player_mutex;
   LinuxVlcPlayer* player;
 } VlcPixelBufferTexture;
 
@@ -387,16 +392,41 @@ class LinuxVlcPlayer {
                                            nullptr, nullptr);
       g_clear_object(&event_channel_);
     }
+    // Stop libVLC first. This blocks - the stop joins libVLC's own threads -
+    // but it frees nothing the compositor can be reading: VlcPlayerCore::
+    // Dispose() detaches the video output and drops the media player while
+    // deliberately leaving the pixel sink mapped, so a populate racing this
+    // still reads live memory. It is also what silences the frame callback,
+    // so nothing marks a frame available on the texture cleared below.
     if (core_ != nullptr) {
       core_->Dispose();
-      core_.reset();
     }
     if (texture_ != nullptr) {
+      // Then retire the texture, and only then free what it reads through.
+      // Freeing the core first - which is what this used to do - handed
+      // fl_engine's populate path a dangling player and a dangling pixel
+      // buffer, and the crash landed on whoever pressed Back while a frame
+      // was in flight.
       fl_texture_registrar_unregister_texture(texture_registrar_,
                                               FL_TEXTURE(texture_));
+      // Closes the read path. A populate already inside copy_pixels owns
+      // player_mutex, so this waits for it; every later one sees a null
+      // player and reports no frame.
+      g_mutex_lock(&texture_->player_mutex);
+      texture_->player = nullptr;
+      g_mutex_unlock(&texture_->player_mutex);
+      // One window stays open that the Windows embedder lets us close:
+      // fl_texture_registrar_unregister_texture returns as soon as the engine
+      // has been told, with no completion callback, and
+      // fl_pixel_buffer_texture_populate glTexImage2Ds the pointer *after*
+      // copy_pixels has returned. Nothing here can wait for that upload. It
+      // is a window microseconds wide, against the whole of populate before
+      // this change, and closing it needs an embedder API that GTK does not
+      // have yet.
       g_clear_object(&texture_);
       texture_id_ = -1;
     }
+    core_.reset();
   }
 
  private:
@@ -527,16 +557,33 @@ gboolean vlc_pixel_buffer_texture_copy_pixels(FlPixelBufferTexture* texture,
                                               uint32_t* height,
                                               GError** error) {
   auto* self = reinterpret_cast<VlcPixelBufferTexture*>(texture);
-  return self->player != nullptr &&
-         self->player->CopyPixels(buffer, width, height);
+  // Held across the read, not just the pointer load: a teardown running
+  // concurrently on the platform thread has to wait here rather than free the
+  // sink underneath the rotation. The lock is a leaf - CopyPixels takes only
+  // the sink's own mutex and never blocks on libVLC - so the platform thread
+  // waits microseconds, and libVLC's callback thread never touches this lock
+  // at all.
+  g_mutex_lock(&self->player_mutex);
+  const gboolean copied = self->player != nullptr &&
+                          self->player->CopyPixels(buffer, width, height);
+  g_mutex_unlock(&self->player_mutex);
+  return copied;
+}
+
+void vlc_pixel_buffer_texture_finalize(GObject* object) {
+  auto* self = reinterpret_cast<VlcPixelBufferTexture*>(object);
+  g_mutex_clear(&self->player_mutex);
+  G_OBJECT_CLASS(vlc_pixel_buffer_texture_parent_class)->finalize(object);
 }
 
 void vlc_pixel_buffer_texture_class_init(VlcPixelBufferTextureClass* klass) {
   FL_PIXEL_BUFFER_TEXTURE_CLASS(klass)->copy_pixels =
       vlc_pixel_buffer_texture_copy_pixels;
+  G_OBJECT_CLASS(klass)->finalize = vlc_pixel_buffer_texture_finalize;
 }
 
 void vlc_pixel_buffer_texture_init(VlcPixelBufferTexture* self) {
+  g_mutex_init(&self->player_mutex);
   self->player = nullptr;
 }
 

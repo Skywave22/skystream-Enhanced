@@ -9,6 +9,7 @@ import 'package:skystream/core/nuvio/data/nuvio_crypto.dart';
 import 'package:skystream/core/nuvio/data/nuvio_dom.dart';
 import 'package:skystream/core/nuvio/data/nuvio_polyfill.dart';
 import 'package:skystream/core/nuvio/data/nuvio_runtime.dart';
+import 'package:skystream/core/nuvio/data/nuvio_stream_service.dart';
 import 'package:skystream/core/nuvio/models/nuvio_models.dart';
 
 /// Nuvio plugin support, checked against how real plugins behave: bundled
@@ -858,64 +859,55 @@ void main() {
       expect(() => jsonEncode(request.toMap()), returnsNormally);
     });
 
-    test(
-      'the pool answers with JSON instead of hanging or throwing',
-      () async {
-        final pool = NuvioIsolatePool(size: 1);
-        addTearDown(pool.dispose);
+    test('the pool answers with JSON instead of hanging or throwing', () async {
+      final pool = NuvioIsolatePool(size: 1);
+      addTearDown(pool.dispose);
 
-        // QuickJS is not available in the test host, so this exercises the
-        // spawn / send / reply / error path rather than real scraping: the
-        // contract is that a caller always gets a JSON document back.
-        final raw = await pool
-            .execute(
-              const NuvioEngineRequest(
-                code:
-                    'module.exports = { getStreams: function () { return []; } };',
-                scraperId: 'test',
-                scraperName: 'Test',
-                tmdbId: '603',
-                timeoutMs: 4000,
-              ),
-            )
-            .timeout(const Duration(seconds: 40));
-
-        final decoded = jsonDecode(raw);
-        expect(decoded, isA<Map<String, dynamic>>());
-        expect(
-          (decoded as Map).containsKey('streams') ||
-              decoded.containsKey('error'),
-          isTrue,
-        );
-      },
-      timeout: const Timeout(Duration(seconds: 60)),
-    );
-
-    test(
-      'parallel jobs reserve at most `size` isolates',
-      () async {
-        final pool = NuvioIsolatePool(size: 2);
-        addTearDown(pool.dispose);
-
-        // Eight jobs starting at once used to spawn eight isolates, because each
-        // of them checked the worker count before any of them had finished
-        // spawning.
-        await Future.wait([
-          for (var i = 0; i < 8; i++)
-            pool.execute(
-              NuvioEngineRequest(
-                code: 'module.exports = {};',
-                scraperId: 'p$i',
-                scraperName: 'P$i',
-                timeoutMs: 3000,
-              ),
+      // QuickJS is not available in the test host, so this exercises the
+      // spawn / send / reply / error path rather than real scraping: the
+      // contract is that a caller always gets a JSON document back.
+      final raw = await pool
+          .execute(
+            const NuvioEngineRequest(
+              code:
+                  'module.exports = { getStreams: function () { return []; } };',
+              scraperId: 'test',
+              scraperName: 'Test',
+              tmdbId: '603',
+              timeoutMs: 4000,
             ),
-        ]).timeout(const Duration(seconds: 45));
+          )
+          .timeout(const Duration(seconds: 40));
 
-        expect(pool.workerCount, lessThanOrEqualTo(2));
-      },
-      timeout: const Timeout(Duration(seconds: 60)),
-    );
+      final decoded = jsonDecode(raw);
+      expect(decoded, isA<Map<String, dynamic>>());
+      expect(
+        (decoded as Map).containsKey('streams') || decoded.containsKey('error'),
+        isTrue,
+      );
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
+    test('parallel jobs reserve at most `size` isolates', () async {
+      final pool = NuvioIsolatePool(size: 2);
+      addTearDown(pool.dispose);
+
+      // Eight jobs starting at once used to spawn eight isolates, because each
+      // of them checked the worker count before any of them had finished
+      // spawning.
+      await Future.wait([
+        for (var i = 0; i < 8; i++)
+          pool.execute(
+            NuvioEngineRequest(
+              code: 'module.exports = {};',
+              scraperId: 'p$i',
+              scraperName: 'P$i',
+              timeoutMs: 3000,
+            ),
+          ),
+      ]).timeout(const Duration(seconds: 45));
+
+      expect(pool.workerCount, lessThanOrEqualTo(2));
+    }, timeout: const Timeout(Duration(seconds: 60)));
 
     test('a disposed pool refuses new work', () {
       final pool = NuvioIsolatePool(size: 1)..dispose();
@@ -1046,5 +1038,197 @@ void main() {
       final result = await http.fetch({'url': 'http://127.0.0.1:1/nope'});
       expect(result[NuvioEngineHttp.errorKey], isNotNull);
     });
+
+    // The defect: `badCertificateCallback = (_, _, _) => true` on the plugin
+    // client. This is the path that decides *where the video lives*, and it
+    // replays the per-host cookie jar on every hop, so on a hostile network an
+    // on-path attacker could present a self-signed certificate, harvest the
+    // scraper's session and hand back a stream of their choosing — with
+    // playback simply working. Same defect, same fix, as the local media
+    // proxy (audit W14).
+    test('refuses a host whose certificate does not validate', () async {
+      final security = SecurityContext(withTrustedRoots: false)
+        ..useCertificateChainBytes(utf8.encode(_selfSignedCert))
+        ..usePrivateKeyBytes(utf8.encode(_selfSignedKey));
+      final impostor = await HttpServer.bindSecure(
+        InternetAddress.loopbackIPv4,
+        0,
+        security,
+      );
+      addTearDown(() => impostor.close(force: true));
+
+      final cookiesSeen = <String>[];
+      impostor.listen(
+        (request) {
+          cookiesSeen.add(request.headers.value('cookie') ?? '');
+          request.response
+            ..statusCode = 200
+            ..write('{"streams":[{"url":"http://attacker.example/evil.mp4"}]}');
+          request.response.close();
+        },
+        // A rejected TLS handshake surfaces here as a stream error; without
+        // this it escapes as an unhandled async error and fails the test for
+        // the wrong reason.
+        onError: (Object _) {},
+      );
+
+      final http = NuvioEngineHttp();
+      addTearDown(http.close);
+      final result = await http.fetch({
+        'url': 'https://127.0.0.1:${impostor.port}/streams',
+        'headers': {'Cookie': 'sid=super-secret'},
+      });
+
+      expect(
+        result[NuvioEngineHttp.errorKey],
+        isNotNull,
+        reason: 'an untrusted certificate must fail the fetch, not be waved '
+            'through',
+      );
+      expect(
+        result['body'],
+        isNull,
+        reason: 'the impostor must never get to name a stream',
+      );
+      expect(
+        cookiesSeen,
+        isEmpty,
+        reason: 'the handshake must fail before any request carrying the '
+            "scraper's session cookie reaches the impostor",
+      );
+    });
+  });
+
+  /// The cache used to be a plain `Map` that was never pruned: one entry per
+  /// (scraper, title, season, episode, settings) tuple, written on every
+  /// successful run and removed only when the whole service was told to clear.
+  /// A long session browsing a show grew it without any ceiling, and expired
+  /// entries were checked at read time but never actually dropped.
+  group('scraper result cache', () {
+    NuvioStreamResult result(String url) => NuvioStreamResult(
+      scraperId: 's',
+      scraperName: 'S',
+      title: 'T',
+      url: url,
+    );
+
+    test('expired entries are evicted on write, not merely ignored', () {
+      var now = DateTime(2026);
+      final cache = NuvioResultCache(
+        ttl: const Duration(minutes: 10),
+        clock: () => now,
+      );
+
+      for (var i = 0; i < 5; i++) {
+        cache.store('old-$i', [result('http://old/$i')]);
+      }
+      expect(cache.length, 5);
+
+      now = now.add(const Duration(minutes: 11));
+      expect(cache.lookup('old-0'), isNull, reason: 'past the ttl');
+
+      cache.store('new', [result('http://new')]);
+      expect(
+        cache.length,
+        1,
+        reason: 'the five stale entries should be gone, not just unreadable',
+      );
+    });
+
+    test('the newest maxEntries survive; the map never exceeds it', () {
+      final cache = NuvioResultCache(maxEntries: 4);
+      for (var i = 0; i < 40; i++) {
+        cache.store('k$i', [result('http://$i')]);
+        expect(cache.length, lessThanOrEqualTo(4));
+      }
+      expect(cache.length, 4);
+      expect(cache.lookup('k39'), isNotNull);
+      expect(cache.lookup('k0'), isNull);
+    });
+
+    test('a hit is least-recently-used, not least-recently-written', () {
+      final cache = NuvioResultCache(maxEntries: 3);
+      cache.store('a', [result('http://a')]);
+      cache.store('b', [result('http://b')]);
+      cache.store('c', [result('http://c')]);
+
+      expect(cache.lookup('a'), isNotNull); // touch the oldest write
+      cache.store('d', [result('http://d')]);
+
+      expect(cache.lookup('a'), isNotNull, reason: 'used most recently');
+      expect(cache.lookup('b'), isNull, reason: 'genuinely the coldest');
+    });
+
+    test('refreshing an entry evicts nobody', () {
+      final cache = NuvioResultCache(maxEntries: 3);
+      cache.store('a', [result('http://a')]);
+      cache.store('b', [result('http://b')]);
+      cache.store('c', [result('http://c')]);
+
+      // A scraper re-run overwrites its own key. That is one entry going in
+      // and one coming out, so it must not cost an unrelated entry its place.
+      cache.store('c', [result('http://c2')]);
+
+      expect(cache.length, 3);
+      expect(cache.lookup('a'), isNotNull, reason: 'not the one being written');
+      expect(cache.lookup('c')!.single.url, 'http://c2');
+    });
   });
 }
+
+// A throwaway self-signed certificate for 127.0.0.1, valid until 2126. It is
+// not in any trust store, which is exactly the point: a correct client must
+// refuse it. (Same blob as the local proxy test, kept local so neither test
+// depends on the other.)
+const String _selfSignedCert = '''
+-----BEGIN CERTIFICATE-----
+MIIDHDCCAgSgAwIBAgIUZwxDUHTdlfONWD3vF1XEbMJcghkwDQYJKoZIhvcNAQEL
+BQAwFDESMBAGA1UEAwwJMTI3LjAuMC4xMCAXDTI2MDkxMzAxMDQzMloYDzIxMjYw
+ODIwMDEwNDMyWjAUMRIwEAYDVQQDDAkxMjcuMC4wLjEwggEiMA0GCSqGSIb3DQEB
+AQUAA4IBDwAwggEKAoIBAQCgRvjl1BzFC9hK7hd34+/E2mApz58hYCSxhF2zUrde
+wvOjacj9Fy/+ObWXliVGRS4nJrryiLu7iPsSs6Tcft9M5OI6J1akTl3uOLnhsV6c
+uXsoyRht9sXk7r1whzePLt6HPTbXXk3ImteXWz/kvoP9ltYCpX1ohlx8VZn/izlw
+tEkNcOhogOE9mXxmE7HFhajxCtj0pmbLwknQyf3MQB/fS9WY6BQNs85cINYawAlq
+9NneQBDRFVOQ/Rk4ILwFdGbMn1ODjT2dA/tNWZoSTrIXfvM8yb596palcgOCFk+9
+jKcK9jhfHOIuwUcQQw+RHqsY7JLXtjKOmAs019LBqIIvAgMBAAGjZDBiMB0GA1Ud
+DgQWBBR0BIOzOVioE/ut8yOi79dzay/cSzAfBgNVHSMEGDAWgBR0BIOzOVioE/ut
+8yOi79dzay/cSzAPBgNVHRMBAf8EBTADAQH/MA8GA1UdEQQIMAaHBH8AAAEwDQYJ
+KoZIhvcNAQELBQADggEBADASqexZmix/IbxTdaEDGnTu0Kezzh2nUQ/SyJA+XM1V
+WwkINN1Yo9V4acKPLJOMeQZ+AkhCUN8whC4KZdSL0FpgElHOvkDZneGLrVsfJw09
+RR8SxAi9ia8UOxZ5NE0ZMM/btfDrQN1XryEY8NtbAKuTQJGWqgKzzcBxwwHHXnaq
+dHzDfid0g3jCxCF7AHeViA1SabTgqlaDXV7l5Rxkn2V42gs9rapO2Tv1kZiXh9eq
+MxDj0RX8Qi6cTxvSEGkz4Iaimj4OX+C0+rjsnTJ2PoXS0eV4TR1EwF3T0/zWY2xz
+ZHtRVP1CXusbr7tSj+A5YZrRf/uAwaunBVmHGZTqm2E=
+-----END CERTIFICATE-----
+''';
+
+const String _selfSignedKey = '''
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCgRvjl1BzFC9hK
+7hd34+/E2mApz58hYCSxhF2zUrdewvOjacj9Fy/+ObWXliVGRS4nJrryiLu7iPsS
+s6Tcft9M5OI6J1akTl3uOLnhsV6cuXsoyRht9sXk7r1whzePLt6HPTbXXk3ImteX
+Wz/kvoP9ltYCpX1ohlx8VZn/izlwtEkNcOhogOE9mXxmE7HFhajxCtj0pmbLwknQ
+yf3MQB/fS9WY6BQNs85cINYawAlq9NneQBDRFVOQ/Rk4ILwFdGbMn1ODjT2dA/tN
+WZoSTrIXfvM8yb596palcgOCFk+9jKcK9jhfHOIuwUcQQw+RHqsY7JLXtjKOmAs0
+19LBqIIvAgMBAAECggEAFXa7sUeRHMBD1HEDGo6fVuzpsN+5j0YpU86Gn9Olc97G
+su0hOeeHiVOgIm88iacNEbgpk/5Eqc4j1XLSUqb473q9Yw1OmI1YHeVh2zweD/30
+5NbdWyiPguOH4hBxm86qhVDozbm2z/UQhxf0vATZdzXibhNMcpl/vDTYfTTfWdzM
+pBMvgJANM8sCAbwgNL55GbXrz88mlqnMIphETdfI9RVhCbjZKCZ+Snf3wUzcFDXO
+WeOLaynqjkAQH5MEnQOHRFMeGQYW1pSNK486WbBiqO0ElSBvrCzVTHrpHyEMG2eV
+JSBPr5p4IS79pjTMjaHMFHcI6fxj+sAYH0FAY32kQQKBgQDMoV6rPyC9ifd0aN2f
+rZNfIektM6whmCW8oK1s92E8ufJeguRt+WYuYsYN0Pu0upMfI29447FyxUUym6yP
+6PzGcg8QYa1itobw80X5ApB8tx455DgWBWElKOQouEbEwZbBwfReZOwu7gFIIOzG
+0LeUE7zxDOFJ/W1WqocNf+DxwQKBgQDIgzyAk/xnUcttddW+D+BEO4Ws7a4OIuaw
+ndj0lev5rsD/DazgBe7movaym6A1cnltYgroUzVrnq2jGJAcTQAC8te2prfiHVux
+dOo6Bm5oNWgw490yUcG9Z18YFd0KinHRXxMf+GgKjPqov/umLmcRtDIOeYPGxVj/
+9exD5pyP7wKBgQCKQ7btyrfamfBj7b9h9yyOqSEe870o7d8Btye3aud+2r2Tcqna
+TRvn18Gu8DhDA5YJAi595out2vFIortUeb7ib4sSLI21F1PSVu4+tKbgPfLkdvoW
+lwfuzdRsVycqJwwwW1c8uMCFbTfcfrK+G6UPHs8ZqPRIxD4uwwaB7pgVgQKBgDiz
+zBc8QiNhoRpqOTCPQsdo4at+Zzs+KWiGqsS35Mxt28wErP+JDf8Q1Jy7n7mdjrMd
+B6KdbTzq2YWGu7IVIEy1KcVQLi32SWjMfDQ+f1heygERXwsMzbHnGqAwBpslfXxM
+25at45YgOf4glGRxONprz8ACIv7B7iIsBE1LWLjnAoGASA1FfeijhzhFu+2bqZOz
+KA8BKyN6WDb3MlnuyAwLSksELvtonFz0YUE8oEO622kOylfrJJ0JPU2a8TOu22+N
+k513+xm/TgBonbpOV0Zc6P9ezZtGSDRXMx8qv6SixPByvcugN7VHjF+KkRvUeT/A
+ebCRe6aAS1PlHhTFzCTC5RA=
+-----END PRIVATE KEY-----
+''';

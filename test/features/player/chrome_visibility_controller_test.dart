@@ -161,6 +161,77 @@ void main() {
     expect(chrome.value, isFalse, reason: 'a pointer-down must not re-show');
   });
 
+  group('a screen reader keeps the bars up', () {
+    /// The bit `MediaQuery.accessibleNavigationOf` reports, faked at the same
+    /// place the real thing comes from: `PlatformDispatcher.accessibilityFeatures`.
+    void screenReader(WidgetTester tester, {required bool on}) {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          FakeAccessibilityFeatures(accessibleNavigation: on);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+    }
+
+    testWidgets('the clock never arms while one is driving', (tester) async {
+      screenReader(tester, on: true);
+
+      // Exploration is swipes and flicks, which reach Flutter as no pointer
+      // event at all: nothing here would ever be poked, so an armed clock
+      // takes the bars - and with them every control in the accessibility
+      // tree - out from under the person reading them.
+      final chrome = armed();
+      await tester.pump(_hideAfter * 5);
+      expect(chrome.value, isTrue);
+      expect(notifications, 0);
+
+      // Reaching a control and using it must not arm one either.
+      chrome.poke();
+      chrome.keepAlive();
+      await tester.pump(_hideAfter * 5);
+      expect(chrome.value, isTrue);
+    });
+
+    testWidgets('turning one on mid-film disarms the clock already running', (
+      tester,
+    ) async {
+      final chrome = armed();
+      await tester.pump(_hideAfter - _tick);
+
+      screenReader(tester, on: true);
+      await tester.pump(_tick);
+      expect(chrome.value, isTrue, reason: 'the armed clock declined to hide');
+
+      await tester.pump(_hideAfter * 5);
+      expect(chrome.value, isTrue, reason: 'and did not re-arm');
+    });
+
+    testWidgets('an explicit tap still dismisses them', (tester) async {
+      screenReader(tester, on: true);
+
+      // Hiding is the viewer's own choice here, and a second tap brings the
+      // bars back - the same escape a sighted viewer has.
+      final chrome = armed();
+      chrome.toggle();
+      expect(chrome.value, isFalse);
+      chrome.toggle();
+      expect(chrome.value, isTrue);
+      await tester.pump(_hideAfter * 5);
+      expect(chrome.value, isTrue);
+    });
+
+    testWidgets('turning one off hands the clock back', (tester) async {
+      screenReader(tester, on: true);
+      final chrome = armed();
+      await tester.pump(_hideAfter * 2);
+      expect(chrome.value, isTrue);
+
+      screenReader(tester, on: false);
+      chrome.poke();
+      await tester.pump(_hideAfter);
+      expect(chrome.value, isFalse, reason: 'ordinary behaviour is restored');
+    });
+  });
+
   testWidgets('notifies exactly once per visibility change', (tester) async {
     final chrome = armed();
     chrome.poke();

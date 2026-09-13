@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../core/utils/image_utils.dart';
 import '../../core/utils/responsive_breakpoints.dart';
 import '../../features/settings/presentation/general_settings_provider.dart';
 import 'cards_wrapper.dart';
@@ -37,18 +38,51 @@ class MultimediaCard extends ConsumerWidget {
     );
     final isInside = titlePosition == 'inside';
 
-    final imageWidget = Hero(
-      tag: heroTag,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: CachedNetworkImage(
-          imageUrl: imageUrl ?? '',
-          fit: BoxFit.cover,
-          width: double.infinity,
-          placeholder: (context, url) => ShimmerPlaceholder(borderRadius: 12),
-          errorWidget: (_, _, _) => ThumbnailErrorPlaceholder(label: title),
-        ),
-      ),
+    // LayoutBuilder, and above the Hero rather than inside it.
+    //
+    // Above the Hero because a hero flight animates its child's box from card
+    // size to full-screen size; a LayoutBuilder inside would recompute the
+    // decode bound on every frame of the flight, and every distinct
+    // memCacheWidth is a distinct image-cache key, so the flight would decode
+    // the poster afresh frame after frame.
+    //
+    // LayoutBuilder because `cardWidth` is only a request: a grid cell or a
+    // rail with an itemExtent hands this card TIGHT constraints, the SizedBox
+    // below is overridden, and the card is then painted at a width nobody
+    // passed in. Bounding the decode to the width we were actually given is
+    // the whole point, so it has to come from the constraints.
+    final imageWidget = LayoutBuilder(
+      builder: (context, constraints) {
+        final boxWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : cardWidth;
+        return Hero(
+          tag: heroTag,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: CachedNetworkImage(
+              imageUrl: imageUrl ?? '',
+              fit: BoxFit.cover,
+              width: double.infinity,
+              // Without this the source decodes whole: a `w780` TV/desktop
+              // poster is 780x1170 = 3.65 MB of bitmap for a card painted
+              // 400 px wide, and a plugin that serves a 2000x3000 poster is
+              // 24 MB — half the 50 MB image cache for one card.
+              memCacheWidth: ImageUtils.coverDecodeWidth(
+                context,
+                width: boxWidth,
+                height: constraints.maxHeight,
+                sourceAspectRatio: isPortrait
+                    ? ImageUtils.posterAspectRatio
+                    : ImageUtils.backdropAspectRatio,
+              ),
+              placeholder: (context, url) =>
+                  ShimmerPlaceholder(borderRadius: 12),
+              errorWidget: (_, _, _) => ThumbnailErrorPlaceholder(label: title),
+            ),
+          ),
+        );
+      },
     );
 
     final titleTextStyle = TextStyle(

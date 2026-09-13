@@ -190,29 +190,20 @@ class EpisodePickerSheet extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  // 4. FRESNEL EDGE HIGHLIGHTS WITH SOFT GRADIENT BLENDING
+                  // Hairline edge on the glass. It used to be wrapped in a full-bleed
+                  // ShaderMask that faded the line out over the top and bottom 15% of
+                  // the panel: a BlendMode.dstIn mask costs an offscreen surface the
+                  // size of the whole sheet, and what it bought was a gradient between
+                  // "0.5 dp line at 12% ink" and "no line at all" - a transition
+                  // between two states that are already at the edge of visible. The
+                  // line itself is kept, and now closes around the top and bottom
+                  // corners as well.
                   Positioned.fill(
                     child: IgnorePointer(
-                      child: ShaderMask(
-                        shaderCallback: (rect) {
-                          return const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.white,
-                              Colors.white,
-                              Colors.transparent,
-                            ],
-                            stops: [0.0, 0.15, 0.85, 1.0],
-                          ).createShader(rect);
-                        },
-                        blendMode: BlendMode.dstIn,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: glass.edge, width: 0.5),
-                          ),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: glass.edge, width: 0.5),
                         ),
                       ),
                     ),

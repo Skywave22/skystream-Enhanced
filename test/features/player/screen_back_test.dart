@@ -418,6 +418,107 @@ void main() {
     );
 
     testWidgets(
+      'unlocking with the chip ends the sequence the next lock would inherit',
+      variant: texturePlatform,
+      (tester) async {
+        // The lock has two ways off - the screen's own paths, and the chip,
+        // which writes the shared notifier itself - and the two-second escape
+        // window has to close on both of them. Left armed by a chip unlock,
+        // the first Back after a re-lock inside that window reads as the
+        // second press of a sequence the viewer never started and pops the
+        // player, instead of merely showing the chip again. That is the one
+        // thing the lock promises cannot happen, so it is checked on the path
+        // that used to skip the reset rather than only on the one that did it.
+        await pumpPlayer(tester, pushed: true, isTv: false);
+        await sendFirstFrame(tester);
+        await lock(tester);
+
+        // Locked and left alone, which is the state a real one is found in:
+        // past the chrome's three seconds, so the press below is the one that
+        // summons the chip rather than one that lands on an open bar.
+        await tester.pump(const Duration(seconds: 4));
+
+        // Spent on revealing the chip, and it arms the escape.
+        await sendBack(tester);
+        expect(
+          find.byType(VlcPlayerScreen),
+          findsOneWidget,
+          reason: 'the first press never leaves',
+        );
+
+        // Off with the chip rather than with a second Back. Same destination,
+        // different writer, and it is the writer that used to leave the timer
+        // behind.
+        await tester.tap(await chip());
+        await settle(tester);
+        expect(
+          await chip(),
+          findsNothing,
+          reason:
+              'the chip really did unlock, so the rest of this is about '
+              'what it left behind',
+        );
+
+        // And straight back on, well inside the two seconds the Back above
+        // opened. A viewer who unlocks to skim the seek bar and locks again is
+        // doing exactly this.
+        await lock(tester);
+
+        await sendBack(tester);
+        await tester.pump(const Duration(seconds: 1));
+
+        expect(
+          find.byType(VlcPlayerScreen),
+          findsOneWidget,
+          reason:
+              'the chip unlock closed the window, so this is a first '
+              'press again and a first press never leaves',
+        );
+        expect(
+          await chip(),
+          findsOneWidget,
+          reason: 'and what a first press does instead is show the chip',
+        );
+
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    testWidgets(
+      'and Back works again the instant the chip is used',
+      variant: texturePlatform,
+      (tester) async {
+        // The other timer the unlock has to take with it, and the smaller
+        // half of the same hole. The Back that revealed the chip also armed
+        // the 300 ms same-press echo; left running past an unlock it swallows
+        // a real press on a player that is no longer locked, so a viewer who
+        // unlocks and immediately changes their mind gets a dead gesture.
+        // Nothing is pumped between the unlock and the press, which is what
+        // puts it inside that window.
+        await pumpPlayer(tester, pushed: true, isTv: false);
+        await sendFirstFrame(tester);
+        await lock(tester);
+        await tester.pump(const Duration(seconds: 4));
+
+        await sendBack(tester);
+        await tester.tap(await chip());
+        await tester.pump();
+        expect(await chip(), findsNothing, reason: 'unlocked');
+
+        await sendBack(tester);
+        await tester.pump(const Duration(seconds: 1));
+
+        expect(
+          find.byType(VlcPlayerScreen),
+          findsNothing,
+          reason:
+              'an unlocked phone leaves on one press, and the echo of a '
+              'press spent on a lock that is gone must not eat it',
+        );
+      },
+    );
+
+    testWidgets(
       'a lone press does not arm an escape that outlives it',
       variant: texturePlatform,
       (tester) async {
@@ -496,15 +597,22 @@ void main() {
         await sendFirstFrame(tester);
         await lock(tester);
 
-        // Inside the fifteen-second lead-in, so the up-next card comes up.
+        // Inside the fifteen-second lead-in, where the up-next card would be
+        // - and is not, because the lock withholds it along with every other
+        // tap target on the screen. That is the subject of 'a locked screen
+        // keeps the up-next card and the resume hint off' in
+        // screen_ended_test.dart; here it is only the reason this test can no
+        // longer drive the advance from the countdown.
         await sendEvent(tester, snapshot(position: 100000, duration: 120000));
         await sendEvent(tester, snapshot(position: 110000, duration: 120000));
-        expect(find.byType(NextEpisodeCountdown), findsOneWidget);
+        expect(find.byType(NextEpisodeCountdown), findsNothing);
 
-        // The countdown runs out and advances on its own.
-        for (var i = 0; i < 20; i++) {
-          await tester.pump(const Duration(seconds: 1));
-        }
+        // So the episode is played out instead and the advance happens on end
+        // of media, still with nothing pressed. The near-end position is what
+        // makes that an ending rather than a truncated stream.
+        await sendEvent(tester, snapshot(position: 119000, duration: 120000));
+        await sendEvent(tester, snapshot(state: 'ended'));
+        await settle(tester);
         expect(
           find.byType(VlcPlayerControls),
           findsNothing,
@@ -534,6 +642,10 @@ void main() {
         await sendFirstFrame(tester);
         await lock(tester);
 
+        // A real ending, numbers and all: an end of media with no duration
+        // behind it is a truncated stream, which fails over instead of
+        // carding.
+        await sendEvent(tester, snapshot(position: 1199000, duration: 1200000));
         await sendEvent(tester, snapshot(state: 'ended'));
         await settle(tester);
         expect(
@@ -548,6 +660,54 @@ void main() {
           find.byType(VlcPlayerScreen),
           findsNothing,
           reason: 'one press leaves; nothing is left to swallow it',
+        );
+      },
+    );
+
+    testWidgets(
+      'the lock clears when the last source dies for good',
+      variant: texturePlatform,
+      (tester) async {
+        // The failed frame unmounts the whole controls subtree exactly as the
+        // ended card does, so the unlock chip goes with it: a lock left
+        // standing here is a lock with nothing on screen to undo it, on the
+        // one screen a viewer most wants to leave. Worse than the card, in
+        // fact - _lockedBack's only feedback is _chrome.poke(), and with no
+        // bars mounted that paints nothing at all, so Back reads as broken.
+        await pumpPlayer(tester, pushed: true, isTv: false);
+        final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+        // One source, so the ladder is two same-source retries and then the
+        // end of it. Each retry takes the picture down and clears the lock on
+        // its own account, which is why the lock is set again over every
+        // fresh frame: that is the state a viewer's screen is really in when
+        // the third failure lands, and only the third goes to _fail.
+        for (var round = 0; round < 3; round++) {
+          await sendFirstFrame(tester);
+          await lock(tester);
+          await sendEvent(tester, snapshot(state: 'error'));
+          await settle(tester);
+        }
+
+        expect(
+          find.text(l10n.retry),
+          findsOneWidget,
+          reason: 'the failover ladder ran out and this is the failed frame',
+        );
+        expect(
+          find.byType(VlcPlayerControls),
+          findsNothing,
+          reason: 'so the chip that undoes the lock is not on screen',
+        );
+
+        await sendBack(tester);
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          find.byType(VlcPlayerScreen),
+          findsNothing,
+          reason:
+              'one press leaves: the media the lock was protecting is gone, '
+              'and a lock over a dead picture is a brick',
         );
       },
     );

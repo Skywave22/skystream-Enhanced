@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,8 +16,14 @@ import 'package:skystream/features/skip/data/skip_service.dart'
     show SkipSegment, SkipType;
 import 'package:skystream/features/player/presentation/vlc/transient_overlay.dart'
     show PlayerSeekBurst, PlayerToast;
+import 'package:skystream/features/player/presentation/widgets/hotstar_player_style.dart';
 import 'package:skystream/features/player/presentation/widgets/player_control_components.dart'
-    show PlayerActionButton, PlayerCenterPlayButton;
+    show
+        PlayerActionButton,
+        PlayerActionStrip,
+        PlayerBottomBar,
+        PlayerCenterPlayButton,
+        PlayerIconButton;
 import 'package:skystream/features/player/presentation/widgets/player_stream_widgets.dart'
     show PlayerBufferingIndicator, PlayerSeekBar;
 import 'package:skystream/features/player/presentation/player_platform_service.dart';
@@ -36,6 +43,10 @@ import 'fake_vlc_engine.dart';
 /// re-arm, the bars never vanish under the cursor, and the cursor goes with
 /// the chrome.
 const Size _tv = Size(2560, 1440);
+
+/// The handset the touch-only affordances exist for, and the same frame
+/// controls_lock_test.dart:49 renders its phone at.
+const Size _phone = Size(844, 390);
 const Duration _hideAfter = Duration(seconds: 3);
 const EventChannel _events = EventChannel('vlc_player/events/1');
 
@@ -154,6 +165,14 @@ Widget _host(
 /// [engine] is the fake the controller talks to; pass one to read its
 /// `methods` back. [withoutPanel] stands in for `onOpenPanel: null`, which a
 /// default parameter cannot express.
+///
+/// [size] is the viewport in logical pixels, and it defaults to [_tv] because
+/// that is what every test here was written against. Pass [_phone] for the
+/// touch-only affordances: they exist for a handset, and a 2560x1440 frame has
+/// sixteen times its pixel budget, so a geometry claim measured only there -
+/// "the toast clears the centre glyph", "the burst is on its own half" - holds
+/// for nudge values that would paint one control on top of the other on the
+/// device the feature is for.
 Future<VlcPlayerController> _pumpControls(
   WidgetTester tester, {
   bool isTv = true,
@@ -162,12 +181,20 @@ Future<VlcPlayerController> _pumpControls(
   bool withoutPanel = false,
   Set<PlayerPanelTab> panelTabs = _allTabs,
   VoidCallback? onNextEpisode,
+
+  /// The three a phone gets and a television does not. Null by default so
+  /// every test written before them sees the tree it was written against.
+  VoidCallback? onRotate,
+  VoidCallback? onEnterPip,
+  ValueNotifier<bool>? locked,
   ChromeVisibilityController? chrome,
   FakeVlcEngine? engine,
   PlayerSettings settings = const PlayerSettings(),
   List<SkipSegment> skipSegments = const <SkipSegment>[],
+  VoidCallback? onSkipOutro,
+  Size size = _tv,
 }) async {
-  tester.view.physicalSize = _tv;
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
 
@@ -190,8 +217,12 @@ Future<VlcPlayerController> _pumpControls(
         onNextEpisode: onNextEpisode ?? () {},
         onOpenPanel: withoutPanel ? null : onOpenPanel,
         panelTabs: panelTabs,
+        onRotate: onRotate,
+        onEnterPip: onEnterPip,
+        locked: locked,
         onToggleFullscreen: desktop ? () {} : null,
         skipSegments: skipSegments,
+        onSkipOutro: onSkipOutro,
       ),
       isTv: isTv,
       settings: settings,
@@ -274,6 +305,18 @@ void _expectHidden(WidgetTester tester, {String? reason}) {
   final fades = _fades(tester);
   expect(fades, isNotEmpty);
   expect(fades.map((f) => f.opacity), everyElement(0.0), reason: reason);
+}
+
+/// Taps a chrome button and lets the tap actually resolve.
+///
+/// A plain `tap(); pump();` is not enough anywhere in this player: the
+/// screen-wide detector owns a double-tap (seek on touch, fullscreen on
+/// desktop), so a button's own tap recogniser only wins the arena once that
+/// one has timed out. Measured: the seek button's `onPressed` had not run
+/// after a bare pump and had after 400 ms.
+Future<void> _tapControl(WidgetTester tester, Finder finder) async {
+  await tester.tap(finder);
+  await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
 }
 
 /// Runs the clock out and lets the frame that hides the chrome settle,
@@ -975,11 +1018,10 @@ void main() {
 
       await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
       await tester.pump();
-      expect(
-        _speeds(engine),
-        <double>[2.0, 1.0],
-        reason: 'the release restores the speed the hold interrupted',
-      );
+      expect(_speeds(engine), <double>[
+        2.0,
+        1.0,
+      ], reason: 'the release restores the speed the hold interrupted');
       expect(find.text('2x'), findsNothing);
       expect(
         engine.methods.where((m) => m == 'play' || m == 'pause'),
@@ -1391,11 +1433,10 @@ void main() {
         // Still inside the window and no snapshot has come back: the second
         // press counts from the first target, exactly as a second L does.
         await _shoulder(tester, LogicalKeyboardKey.gameButtonRight1);
-        expect(
-          _seeks(engine),
-          <int>[20000, 30000],
-          reason: 'chained, not undone',
-        );
+        expect(_seeks(engine), <int>[
+          20000,
+          30000,
+        ], reason: 'chained, not undone');
         expect(find.text('+20s'), findsOneWidget, reason: 'the shared toast');
         expect(
           find.byType(PlayerSeekBurst),
@@ -1423,11 +1464,9 @@ void main() {
       engine.calls.clear();
 
       await _shoulder(tester, LogicalKeyboardKey.gameButtonRight1);
-      expect(
-        _seeks(engine),
-        <int>[10000],
-        reason: 'the focused play/pause is not a traversal stop for LB/RB',
-      );
+      expect(_seeks(engine), <int>[
+        10000,
+      ], reason: 'the focused play/pause is not a traversal stop for LB/RB');
       expect(
         engine.methods.where((m) => m == 'play' || m == 'pause'),
         isEmpty,
@@ -1741,33 +1780,41 @@ void main() {
     });
   });
 
-  group('VlcPlayerControls in Big Picture', () {
+  group('VlcPlayerControls in full screen mode', () {
     // The screen resolves its form factor through playerFormFactorOf, which
-    // Big Picture widens to `tv`. The bar inside it used to read the raw
+    // full screen mode widens to `tv`. The bar inside it used to read the raw
     // hardware profile instead, so a desktop wired to a television adopted the
     // ten-foot layout at the screen level and kept the phone bar inside it.
-    tearDown(() => bigPictureActive.value = false);
+    tearDown(() => fullScreenModeActive.value = false);
 
-    testWidgets('a non-TV device in Big Picture gets the ten-foot bar', (
+    // The proxy for "ten-foot" is the overscan inset the bar actually lays
+    // out to - measured, not a field read back. It used to be the presence of
+    // the volume button, which was a green test guarding the wrong behaviour:
+    // volume is COMMON now (see the volume group below), so it can no longer
+    // tell one form factor from another. The inset can: a television is held
+    // to `tvEdgeInset`, and every other device to `edgeInset`.
+    double leftInset(WidgetTester tester) =>
+        tester.getRect(find.byTooltip('Rewind 10 seconds')).left;
+
+    testWidgets('a non-TV device in full screen mode gets the ten-foot bar', (
       tester,
     ) async {
-      bigPictureActive.value = true;
+      fullScreenModeActive.value = true;
       await _pumpControls(tester, isTv: false);
-      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
 
       expect(
-        find.byTooltip(l10n.volume),
-        findsOneWidget,
-        reason: 'the volume button is the TV-only affordance; Big Picture '
-            'must reach the same verdict the screen already reaches',
+        leftInset(tester),
+        HotstarPlayerStyle.tvEdgeInset,
+        reason:
+            'full screen mode must reach the same verdict the screen '
+            'already reaches; 48 dp of overscan is what a television gets',
       );
     });
 
     testWidgets('and the same device without it does not', (tester) async {
       await _pumpControls(tester, isTv: false);
-      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
 
-      expect(find.byTooltip(l10n.volume), findsNothing);
+      expect(leftInset(tester), HotstarPlayerStyle.edgeInset);
     });
 
     // _showCenterGlyph is `!_isTv && !_isDesktop`, so this pair pins the
@@ -1780,16 +1827,17 @@ void main() {
       expect(find.byType(PlayerCenterPlayButton), findsOneWidget);
     });
 
-    testWidgets('and the touch centre glyph goes away in Big Picture', (
+    testWidgets('and the touch centre glyph goes away in full screen mode', (
       tester,
     ) async {
-      bigPictureActive.value = true;
+      fullScreenModeActive.value = true;
       await _pumpControls(tester, isTv: false);
       expect(
         find.byType(PlayerCenterPlayButton),
         findsNothing,
-        reason: 'in Big Picture the same device is a ten-foot one, and a '
-            'remote steers around a glyph in the middle of the frame',
+        reason:
+            'in full screen mode the same device is a ten-foot one, and '
+            'a remote steers around a glyph in the middle of the frame',
       );
     });
   });
@@ -1924,28 +1972,605 @@ void main() {
       await _snapshot(tester, state: 'paused');
     });
 
-    // Absent, not disabled, on the same rule as the lock, the rotate and the
-    // fullscreen buttons: rendered where the device has no other way in. A
-    // desktop keyboard owns AudioVolumeUp/Down outright and steps the gain on
-    // a bare arrow besides, and touch has the vertical rail. Keeping it off
-    // the desktop build also keeps the widest row this bar can lay out - a
-    // 960 dp television that also reports a desktop OS, so the fullscreen
-    // button is in the row as well - inside its own bounds.
-    testWidgets('there is no volume button where a keyboard owns the keys', (
-      tester,
-    ) async {
-      await _pumpControls(tester, isTv: false, desktop: true);
-      expect(find.byTooltip('Volume'), findsNothing);
+    // COMMON, on every platform, and the inversion of the pair that used to
+    // live here.
+    //
+    // The gate was `isTv && !_isDesktop`, justified by "a desktop keyboard
+    // owns AudioVolumeUp/Down and touch has the drag rail". Both are second
+    // routes and the standing rule rejects second routes; and both leak
+    // besides. The rail carries volume only while the viewer's edge-gesture
+    // setting says it does - set both edges to brightness and a phone had no
+    // volume path at all - and the 100-200% boost, the reason this player
+    // exists for quiet dialogue, was reachable on a handset only by dragging
+    // past the top of an invisible rail.
+    //
+    // Rendering, not merely mounting, is what each case asserts: the button
+    // is tapped and the boost is taken, so a build where the row clipped it
+    // off screen would fail here too.
+    for (final (String device, bool isTv, bool desktop)
+        in <(String, bool, bool)>[
+          ('a television', true, false),
+          ('a desktop window with its own fullscreen button', false, true),
+          ('a handset, where the rail was said to be enough', false, false),
+        ]) {
+      testWidgets('the volume button, and the boost behind it, is on $device', (
+        tester,
+      ) async {
+        final engine = FakeVlcEngine();
+        await _pumpControls(
+          tester,
+          isTv: isTv,
+          desktop: desktop,
+          engine: engine,
+        );
+
+        expect(find.byTooltip('Volume'), findsOneWidget);
+        expect(
+          find.byTooltip('Volume').hitTestable(),
+          findsOneWidget,
+          reason: 'present is not enough; it has to be pressable',
+        );
+
+        await _tapControl(tester, find.byTooltip('Volume'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('200%'));
+        await tester.pumpAndSettle();
+
+        expect(_volumes(engine), <int>[
+          200,
+        ], reason: 'the 100-200% boost is reachable here, not just the button');
+
+        await tester.pump(const Duration(seconds: 1));
+        await _snapshot(tester, state: 'paused');
+      });
+    }
+  });
+
+  /// Five defects in one row, fixed together because they are one row.
+  group('VlcPlayerControls bottom row', () {
+    /// Every action button's tooltip, left to right, as the bar orders them.
+    /// Off touch the actions live in the bar's [Wrap]; the leading transport
+    /// group is outside it, which is what makes this the utility list.
+    List<String> wrapTooltips(WidgetTester tester) => tester
+        .widgetList<PlayerIconButton>(
+          find.descendant(
+            of: find.byType(Wrap),
+            matching: find.byType(PlayerIconButton),
+          ),
+        )
+        .map((b) => b.tooltip)
+        .toList(growable: false);
+
+    // DEFECT 3. There were no seek buttons anywhere, on any platform: precise
+    // stepping existed only as an invisible double-tap on touch and as J/L on
+    // a keyboard, while the Android PiP mini-window has shipped replay and
+    // forward buttons the whole time. A two-inch floating window had a better
+    // seek affordance than the full-screen player.
+    for (final (String device, bool isTv, bool desktop)
+        in <(String, bool, bool)>[
+          ('a television', true, false),
+          ('a desktop window', false, true),
+          ('a handset', false, false),
+        ]) {
+      testWidgets('the seek pair is in the bar on $device, and honours the '
+          'configured step', (tester) async {
+        final engine = FakeVlcEngine();
+        await _pumpControls(
+          tester,
+          isTv: isTv,
+          desktop: desktop,
+          engine: engine,
+          // Deliberately not the 10 s default: a pair that hardcoded ten
+          // would pass at the default and lie to everyone who changed it.
+          settings: const PlayerSettings(seekDuration: 30),
+        );
+        // Five minutes long, so a 30 s step forward is nowhere near the
+        // clamp at the end and the numbers below are the step, not the end.
+        await _snapshot(tester, position: 5000, duration: 300000);
+
+        expect(
+          find.byTooltip('Rewind 30 seconds').hitTestable(),
+          findsOneWidget,
+        );
+        expect(
+          find.byTooltip('Forward 30 seconds').hitTestable(),
+          findsOneWidget,
+        );
+        expect(
+          find.byIcon(Icons.replay_30_rounded),
+          findsOneWidget,
+          reason: 'the glyph says the step the setting says',
+        );
+        expect(find.byIcon(Icons.forward_30_rounded), findsOneWidget);
+
+        await _tapControl(tester, find.byTooltip('Forward 30 seconds'));
+        expect(_seeks(engine), <int>[35000], reason: '5 s + one 30 s step');
+
+        await _tapControl(tester, find.byTooltip('Rewind 30 seconds'));
+        expect(_seeks(engine), <int>[
+          35000,
+          5000,
+        ], reason: 'and the chain counts the step back off again');
+
+        // The burst overlay and the seek chain each hold a timer.
+        await tester.pump(const Duration(seconds: 2));
+        await _snapshot(tester, state: 'paused', position: 5000);
+      });
+    }
+
+    // WAVE 1 FOLLOW-UP. The pair shipped without a name: lib/l10n belonged to
+    // another agent, so the tooltip was improvised out of the existing `sec`
+    // and `min` keys as "-30 sec" / "+30 sec". That string is the only name
+    // these two glyphs have anywhere - Tooltip also publishes it to the
+    // accessibility tree - and it read as "minus 30 sec": an amount with no
+    // verb, on the one control whose direction is the entire point.
+    // `playerRewindSeconds` and `playerForwardSeconds` name the action and
+    // carry the step as an ICU plural argument.
+    //
+    // Two steps, and neither is the 10 s default: 5 exercises the low end and
+    // 120 the high one, which is also where the improvised label used to
+    // switch units and say "2 min" while the toast the same press produced
+    // said "+120s". A label that hardcoded any single number, or that dropped
+    // the placeholder, fails at one of the two.
+    for (final int step in <int>[5, 120]) {
+      testWidgets('the seek pair says what it does, at a $step s step', (
+        tester,
+      ) async {
+        await _pumpControls(
+          tester,
+          settings: PlayerSettings(seekDuration: step),
+        );
+        await _snapshot(tester, position: 5000, duration: 300000);
+
+        final Finder rewind = find.byTooltip('Rewind $step seconds');
+        final Finder forward = find.byTooltip('Forward $step seconds');
+        expect(
+          rewind.hitTestable(),
+          findsOneWidget,
+          reason: 'the button is named for the action and the configured step',
+        );
+        expect(forward.hitTestable(), findsOneWidget);
+
+        // The tooltip is also what a screen reader is given: [RawTooltip]
+        // publishes `semanticsTooltip` as the `tooltip` semantics property,
+        // and these two buttons are pure glyphs with no other name anywhere.
+        // Read off the tooltip widget itself, so a build that shows a name
+        // and announces something else - or nothing - fails here.
+        //
+        // Measured, and reported to the owner: that property currently lands
+        // on the bar's own semantics node rather than on each button's,
+        // because PlayerIconButton puts its Tooltip ABOVE CustomButton while
+        // Material's IconButton puts it below the button's Semantics. That is
+        // a pre-existing defect in player_control_components.dart affecting
+        // all thirteen icon buttons, not something these strings introduce.
+        expect(
+          tester.widget<RawTooltip>(rewind).semanticsTooltip,
+          'Rewind $step seconds',
+          reason: 'the name has to reach the accessibility tree at all',
+        );
+        expect(
+          tester.widget<RawTooltip>(forward).semanticsTooltip,
+          'Forward $step seconds',
+        );
+
+        // And no signed amount survives anywhere on the transport row: the
+        // old label would still satisfy the finders above if a build kept
+        // both, and "minus 30 sec" is the thing being removed.
+        final List<String> transport = tester
+            .widgetList<PlayerIconButton>(find.byType(PlayerIconButton))
+            .map((PlayerIconButton b) => b.tooltip)
+            .toList(growable: false);
+        expect(
+          transport.where((String t) => t.startsWith('-') || t.startsWith('+')),
+          isEmpty,
+          reason: 'a signed amount is not a name: $transport',
+        );
+
+        await _snapshot(tester, state: 'paused', position: 5000);
+      });
+    }
+
+    // DEFECT 2. The non-touch row had no overflow strategy at all - a bare
+    // Row with a Spacer, Flex.clipBehavior at Clip.none - so a button past
+    // the edge was painted outside the bar and left mounted and focusable
+    // there. That is why rendering volume unconditionally "overflowed by
+    // 12 dp" and was answered by deleting the control on four platforms.
+    // 480 dp is a legitimate desktop window: lib/main.dart sets the minimum
+    // at 360x640.
+    testWidgets('a 480 dp desktop window wraps the row instead of painting '
+        'buttons off the edge', (tester) async {
+      await _pumpControls(
+        tester,
+        isTv: false,
+        desktop: true,
+        size: const Size(480, 640),
+      );
+
+      const Rect viewport = Rect.fromLTWH(0, 0, 480, 640);
+      final List<String> tooltips = wrapTooltips(tester);
+      expect(
+        tooltips.length,
+        greaterThan(6),
+        reason: 'this only measures anything if the row is genuinely full',
+      );
+
+      for (final String tooltip in tooltips) {
+        final Rect r = tester.getRect(find.byTooltip(tooltip));
+        expect(
+          viewport.contains(r.topLeft) && viewport.contains(r.bottomRight),
+          isTrue,
+          reason:
+              '$tooltip is laid out at $r, outside the $viewport it is '
+              'painted into - clipped, unreachable by a pointer, and still a '
+              'D-pad stop',
+        );
+        expect(
+          find.byTooltip(tooltip).hitTestable(),
+          findsOneWidget,
+          reason: '$tooltip has to be clickable, not merely mounted',
+        );
+      }
+
       await _snapshot(tester, state: 'paused');
     });
 
-    testWidgets('and none on touch, where the rail is the affordance', (
-      tester,
-    ) async {
-      await _pumpControls(tester, isTv: false);
-      expect(find.byTooltip('Volume'), findsNothing);
+    // DEFECT 4, half one. The row is right-anchored, so a squeeze eats it
+    // from the LEFT and whatever leads the list is what the viewer loses.
+    // It used to lead with sources, audio, subtitles, so on a 360 dp portrait
+    // handset - a real state, since the app pins portrait for a
+    // portrait-shaped video - audio and subtitles were the first two gone.
+    testWidgets('audio and subtitles are last in the row, where a squeeze '
+        'cannot reach them', (tester) async {
+      await _pumpControls(tester, isTv: true);
+
+      final List<String> tooltips = wrapTooltips(tester);
+      expect(tooltips.length, greaterThan(4));
+      expect(
+        tooltips.sublist(tooltips.length - 2),
+        <String>['Audio Tracks', 'Subtitles'],
+        reason:
+            'the two most-used utilities are hard against the right edge; '
+            'the full order is $tooltips',
+      );
+      expect(
+        tooltips.indexOf('Volume'),
+        lessThan(tooltips.indexOf('Audio Tracks')),
+        reason: 'and volume is beside them rather than out on the left',
+      );
+
       await _snapshot(tester, state: 'paused');
     });
+
+    // DEFECT 4, the other half. The touch strip is the one branch a widget
+    // test cannot reach through the controls - `isTouch` is
+    // `Platform.isAndroid || Platform.isIOS`, false on every test host - so
+    // it is measured on [PlayerBottomBar] directly, which is the widget that
+    // owns the branch.
+    testWidgets('the touch strip says it scrolls, and only when it does', (
+      tester,
+    ) async {
+      Widget host(double width, int buttons) => MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          backgroundColor: Colors.black,
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              width: width,
+              child: PlayerBottomBar(
+                isTouch: true,
+                progressBar: const SizedBox(height: 8),
+                leading: const [SizedBox(width: 120, height: 44)],
+                actions: <Widget>[
+                  for (int i = 0; i < buttons; i++)
+                    PlayerIconButton(
+                      icon: Icons.circle,
+                      tooltip: 'a$i',
+                      onPressed: () {},
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Two buttons in 360 dp with a 120 dp leading group: room to spare.
+      await tester.pumpWidget(host(360, 2));
+      await tester.pump();
+      expect(
+        find.byIcon(Icons.chevron_left_rounded),
+        findsNothing,
+        reason: 'nothing is hidden, so nothing may claim it is',
+      );
+
+      // Twelve, which is what a torrent series actually renders.
+      await tester.pumpWidget(host(360, 12));
+      await tester.pump();
+      expect(
+        find.byIcon(Icons.chevron_left_rounded),
+        findsOneWidget,
+        reason:
+            'a right-anchored strip that overflows off the left edge with '
+            'no fade, no chevron and no bounce is a strip nobody knows is '
+            'there. The 120 dp leading here is a stand-in that only has to '
+            'force an overflow; what a real handset leaves the strip is '
+            'measured in the test below, against the real button lists',
+      );
+
+      // The hint is paint, never a target: a tap where it sits must still
+      // reach the half-covered button underneath.
+      final Rect hint = tester.getRect(find.byIcon(Icons.chevron_left_rounded));
+      expect(tester.hitTestOnBinding(hint.center), isNotNull);
+      expect(find.byType(IgnorePointer).evaluate().isNotEmpty, isTrue);
+
+      // And it goes away once the viewer has scrolled to the far end.
+      await tester.drag(find.byType(PlayerActionStrip), const Offset(600, 0));
+      await tester.pumpAndSettle();
+      expect(
+        find.byIcon(Icons.chevron_left_rounded),
+        findsNothing,
+        reason: 'scrolled to the left end there is nothing left to reveal',
+      );
+    });
+
+    // DEFECT 4, the half a fixed stand-in cannot see. `leading` is not
+    // 120 dp on a real handset: it is five pinned buttons - rewind,
+    // play/pause, forward, lock, next - and they measure 250 dp, so on the
+    // commonest Android portrait width the strip gets 70 dp of the bar's 320.
+    // One button of ten, with the 28 dp edge hint painted over most of the
+    // next: a viewer looking for Sources, Episodes, Speed, Volume, PiP,
+    // Rotate, Resize or the torrent file list sees a gradient, and has to
+    // fling something narrower than a fingertip. Portrait is a shipping state
+    // - the app pins it for a portrait-shaped video and the rotate button
+    // offers it for any video.
+    //
+    // So both halves of the geometry come off a really-pumped
+    // [VlcPlayerControls]: the actions are its own widgets and the leading
+    // group is a spacer of its own measured width, which is the only part of
+    // it this layout cares about. Its buttons cannot be re-hosted - the
+    // play/pause carries the state's focus node, which dies with it - and a
+    // hardcoded width would be the very thing that hid this. Then they are
+    // re-rendered through the touch branch, which `isTouch`
+    // (`Platform.isAndroid || Platform.isIOS`, false on every test host)
+    // would otherwise never let a test reach.
+    testWidgets('a portrait handset gets a strip it can use, and a landscape '
+        'one still pays nothing for it', (tester) async {
+      final locked = ValueNotifier<bool>(false);
+      addTearDown(locked.dispose);
+      await _pumpControls(
+        tester,
+        isTv: false,
+        size: const Size(360, 800),
+        locked: locked,
+        onRotate: () {},
+        onEnterPip: () {},
+      );
+
+      final PlayerBottomBar built = tester.widget<PlayerBottomBar>(
+        find.byType(PlayerBottomBar),
+      );
+      final List<Widget> actions = built.actions;
+      expect(
+        built.leading.length,
+        5,
+        reason:
+            'the pinned group whose width is what squeezes the strip: '
+            'rewind, play/pause, forward, lock, next',
+      );
+      expect(
+        actions.length,
+        greaterThanOrEqualTo(10),
+        reason: 'a torrent series renders ten utilities or more',
+      );
+
+      // Measured, not assumed, and measured on the handset frame the bar will
+      // actually be squeezed on.
+      final Rect group = built.leading
+          .map((w) => tester.getRect(find.byWidget(w)))
+          .reduce((a, b) => a.expandToInclude(b));
+      expect(
+        group.width,
+        greaterThan(240),
+        reason:
+            'five transport buttons at 48 dp and a 58 dp play/pause: if this '
+            'group ever gets small enough that the flat row works, this test '
+            'is measuring the wrong thing',
+      );
+
+      final Widget transport = SizedBox(
+        width: group.width,
+        height: group.height,
+      );
+      Future<void> renderTouchBar(double width) async {
+        tester.view.physicalSize = Size(width, 800);
+        await tester.pumpWidget(
+          _host(
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                width: width,
+                child: PlayerBottomBar(
+                  isTouch: true,
+                  progressBar: const SizedBox(height: 8),
+                  leading: <Widget>[transport],
+                  actions: actions,
+                ),
+              ),
+            ),
+            isTv: false,
+          ),
+        );
+        await tester.pump();
+      }
+
+      await renderTouchBar(360);
+
+      final Rect strip = tester.getRect(find.byType(PlayerActionStrip));
+      // What is on offer, not what is merely laid out inside the viewport:
+      // the edge hint is paint over the strip's left edge, so a button under
+      // it is one the viewer cannot see to press.
+      final double usableLeft = strip.left + PlayerActionStrip.hintWidth;
+      final List<String> offered = <String>[];
+      for (final Element element
+          in find
+              .descendant(
+                of: find.byType(PlayerActionStrip),
+                matching: find.byType(PlayerIconButton),
+              )
+              .evaluate()) {
+        final RenderBox box = element.renderObject! as RenderBox;
+        final Rect r = box.localToGlobal(Offset.zero) & box.size;
+        if (r.left >= usableLeft - 0.01 && r.right <= strip.right + 0.01) {
+          offered.add((element.widget as PlayerIconButton).tooltip);
+        }
+      }
+      expect(
+        offered.length,
+        greaterThanOrEqualTo(5),
+        reason:
+            'a 360 dp portrait handset offered ${offered.length} of '
+            '${actions.length} utilities clear of the edge hint - $offered - '
+            'in a strip ${strip.width} dp wide. Sharing one line with a '
+            '${group.width} dp transport group leaves 70, which is one '
+            'button and a gradient; the strip has to get a run of its own',
+      );
+      for (final String tooltip in offered) {
+        expect(
+          find.byTooltip(tooltip).hitTestable(),
+          findsOneWidget,
+          reason: '$tooltip is on screen, so it has to be pressable',
+        );
+      }
+      expect(
+        find.byIcon(Icons.chevron_left_rounded),
+        findsOneWidget,
+        reason:
+            'ten buttons still do not fit 320 dp, and a strip that hides '
+            'some has to keep saying so',
+      );
+
+      // The transport group is what must not move: the strip takes the run
+      // above it, never the one below, so the thumb keeps its play/pause
+      // where it has always been.
+      final Rect transportRect = tester.getRect(find.byWidget(transport));
+      expect(
+        transportRect.top,
+        greaterThanOrEqualTo(strip.bottom),
+        reason: 'transport at $transportRect is not below the strip at $strip',
+      );
+      expect(
+        transportRect.left,
+        lessThan(strip.left + 1),
+        reason: 'and it stays pinned to the left edge, not centred',
+      );
+
+      // And the other edge of the contract: a landscape handset has room for
+      // one flat line, so it must not be charged 48 dp of a 390 dp-tall frame
+      // for a second one.
+      final double narrowHeight = tester
+          .getSize(find.byType(PlayerBottomBar))
+          .height;
+      await renderTouchBar(844);
+      final double wideHeight = tester
+          .getSize(find.byType(PlayerBottomBar))
+          .height;
+      expect(
+        wideHeight,
+        lessThan(narrowHeight),
+        reason:
+            'the bar is $wideHeight dp at 844 and $narrowHeight at 360; a '
+            'landscape handset fits on one line and must not pay a run for a '
+            'portrait one',
+      );
+      final Rect wideStrip = tester.getRect(find.byType(PlayerActionStrip));
+      expect(
+        wideStrip.width,
+        greaterThan(400),
+        reason:
+            'at 844 dp the strip keeps the whole remainder of the flat row, '
+            'not a run of its own',
+      );
+    });
+
+    // DEFECT 5. The Skip Intro / Skip Outro chip was a bare
+    // [PlayerActionButton], whose background is `Colors.transparent` until it
+    // is focused, hovered or pressed. Over a bright frame - a title card, a
+    // snow scene - that is white glyphs on white with no edge, and on
+    // television there is no hover to rescue it and focus starts on
+    // play/pause. The unlock chip a few lines away in the same file has had
+    // the answer since it landed: a painted pill. The chip is also the one
+    // control in the player on a clock, so it has to be read at a glance from
+    // a sofa rather than squinted at.
+    for (final (String device, bool isTv, double fontSize, double minHeight)
+        in <(String, bool, double, double)>[
+          ('a television', true, 18.0, 52.0),
+          ('a handset', false, 12.0, 44.0),
+        ]) {
+      testWidgets('the skip chip is a painted pill on $device, at that '
+          "device's label size", (tester) async {
+        await _pumpControls(
+          tester,
+          isTv: isTv,
+          skipSegments: <SkipSegment>[
+            SkipSegment(startTime: 0, endTime: 60, type: SkipType.intro),
+          ],
+        );
+        final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+        final Finder chip = find.widgetWithText(
+          PlayerActionButton,
+          l10n.skipIntro,
+        );
+        expect(chip, findsOneWidget);
+
+        // The container, read off the render tree rather than assumed: the
+        // nearest DecoratedBox above the chip has to be the opaque pill, not
+        // the chrome's own translucent scrim.
+        final Iterable<DecoratedBox> shells = tester.widgetList<DecoratedBox>(
+          find.ancestor(of: chip, matching: find.byType(DecoratedBox)),
+        );
+        expect(
+          shells,
+          isNotEmpty,
+          reason:
+              'the chip lives outside the chrome and paints nothing behind '
+              'itself, so with no container it is white glyphs on a bright '
+              'frame',
+        );
+        final BoxDecoration pill = shells.first.decoration as BoxDecoration;
+        expect(
+          pill.color,
+          const Color(0xB3000000),
+          reason: 'the same fill the unlock chip has always had',
+        );
+        expect(
+          pill.border,
+          isNotNull,
+          reason: 'and the same edge, so the pill has a boundary on white',
+        );
+        expect(pill.borderRadius, BorderRadius.circular(999));
+
+        // A RenderParagraph probe, not the TextStyle the widget was handed:
+        // this is the size that is actually painted.
+        final RenderParagraph label = tester.renderObject<RenderParagraph>(
+          find.text(l10n.skipIntro),
+        );
+        expect(
+          label.text.style!.fontSize,
+          fontSize,
+          reason: 'a 12 dp label is unreadable across a living room',
+        );
+        expect(
+          tester.getSize(chip).height,
+          greaterThanOrEqualTo(minHeight),
+          reason: 'and the pill grows with the label rather than clipping it',
+        );
+
+        await _snapshot(tester, state: 'paused');
+      });
+    }
   });
 
   // A D-pad "OK" is not one key. A Shield remote, an Xbox or PlayStation pad
@@ -2008,6 +2633,235 @@ void main() {
       // coalesced away.
       await tester.pump(const Duration(milliseconds: 400));
       await _snapshot(tester, state: 'paused');
+    });
+  });
+
+  // Skip Outro is not a seek with an advance stapled on: the seek is what
+  // makes the advance safe. `PlaybackTracker.finish` judges the session from
+  // the last sample taken while playing, and an outro band routinely opens
+  // below `kCompletedFraction`, so handing over from inside one records a
+  // `scrobbleStop` at roughly 0.88 on Trakt and Simkl where the viewer earned
+  // a play - a write on third-party accounts this app cannot undo - and never
+  // writes the local watched flag either, so the episode also stays unwatched
+  // in the Episodes tab and on the details screen.
+  //
+  // On a source libVLC reports as unseekable that seek cannot land, so the
+  // press cannot be made safe and the chip is not offered at all. The whole
+  // band is below the line by construction - `segmentAt` only answers inside
+  // the band and the advance point is at or past the band's end - so there is
+  // no "already past it" case for the press to fall through into.
+  group('VlcPlayerControls Skip Outro on an unseekable source', () {
+    // 20 s to 28 s of a 30 s media: inside the band the position is always
+    // under the 28.5 s advance point (0.95 of the duration).
+    final outroSegment = <SkipSegment>[
+      SkipSegment(startTime: 20, endTime: 28, type: SkipType.outro),
+    ];
+
+    testWidgets('there is no Next chip to under-report with', (tester) async {
+      var advances = 0;
+      final engine = FakeVlcEngine();
+      await _pumpControls(
+        tester,
+        engine: engine,
+        skipSegments: outroSegment,
+        onSkipOutro: () => advances++,
+      );
+
+      await _snapshot(tester, position: 21000, isSeekable: false);
+
+      expect(
+        find.byType(PlayerActionButton),
+        findsNothing,
+        reason:
+            'the chip is the only PlayerActionButton in an unlocked '
+            'build, and it cannot honour what it says here',
+      );
+      expect(
+        advances,
+        0,
+        reason:
+            'nothing can hand over from 0.70 of the media and have the '
+            'episode recorded as watched',
+      );
+      expect(_seeks(engine), isEmpty);
+
+      await _snapshot(
+        tester,
+        state: 'paused',
+        position: 21000,
+        isSeekable: false,
+      );
+    });
+
+    testWidgets('and it comes back, and advances, the moment the engine '
+        'reports the source seekable', (tester) async {
+      var advances = 0;
+      final engine = FakeVlcEngine();
+      await _pumpControls(
+        tester,
+        engine: engine,
+        skipSegments: outroSegment,
+        onSkipOutro: () => advances++,
+      );
+
+      await _snapshot(tester, position: 21000, isSeekable: false);
+      expect(find.byType(PlayerActionButton), findsNothing);
+
+      // A torrent that has filled in its pieces is the everyday case. The flag
+      // is not a throttled field, so this publishes on the spot.
+      await _snapshot(tester, position: 21000, isSeekable: true);
+      expect(
+        find.byType(PlayerActionButton),
+        findsOneWidget,
+        reason: 'withheld, not withdrawn for the session',
+      );
+      expect(
+        // Read off the chip rather than by icon: the bottom bar's own
+        // next-episode button carries the same glyph.
+        tester.widget<PlayerActionButton>(find.byType(PlayerActionButton)).icon,
+        Icons.skip_next_rounded,
+      );
+
+      await tester.tap(find.byType(PlayerActionButton));
+      await tester.pump();
+
+      expect(
+        _seeks(engine),
+        <int>[28500],
+        reason:
+            '0.95 of the media, which is past kCompletedFraction, so the '
+            'last sample the tracker sees is a completed one',
+      );
+      expect(advances, 1);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      await _snapshot(tester, state: 'paused', position: 28500);
+    });
+
+    // The guard is on the advance, not on the chip: an intro is a pure seek,
+    // and a dead press there costs a press, not a watch. Widening it would
+    // take the chip away from every source the engine has not called seekable.
+    testWidgets('an intro on the same stream keeps its chip', (tester) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(
+        tester,
+        engine: engine,
+        skipSegments: <SkipSegment>[
+          SkipSegment(startTime: 0, endTime: 60, type: SkipType.intro),
+        ],
+        onSkipOutro: () {},
+      );
+
+      await _snapshot(tester, position: 1000, isSeekable: false);
+
+      expect(find.byIcon(Icons.fast_forward_rounded), findsOneWidget);
+
+      await _snapshot(
+        tester,
+        state: 'paused',
+        position: 1000,
+        isSeekable: false,
+      );
+    });
+  });
+
+  // The touch affordances exist for a handset and every assertion about them
+  // used to be measured on a 2560x1440 frame, where there is sixteen times the
+  // room to be clear of anything. These are the same claims at 844x390, where
+  // the numbers actually have to work: the glyph is the compact 72 dp disc,
+  // and both readouts have to miss it with tens of pixels to spare rather than
+  // hundreds.
+  group('VlcPlayerControls touch geometry on a phone', () {
+    testWidgets('the centre glyph is the compact disc there', (tester) async {
+      await _pumpControls(tester, isTv: false, size: _phone);
+
+      expect(
+        tester.getSize(find.byType(PlayerCenterPlayButton)),
+        const Size(72, 72),
+        reason:
+            'under a 600 dp shortest side the disc is the 72 dp one, and '
+            'it is the thing the toast and the burst are measured against',
+      );
+
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('the swipe toast is nudged clear of the glyph', (tester) async {
+      await _pumpControls(tester, isTv: false, size: _phone);
+      final centre = tester.getCenter(find.byType(VlcPlayerControls));
+      final glyph = tester.getRect(find.byType(PlayerCenterPlayButton));
+
+      await tester.dragFrom(centre, const Offset(200, 0));
+      await tester.pump();
+
+      final message = find.descendant(
+        of: find.byType(PlayerToast),
+        matching: find.byType(Text),
+      );
+      expect(message, findsOneWidget);
+      final Rect toast = tester.getRect(message);
+      expect(
+        toast.overlaps(glyph),
+        isFalse,
+        reason:
+            'on a 390 dp tall frame the nudge is worth about 66 px and '
+            'the disc reaches 36 px above centre: a smaller nudge lands the '
+            'swipe readout on the disc here while still clearing it on a '
+            'television',
+      );
+      expect(
+        toast.bottom,
+        lessThan(glyph.top),
+        reason: 'clear of it upwards, which is where the nudge points',
+      );
+
+      // The 50 ms lets the double-tap recogniser's minimum-gap countdown lapse.
+      await tester.pump(const Duration(milliseconds: 50));
+      await _snapshot(tester, state: 'paused', position: 1000);
+    });
+
+    testWidgets('the double-tap burst lands on its own half, clear of the '
+        'glyph', (tester) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, isTv: false, size: _phone, engine: engine);
+      final centre = tester.getCenter(find.byType(VlcPlayerControls));
+      final glyph = tester.getRect(find.byType(PlayerCenterPlayButton));
+      final right = centre + const Offset(250, 0);
+
+      await tester.tapAt(right);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(right);
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(_seeks(engine), <int>[10000]);
+      expect(find.text('10s'), findsOneWidget);
+      expect(
+        tester.getCenter(find.text('10s')).dx,
+        greaterThan(centre.dx),
+        reason: 'the readout says which half fired by being on it',
+      );
+      // The whole disc, not just the digits: the ripple is the part that would
+      // wash over the play glyph, and it is 0.44 of the shortest side here
+      // rather than the 176 dp cap a television takes.
+      // The Stack fills the burst's SizedBox.square exactly, and it is the one
+      // unambiguous handle on it: Icon puts an ExcludeSemantics of its own
+      // inside, so the burst holds two.
+      final Rect burst = tester.getRect(
+        find.descendant(
+          of: find.byType(PlayerSeekBurst),
+          matching: find.byType(Stack),
+        ),
+      );
+      expect(
+        burst.overlaps(glyph),
+        isFalse,
+        reason:
+            'a 171 dp burst pinned at 0.62 of a 844 dp frame clears a 72 '
+            'dp centre disc by about 86 px; the television it was measured on '
+            'has room for both several times over',
+      );
+
+      await _snapshot(tester, state: 'paused', position: 10000);
     });
   });
 }

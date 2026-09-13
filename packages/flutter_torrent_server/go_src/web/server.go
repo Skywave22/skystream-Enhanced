@@ -6,7 +6,6 @@ import (
 	"os"
 	"sort"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/location"
 	"github.com/gin-gonic/gin"
 
@@ -17,6 +16,9 @@ import (
 	"server/version"
 	"server/web/api"
 )
+
+// LoopbackHost is the only interface the HTTP API is ever bound to.
+const LoopbackHost = "127.0.0.1"
 
 var (
 	BTS        = torr.NewBTS()
@@ -50,32 +52,47 @@ func Start() {
 
 	gin.SetMode(gin.ReleaseMode)
 
-	// corsCfg := cors.DefaultConfig()
-	// corsCfg.AllowAllOrigins = true
-	// corsCfg.AllowHeaders = []string{"*"}
-	// corsCfg.AllowMethods = []string{"*"}
-	// corsCfg.AllowPrivateNetwork = true
-	corsCfg := cors.DefaultConfig()
-	corsCfg.AllowAllOrigins = true
-	corsCfg.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "X-Requested-With", "Accept", "Authorization"}
-
-	route := gin.New()
-	route.Use(log.WebLogger(), gin.Recovery(), cors.New(corsCfg), location.Default())
-
-	route.GET("/echo", echo)
-
-	api.SetupRoute(&route.RouterGroup)
-
 	httpServer = &http.Server{
-		Addr:    ":" + settings.Port,
-		Handler: route,
+		Addr:    listenAddr(),
+		Handler: newRouter(),
 	}
 
 	go func() {
-		log.TLogln("Start http server at port", settings.Port)
+		log.TLogln("Start http server at", httpServer.Addr)
 		httpServer.ListenAndServe()
 		//waitChan <- route.Run(" :" + settings.Port)
 	}()
+}
+
+// listenAddr is loopback only. A bare ":port" listens on every interface,
+// which put the user's torrent library on the cafe/hotel/office Wi-Fi for
+// anyone who scanned the subnet.
+func listenAddr() string {
+	return net.JoinHostPort(LoopbackHost, settings.Port)
+}
+
+// newRouter builds the HTTP API. Split out of Start so the guards and the
+// route table can be exercised without a torrent engine or a database.
+func newRouter() *gin.Engine {
+	// No CORS middleware. This server has no browser client; the previous
+	// AllowAllOrigins configuration handed "Access-Control-Allow-Origin: *"
+	// to any page the user happened to have open, which could then read the
+	// whole torrent library. loopbackGuard replaces it with something
+	// stricter: a foreign Origin, or a Host that is not loopback, is refused
+	// outright rather than merely being denied the response.
+	route := gin.New()
+	route.Use(log.WebLogger(), gin.Recovery(), loopbackGuard, location.Default())
+
+	// Liveness probe only: returns a static version string and no user data.
+	// It stays unauthenticated so a launcher can detect a live server before
+	// it knows that server's token.
+	route.GET("/echo", echo)
+
+	// The open group is not unguarded: openGuard marks a request that carries
+	// no valid token, and the streaming handlers then refuse to add a torrent
+	// the user never asked for. See auth.go.
+	api.SetupRoute(route.Group("", openGuard), route.Group("", tokenGuard))
+	return route
 }
 
 func Wait() error {

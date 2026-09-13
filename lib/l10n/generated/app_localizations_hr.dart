@@ -60,11 +60,10 @@ class AppLocalizationsHr extends AppLocalizations {
   String get recordWatchHistory => 'Snimaj povijest gledanja';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Cijeli zaslon';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Prebacuje se na televizijsko sučelje';
 
   @override
   String get defaultHomeScreen => 'Zadani početni zaslon';
@@ -423,6 +422,30 @@ class AppLocalizationsHr extends AppLocalizations {
   String get min => 'min';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Natrag $count sekundi',
+      few: 'Natrag $count sekunde',
+      one: 'Natrag $count sekundu',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Naprijed $count sekundi',
+      few: 'Naprijed $count sekunde',
+      one: 'Naprijed $count sekundu',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Interni (VLC)';
 
   @override
@@ -739,6 +762,9 @@ class AppLocalizationsHr extends AppLocalizations {
 
   @override
   String get goBack => 'Natrag';
+
+  @override
+  String get restartApp => 'Ponovno pokreni aplikaciju';
 
   @override
   String get resolving => 'Rješavanje...';
@@ -1598,6 +1624,29 @@ class AppLocalizationsHr extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Pretraživanje scrapera…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Nijedna poveznica ne odgovara filtrima.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Ovaj naslov nema TMDB ID. Unesite ga preko \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Nijedan scraper nije uključen. Dodajte ga u \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Svi scraperi nisu uspjeli. Provjerite vezu ili ih ažurirajte.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Nema pronađenih poveznica. Nije uspjelo $failed od $total scrapera.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Nijedan vaš scraper nema ovaj naslov.';
 }

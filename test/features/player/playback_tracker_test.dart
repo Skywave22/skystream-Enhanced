@@ -15,9 +15,19 @@ class _RecordingSync extends SyncManager {
 
   final List<String> calls = <String>[];
 
+  /// Session keys seen on the terminal writes. The outbox keys de-duplication
+  /// on these, so a terminal write arriving without one would be replayable
+  /// against the wrong viewing.
+  final List<String?> terminalSessionKeys = <String?>[];
+
   @override
-  Future<void> markWatched(MultimediaItem item, Episode? episode) async {
+  Future<void> markWatched(
+    MultimediaItem item,
+    Episode? episode, {
+    String? sessionKey,
+  }) async {
     calls.add('markWatched');
+    terminalSessionKeys.add(sessionKey);
   }
 
   @override
@@ -42,9 +52,11 @@ class _RecordingSync extends SyncManager {
   Future<void> scrobbleStop(
     MultimediaItem item,
     Episode? episode,
-    double progress,
-  ) async {
+    double progress, {
+    String? sessionKey,
+  }) async {
     calls.add('scrobbleStop');
+    terminalSessionKeys.add(sessionKey);
   }
 }
 
@@ -136,6 +148,82 @@ void main() {
         ..onPlaying(at(1000, durMs: 100000))
         ..onPlaying(at(95000, durMs: 3600000));
       expect(sync.calls, <String>['scrobbleStart']);
+    });
+  });
+
+  group('session identity on the terminal write', () {
+    // The terminal writes are queued and replayed until they land, so each one
+    // has to say which viewing it belongs to. Without it the outbox cannot
+    // tell a replay of this session apart from a genuinely new one: it either
+    // collapses two separate viewings into one entry, or queues the same write
+    // twice and counts the play twice on Trakt.
+    test('markWatched carries a session key', () {
+      tracker()
+        ..onPlaying(at(1000))
+        ..onPlaying(at(2000))
+        ..onPlaying(at(3400000));
+      expect(sync.calls, <String>['scrobbleStart', 'markWatched']);
+      expect(sync.terminalSessionKeys.single, isNotEmpty);
+    });
+
+    test('scrobbleStop carries a session key', () {
+      tracker()
+        ..onPlaying(at(1000))
+        ..onPlaying(at(2000))
+        ..finish();
+      expect(sync.calls, <String>['scrobbleStart', 'scrobbleStop']);
+      expect(sync.terminalSessionKeys.single, isNotEmpty);
+    });
+
+    test('a different session gets a different key', () {
+      PlaybackTracker(
+          read: read,
+          item: item,
+          episode: null,
+          videoUrl: 'https://example.com/show/1',
+          token: 9,
+        )
+        ..onPlaying(at(1000, token: 9))
+        ..onPlaying(at(2000, token: 9))
+        ..finish();
+      final first = sync.terminalSessionKeys.single;
+
+      tracker()
+        ..onPlaying(at(1000))
+        ..onPlaying(at(2000))
+        ..finish();
+      expect(sync.terminalSessionKeys, hasLength(2));
+      expect(sync.terminalSessionKeys.last, isNot(first));
+    });
+
+    // The regression. `token` is `_VlcPlayerScreenState._token`, a plain State
+    // field declared `int _token = 0` and incremented once per `_start()`.
+    // Every player launch builds a fresh State, so the first — and usually
+    // only — resolution of *every* viewing yields 1. Two viewings of the same
+    // episode on two launches therefore arrived at the outbox under the same
+    // key; while the first was still queued (offline, or a tracker outage) the
+    // second, newer terminal write was dropped as a duplicate of it and the
+    // queue later delivered the older progress, resuming the user tens of
+    // minutes behind where they actually got to.
+    test('two launches of the same episode do not share a session key', () {
+      String keyForOneLaunch() {
+        sync = _RecordingSync();
+        // token == 1: exactly what a fresh _VlcPlayerScreenState produces on
+        // its first and only _start().
+        PlaybackTracker(
+            read: read,
+            item: item,
+            episode: null,
+            videoUrl: 'https://example.com/show/1',
+            token: 1,
+          )
+          ..onPlaying(at(1000, token: 1))
+          ..onPlaying(at(2000, token: 1))
+          ..finish();
+        return sync.terminalSessionKeys.single!;
+      }
+
+      expect(keyForOneLaunch(), isNot(keyForOneLaunch()));
     });
   });
 

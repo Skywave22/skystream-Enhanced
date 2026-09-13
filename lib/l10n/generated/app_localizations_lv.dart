@@ -60,11 +60,10 @@ class AppLocalizationsLv extends AppLocalizations {
   String get recordWatchHistory => 'Ierakstīt skatīšanās vēsturi';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Pilnekrāna režīms';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Pārslēdzas uz TV saskarni';
 
   @override
   String get defaultHomeScreen => 'Noklusējuma sākuma ekrāns';
@@ -429,6 +428,30 @@ class AppLocalizationsLv extends AppLocalizations {
   String get min => 'min.';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Atpakaļ par $count sekundēm',
+      one: 'Atpakaļ par $count sekundi',
+      zero: 'Atpakaļ par $count sekundēm',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Uz priekšu par $count sekundēm',
+      one: 'Uz priekšu par $count sekundi',
+      zero: 'Uz priekšu par $count sekundēm',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Iekšējais (VLC)';
 
   @override
@@ -747,6 +770,9 @@ class AppLocalizationsLv extends AppLocalizations {
 
   @override
   String get goBack => 'Atpakaļ';
+
+  @override
+  String get restartApp => 'Restartēt lietotni';
 
   @override
   String get resolving => 'Atrisina...';
@@ -1604,6 +1630,30 @@ class AppLocalizationsLv extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Meklē skrāperos…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'Neviena saite neatbilst pašreizējiem filtriem.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Šim nosaukumam nav TMDB ID. Ievadiet to ar \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Nav ieslēgtu skrāperu. Pievienojiet to sadaļā \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Visi skrāperi neizdevās. Pārbaudiet savienojumu vai atjauniniet tos.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Saites nav atrastas. Neizdevās $failed no $total skrāperiem.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Nevienam no jūsu skrāperiem nav šī nosaukuma.';
 }

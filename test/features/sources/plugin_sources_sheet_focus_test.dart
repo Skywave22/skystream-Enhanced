@@ -9,6 +9,7 @@ import 'package:skystream/core/network/link_probe_service.dart';
 import 'package:skystream/core/nuvio/data/nuvio_stream_service.dart';
 import 'package:skystream/core/nuvio/models/nuvio_models.dart';
 import 'package:skystream/features/sources/presentation/plugin_sources_sheet.dart';
+import 'package:skystream/l10n/generated/app_localizations.dart';
 
 /// The sheet's TV model, asserted against the real widget rather than a
 /// stand-in: UP/DOWN steps between source cards, LEFT/RIGHT moves inside the
@@ -242,6 +243,11 @@ Future<void> _pumpSheet(
         ),
       ],
       child: MaterialApp(
+        // The sheet reads AppLocalizations from its first frame - the empty
+        // state it paints before any scraper answers is one of seven
+        // different sentences now, not one hardcoded string.
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: ThemeData(brightness: brightness),
         home: PluginSourcesSheet(target: _target),
       ),

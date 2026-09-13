@@ -279,17 +279,17 @@ abstract class AppLocalizations {
   /// **'Record Watch History'**
   String get recordWatchHistory;
 
-  /// No description provided for @bigPictureMode.
+  /// Title of the Settings > General switch that chooses between full screen and windowed. Desktop only: a phone, a tablet and an Android TV never see this row.
   ///
   /// In en, this message translates to:
-  /// **'Big Picture Mode'**
-  String get bigPictureMode;
+  /// **'Full screen mode'**
+  String get fullScreenMode;
 
-  /// No description provided for @bigPictureModeSubtitle.
+  /// Subtitle of that switch. Names both states and says what full screen costs/buys: the ten-foot TV layout comes with it, not just a bigger window.
   ///
   /// In en, this message translates to:
-  /// **'Full screen with the ten-foot TV layout, for a computer plugged into a television'**
-  String get bigPictureModeSubtitle;
+  /// **'Full screen brings the ten-foot TV layout with it, for a computer plugged into a television. Off, the app stays windowed.'**
+  String get fullScreenModeSubtitle;
 
   /// No description provided for @defaultHomeScreen.
   ///
@@ -969,6 +969,18 @@ abstract class AppLocalizations {
   /// **'min'**
   String get min;
 
+  /// Tooltip on the player's rewind button, which Tooltip also publishes as the button's screen-reader label - so it names the action rather than showing a signed amount. {count} is the viewer's configured seek step: the picker offers 5, 10, 15, 20, 30, 60 and 120, so nothing here may hardcode ten. Counted in seconds at every step, including 60 and 120, because seconds are what the seek toast, the seek burst and the D-pad chain already count in; the settings row is the only place that says "2 min". Keep it to two or three words plus the number - it sits under a 48 dp glyph in a crowded transport row.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Rewind 1 second} other{Rewind {count} seconds}}'**
+  String playerRewindSeconds(int count);
+
+  /// Tooltip on the player's fast-forward button, and its screen-reader label. The mirror of playerRewindSeconds in every respect: same {count}, same unit, same length budget.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Forward 1 second} other{Forward {count} seconds}}'**
+  String playerForwardSeconds(int count);
+
   /// No description provided for @internalPlayer.
   ///
   /// In en, this message translates to:
@@ -1550,6 +1562,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Go Back'**
   String get goBack;
+
+  /// Button on the app-wide error screen that tears the widget tree down and rebuilds it. Recovery action, not a device reboot and not a retry of one request; sits next to goBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart App'**
+  String get restartApp;
 
   /// No description provided for @resolving.
   ///
@@ -3027,11 +3045,47 @@ abstract class AppLocalizations {
   /// **'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.'**
   String get subtitleSearchSeasonFallback;
 
-  /// Empty state of the online subtitle search when no provider has credentials, so a search would silently return nothing. Points at the Settings screen where keys are added.
+  /// Centre of the sources sheet while scrapers are still running.
   ///
   /// In en, this message translates to:
-  /// **'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.'**
-  String get subtitleAccountsNotConfigured;
+  /// **'Searching scrapers…'**
+  String get sourcesSearching;
+
+  /// Links were found but the quality/provider/verified filters hide all of them. The user has to relax a filter, not fix anything.
+  ///
+  /// In en, this message translates to:
+  /// **'No links match the current filters.'**
+  String get sourcesEmptyFiltered;
+
+  /// The title carries no TMDB id, so no scraper was ever asked. 'Search manually' is the sheet's own control and stays untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'No TMDB id for this title. Use \'Search manually\' to enter one.'**
+  String get sourcesEmptyNoTmdbId;
+
+  /// No enabled scraper supports this media type. 'Nuvio Plugins' is the screen title and stays untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'No scrapers enabled. Add one in \'Nuvio Plugins\'.'**
+  String get sourcesEmptyNoScrapers;
+
+  /// Every scraper threw. Nothing at this layer can tell being offline from the scrapers being broken, so both are named, connection first.
+  ///
+  /// In en, this message translates to:
+  /// **'Every scraper failed. Check your connection or update your scrapers.'**
+  String get sourcesEmptyAllFailed;
+
+  /// Some scrapers threw and the rest found nothing, so the empty list is not a verdict. {failed} is always at least 1 and always less than {total}.
+  ///
+  /// In en, this message translates to:
+  /// **'No links found. {failed} of {total} scrapers failed.'**
+  String sourcesEmptySomeFailed(int failed, int total);
+
+  /// Every scraper answered and none of them has this title. The one case where nothing is broken and there is nothing to fix.
+  ///
+  /// In en, this message translates to:
+  /// **'None of your scrapers have this title.'**
+  String get sourcesEmptyNothingFound;
 }
 
 class _AppLocalizationsDelegate

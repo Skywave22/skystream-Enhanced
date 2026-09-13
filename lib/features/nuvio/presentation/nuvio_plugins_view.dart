@@ -9,6 +9,7 @@ import '../../../core/nuvio/data/nuvio_runtime.dart';
 import '../../../core/nuvio/data/nuvio_stream_service.dart';
 import '../../../core/nuvio/models/nuvio_models.dart';
 import '../../../core/utils/layout_constants.dart';
+import '../../../shared/widgets/cards_wrapper.dart';
 import '../../../shared/widgets/custom_widgets.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/text_input_dialog.dart';
@@ -732,7 +733,7 @@ class _ScraperTileState extends ConsumerState<_ScraperTile> {
       if (formats.isNotEmpty) formats.toUpperCase(),
     ];
 
-    return ListTile(
+    final tile = ListTile(
       contentPadding: const EdgeInsets.symmetric(
         horizontal: LayoutConstants.spacingMd,
         vertical: 4,
@@ -850,6 +851,8 @@ class _ScraperTileState extends ConsumerState<_ScraperTile> {
         ],
       ),
     );
+
+    return _FocusableRow(child: tile);
   }
 }
 
@@ -1013,6 +1016,115 @@ class _Badge extends StatelessWidget {
   }
 }
 
+/// Dispatched by a [_FocusableRow] whenever it gains or loses focus.
+///
+/// The enclosing [_FocusableCard] listens so it can stand down: a repository
+/// card holding thirty scrapers must not light itself up when the thing the
+/// user is actually pointed at is one row inside it.
+class _RowFocusNotification extends Notification {
+  final Object row;
+  final bool focused;
+
+  _RowFocusNotification(this.row, this.focused);
+}
+
+/// The focus affordance for ONE scraper row.
+///
+/// Draws the app's shared card focus recipe — [CardFocusAffordance]: accent
+/// ring, accent tint, soft glow — around a single row, and tells the enclosing
+/// [_FocusableCard] to stay quiet while it does. Before this existed the card
+/// was the only thing that reacted to focus, so on a television, browsing a
+/// repository of thirty providers, focusing the fifth row drew a glowing box
+/// around all eight visible rows and left the fifth one unmarked.
+///
+/// Two deliberate departures from how [CardsWrapper] applies the same recipe,
+/// both because a list row is not a poster:
+///
+///  * the ring and the tint are painted BEHIND the child, not in front of it.
+///    [CardsWrapper] paints them in front because its child is opaque artwork
+///    that a background fill could never show through; a row's child is text
+///    on a transparent [Material], so a foreground tint would only wash out
+///    the label it is meant to point at;
+///  * an opaque fill sits between the glow and the row. Flutter paints a
+///    [BoxShadow] across the whole shape rather than just its rim, so the
+///    recipe reads as a halo only when something opaque covers the middle.
+///    Without this fill the glow would flood a transparent row with accent at
+///    [CardFocusAffordance.glowOpacity].
+///
+/// Not an [AnimatedContainer]: the recipe's own author left [CardsWrapper]
+/// unanimated on purpose, and a repository list is the same shape of problem
+/// as a rail — many rows, at most one of them ever focused.
+class _FocusableRow extends StatefulWidget {
+  final Widget child;
+
+  const _FocusableRow({required this.child});
+
+  @override
+  State<_FocusableRow> createState() => _FocusableRowState();
+}
+
+class _FocusableRowState extends State<_FocusableRow> {
+  /// Rounded a little tighter than the 16 dp card so that, once the row is
+  /// inset by the ring's own width, the two curves stay roughly concentric.
+  static const BorderRadius _radius = BorderRadius.all(Radius.circular(12));
+
+  bool _isFocused = false;
+
+  void _onFocusChange(bool focused) {
+    setState(() => _isFocused = focused);
+    _RowFocusNotification(this, focused).dispatch(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Focus(
+      // Passive observer, exactly like the card: the row itself is not a stop
+      // in the traversal order, the buttons and the switch inside it are.
+      // hasFocus here means "one of my controls is the focused one".
+      canRequestFocus: false,
+      skipTraversal: true,
+      onFocusChange: _onFocusChange,
+      child: Container(
+        // The ring is stroke-aligned outside the row, so the row has to keep
+        // exactly that much clearance inside the card's antiAlias clip or the
+        // ring would be sliced off down both long edges.
+        margin: const EdgeInsets.all(CardFocusAffordance.ringWidth),
+        decoration: CardFocusAffordance.glow(
+          borderRadius: _radius,
+          accent: colorScheme.primary,
+          focused: _isFocused,
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            // Same colour the card already fills itself with, so this is
+            // invisible until the glow needs something to hide behind.
+            color: colorScheme.surface,
+            borderRadius: _radius,
+          ),
+          child: Container(
+            decoration: CardFocusAffordance.ring(
+              borderRadius: _radius,
+              accent: colorScheme.primary,
+              focused: _isFocused,
+            ),
+            // The row's own ink surface. A ListTile paints its background and
+            // its splashes on the nearest Material ancestor, and an ink
+            // feature is painted BEFORE that Material's child — so without
+            // this the two fills above would swallow every splash and focus
+            // wash the rows draw. ListTile asserts on exactly this.
+            child: Material(
+              type: MaterialType.transparency,
+              child: widget.child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _FocusableCard extends StatefulWidget {
   final Widget child;
   final EdgeInsetsGeometry? margin;
@@ -1026,39 +1138,73 @@ class _FocusableCard extends StatefulWidget {
 class _FocusableCardState extends State<_FocusableCard> {
   bool _isFocused = false;
 
+  /// The [_FocusableRow] inside this card that currently owns the focus, if
+  /// any. Identity, not a counter: only one row can be focused at a time, and
+  /// comparing identities makes the two notifications of a row-to-row move
+  /// order-independent.
+  Object? _focusedRow;
+
+  bool _onRowFocus(_RowFocusNotification notification) {
+    setState(() {
+      if (notification.focused) {
+        _focusedRow = notification.row;
+      } else if (identical(_focusedRow, notification.row)) {
+        _focusedRow = null;
+      }
+    });
+    // Consumed: the row has found its card, and nothing above needs to know.
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Focus(
-      canRequestFocus: false,
-      skipTraversal: true,
-      onFocusChange: (focused) => setState(() => _isFocused = focused),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        margin:
-            widget.margin ?? const EdgeInsets.all(LayoutConstants.spacingMd),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _isFocused
-                ? theme.colorScheme.primary
-                : theme.dividerColor.withValues(alpha: 0.5),
-            width: _isFocused ? 2.0 : 1.0,
+    // The card lights up only for focus it owns itself — its ExpansionTile
+    // header, or a button in the repository action row. When a scraper row
+    // inside it is focused, that row draws the affordance and the card stays
+    // quiet.
+    final highlight = _isFocused && _focusedRow == null;
+
+    return NotificationListener<_RowFocusNotification>(
+      onNotification: _onRowFocus,
+      child: Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
+        onFocusChange: (focused) => setState(() {
+          _isFocused = focused;
+          // Self-heal: a focused row can leave the tree (a repository is
+          // collapsed, a repository is removed) without ever sending its
+          // "focus lost" notification, which would otherwise mute this card
+          // for good.
+          if (!focused) _focusedRow = null;
+        }),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          margin:
+              widget.margin ?? const EdgeInsets.all(LayoutConstants.spacingMd),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: highlight
+                  ? theme.colorScheme.primary
+                  : theme.dividerColor.withValues(alpha: 0.5),
+              width: highlight ? 2.0 : 1.0,
+            ),
+            boxShadow: highlight
+                ? [
+                    BoxShadow(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.25),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : null,
           ),
-          boxShadow: _isFocused
-              ? [
-                  BoxShadow(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.25),
-                    blurRadius: 8,
-                    spreadRadius: 1,
-                  ),
-                ]
-              : null,
+          clipBehavior: Clip.antiAlias,
+          child: Material(color: Colors.transparent, child: widget.child),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: Material(color: Colors.transparent, child: widget.child),
       ),
     );
   }

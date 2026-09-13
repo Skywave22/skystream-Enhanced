@@ -1,11 +1,16 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../../core/logger/app_logger.dart';
 import '../../../../core/storage/history_repository.dart';
+import '../../../../core/storage/storage_service.dart';
 import '../../../../core/domain/entity/multimedia_item.dart';
 import '../../explore/data/explore_tmdb_provider.dart';
 import '../domain/sync_progress_item.dart';
 import 'simkl_service.dart';
+import 'sync_outbox.dart';
 import 'trakt_service.dart';
 import 'anilist_service.dart';
 import 'mal_service.dart';
@@ -17,7 +22,14 @@ part 'sync_manager.g.dart';
 class SyncManager {
   final List<TrackingService> _services;
 
-  SyncManager(this._services);
+  /// Durability for the terminal writes. Null in tests and in any context
+  /// without storage, in which case the terminal writes behave exactly as the
+  /// ephemeral ones do: one attempt, best effort.
+  final SyncOutbox? _outbox;
+
+  SyncManager(this._services, {SyncOutbox? outbox}) : _outbox = outbox {
+    if (outbox != null) unawaited(outbox.start(dispatch));
+  }
 
   // Cache resolved IDs for the duration of a playback session
   Map<String, String>? _cachedIds;
@@ -35,6 +47,11 @@ class SyncManager {
   }
 
   /// Resolve IDs for the given item across all services. Uses cache if available.
+  ///
+  /// Only a *successful* lookup is cached. Caching an empty result meant one
+  /// offline resolution poisoned the whole session — and, now that terminal
+  /// writes are replayed from the outbox, it would also mean a retry hours
+  /// later still had no MAL/AniList id to address the title with.
   Future<Map<String, String>> _resolveIds(MultimediaItem item) async {
     if (_cachedItemUrl == item.url && _cachedIds != null) {
       return _cachedIds!;
@@ -43,17 +60,21 @@ class SyncManager {
     final ids = Map<String, String>.from(item.syncData ?? {});
 
     // We primarily use Simkl for resolving cross-platform IDs because its API is the most comprehensive
+    var resolvedRemotely = false;
     try {
       final simkl = _services.whereType<SimklService>().first;
       final resolved = await simkl.syncIds(item);
       ids.addAll(resolved);
+      resolvedRemotely = resolved.isNotEmpty;
     } catch (e) {
       // Ignore
     }
 
-    _cachedIds = ids;
-    _cachedItemUrl = item.url;
-    return _cachedIds!;
+    if (resolvedRemotely) {
+      _cachedIds = ids;
+      _cachedItemUrl = item.url;
+    }
+    return ids;
   }
 
   /// Clears the cached IDs, typically called when starting a new media item
@@ -73,25 +94,102 @@ class SyncManager {
     return hasNoIds;
   }
 
-  /// Mark an episode or movie as watched across all active services
-  Future<void> markWatched(MultimediaItem item, Episode? episode) async {
-    if (_shouldSkipSync(item)) return;
+  /// MAL and AniList can only address a title by their own numeric id. When
+  /// [_resolveIds] could not produce one they are not *owed* the write at all,
+  /// and counting them as a failure would keep an outbox entry alive that
+  /// nothing could ever satisfy.
+  static const Set<String> _idBoundServices = {'mal', 'anilist'};
+
+  bool _isOwed(TrackingService service, Map<String, String> resolvedIds) =>
+      !_idBoundServices.contains(service.idPrefix) ||
+      resolvedIds[service.idPrefix] != null;
+
+  /// Performs one fan-out of a terminal write and reports, per service,
+  /// what actually landed.
+  ///
+  /// This is the outbox's [SyncSender]. Services listed in [alreadyDelivered]
+  /// are skipped: Trakt's `scrobble/stop` is not idempotent, so re-sending a
+  /// write it already accepted counts a second play.
+  Future<SyncDispatchResult> dispatch(
+    SyncOp op,
+    MultimediaItem item,
+    Episode? episode,
+    double progress,
+    Set<String> alreadyDelivered,
+  ) async {
+    const nothingToDo = SyncDispatchResult(
+      delivered: <String>{},
+      failed: <String>{},
+    );
+    if (_shouldSkipSync(item)) return nothingToDo;
 
     final active = await getActiveServices();
-    if (active.isEmpty) return;
+    if (active.isEmpty) return nothingToDo;
 
     final resolvedIds = await _resolveIds(item);
 
+    final delivered = <String>{};
+    final failed = <String>{};
     for (final service in active) {
+      final prefix = service.idPrefix;
+      if (alreadyDelivered.contains(prefix)) continue;
+      if (!_isOwed(service, resolvedIds)) continue;
       try {
-        await service.markWatched(item, episode, resolvedIds: resolvedIds);
+        final ok = switch (op) {
+          SyncOp.markWatched => await service.markWatched(
+            item,
+            episode,
+            resolvedIds: resolvedIds,
+          ),
+          SyncOp.scrobbleStop => await service.scrobbleStop(
+            item,
+            episode,
+            progress,
+            resolvedIds: resolvedIds,
+          ),
+        };
+        (ok ? delivered : failed).add(prefix);
       } catch (e) {
-        // Ignore failure on a single service
+        talker.error('${service.name}: ${op.name} threw', e);
+        failed.add(prefix);
       }
     }
+    return SyncDispatchResult(delivered: delivered, failed: failed);
   }
 
-  /// Scrobble start event
+  /// Mark an episode or movie as watched across all active services.
+  ///
+  /// Durable: the write is persisted before it is attempted and replayed with
+  /// backoff until every service that is owed it has confirmed. [sessionKey]
+  /// is the caller's playback-session identity and is what keeps a repeat
+  /// emission inside one session from being queued — and therefore counted —
+  /// twice.
+  Future<void> markWatched(
+    MultimediaItem item,
+    Episode? episode, {
+    String? sessionKey,
+  }) async {
+    if (_shouldSkipSync(item)) return;
+    final outbox = _outbox;
+    if (outbox == null) {
+      await dispatch(SyncOp.markWatched, item, episode, 1.0, const <String>{});
+      return;
+    }
+    await outbox.enqueue(
+      SyncOp.markWatched,
+      item,
+      episode,
+      1.0,
+      session: sessionKey,
+    );
+  }
+
+  /// Scrobble start event.
+  ///
+  /// Deliberately *not* durable. A start says "the user is watching this right
+  /// now"; replaying a stale one hours later would overwrite a newer state
+  /// with a lie. Losing one costs nothing — the terminal event that follows is
+  /// the one that carries the record.
   Future<void> scrobbleStart(
     MultimediaItem item,
     Episode? episode,
@@ -118,7 +216,7 @@ class SyncManager {
     }
   }
 
-  /// Scrobble pause event
+  /// Scrobble pause event. Ephemeral for the same reason as [scrobbleStart].
   Future<void> scrobblePause(
     MultimediaItem item,
     Episode? episode,
@@ -145,31 +243,31 @@ class SyncManager {
     }
   }
 
-  /// Scrobble stop event
+  /// Scrobble stop event.
+  ///
+  /// Durable, like [markWatched] — a stop carries the resume point the user
+  /// will come back to, and it is emitted at exactly the moment a phone is
+  /// most likely to be handing over between networks. The progress travels
+  /// inside the entry, so replaying it later still records the right point.
   Future<void> scrobbleStop(
     MultimediaItem item,
     Episode? episode,
-    double progress,
-  ) async {
+    double progress, {
+    String? sessionKey,
+  }) async {
     if (_shouldSkipSync(item)) return;
-
-    final active = await getActiveServices();
-    if (active.isEmpty) return;
-
-    final resolvedIds = await _resolveIds(item);
-
-    for (final service in active) {
-      try {
-        await service.scrobbleStop(
-          item,
-          episode,
-          progress,
-          resolvedIds: resolvedIds,
-        );
-      } catch (e) {
-        // Ignore failure
-      }
+    final outbox = _outbox;
+    if (outbox == null) {
+      await dispatch(SyncOp.scrobbleStop, item, episode, progress, const {});
+      return;
     }
+    await outbox.enqueue(
+      SyncOp.scrobbleStop,
+      item,
+      episode,
+      progress,
+      session: sessionKey,
+    );
   }
 
   /// Add item to "Plan to Watch" across all active services
@@ -211,12 +309,31 @@ class SyncManager {
 
 @riverpod
 SyncManager syncManager(Ref ref) {
+  // Kept alive: the manager owns the outbox, whose queue, in-flight guard and
+  // backoff timer must outlive any single read. Rebuilding it per dispatch —
+  // the tracker reads this provider on every event — would mean two drains
+  // racing over the same persisted queue.
+  ref.keepAlive();
+
+  final outbox = SyncOutbox(
+    // Resolved lazily: storageServiceProvider throws until StorageService.init
+    // has run, and building the sync manager must not depend on that ordering.
+    store: HiveSyncOutboxStore(() => ref.read(storageServiceProvider)),
+    // A handover back onto a working network is the single best moment to
+    // retry; the backoff timer is the fallback when the OS never reports one.
+    onOnline: Connectivity().onConnectivityChanged.where(
+      (results) =>
+          results.isNotEmpty && !results.contains(ConnectivityResult.none),
+    ),
+  );
+  ref.onDispose(outbox.dispose);
+
   return SyncManager([
     ref.watch(simklServiceProvider),
     ref.watch(traktServiceProvider),
     ref.watch(aniListServiceProvider),
     ref.watch(malServiceProvider),
-  ]);
+  ], outbox: outbox);
 }
 
 @riverpod

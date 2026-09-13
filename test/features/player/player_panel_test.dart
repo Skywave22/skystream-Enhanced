@@ -298,6 +298,21 @@ int _focusStopsIn(Element element) {
 double _textSize(WidgetTester tester, String data) =>
     tester.widget<Text>(find.text(data)).style!.fontSize!;
 
+/// The colour the one [PanelBadge] reading [data] paints its word in.
+Color _badgeColour(WidgetTester tester, String data) => tester
+    .widget<Text>(
+      find.descendant(
+        of: find.widgetWithText(PanelBadge, data, skipOffstage: false),
+        matching: find.text(data, skipOffstage: false),
+      ),
+    )
+    .style!
+    .color!;
+
+/// The rendered size of the one [Icon] of [icon].
+double _iconSize(WidgetTester tester, IconData icon) =>
+    tester.widget<Icon>(find.byIcon(icon)).size!;
+
 /// The box a remote actually lands on: the innermost [Focus] around [finder].
 /// Used for the private tab and close buttons, which a test cannot name.
 Rect _focusBox(WidgetTester tester, Finder finder) => tester.getRect(
@@ -518,6 +533,7 @@ void main() {
     bool settle = true,
     List<Override>? overrides,
     Locale locale = const Locale('en'),
+    TextScaler textScaler = TextScaler.noScaling,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -562,6 +578,12 @@ void main() {
       ),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
+      // Wraps the Navigator, so the panel's own route inherits it: the panel
+      // is a PopupRoute and reads nothing from the page below it.
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+        child: child!,
+      ),
       home: _Host(
         key: hostKey,
         onOpen: (context) => showPlayerPanel(
@@ -899,11 +921,14 @@ void main() {
       required Locale locale,
       Size size = _googleTv,
       bool isTv = true,
+      TextScaler textScaler = TextScaler.noScaling,
     }) => pumpPanel(
       tester,
       size: size,
       isTv: isTv,
       locale: locale,
+      textScaler: textScaler,
+      focusOnOpen: isTv,
       episodes: <Episode>[_episode(1), _episode(2)],
       currentEpisode: _episode(1),
       files: _packFiles(2),
@@ -1038,9 +1063,14 @@ void main() {
       expect(touch.badgeSize, 10);
       expect(touch.subheaderSize, 11);
       expect(touch.emptySize, 13);
+      expect(touch.bannerTextSize, 11);
+      expect(touch.bannerIconSize, 16);
       expect(touch.tabLabelSize, 13);
       expect(touch.tabVerticalPadding, 10);
       expect(touch.tabHorizontalPadding, 4);
+      // The one field here that is not a pre-existing literal: the ramp's own
+      // Wrap took away the floor five Expandeds used to give for free.
+      expect(touch.tabMinWidth, 48);
       expect(touch.closeButtonPadding, 8);
       expect(touch.stepperValueWidth, 62);
       expect(touch.stepperValueSize, 13);
@@ -1059,6 +1089,7 @@ void main() {
         tv.emptySize,
         tv.tabLabelSize,
         tv.stepperValueSize,
+        tv.bannerTextSize,
       ]) {
         expect(size, greaterThanOrEqualTo(14), reason: 'ten-foot type floor');
       }
@@ -1082,6 +1113,135 @@ void main() {
       );
       expect(tv.mutedText.a, greaterThan(HotstarPlayerStyle.mutedText.a));
     });
+
+    testWidgets('the fallback banner is on the ramp, not on its own literals', (
+      tester,
+    ) async {
+      // The last panel descendant drawn from hard-coded numbers, and the one
+      // it mattered most for: it is prose, it sits directly above the row the
+      // remote lands on, and 11 sp is 22 physical pixels on a 1080p set.
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      await pumpPanel(tester, size: _googleTv, qualityFilteredFallback: true);
+
+      expect(
+        _textSize(tester, l10n.playerQualityFilterDropped),
+        PlayerPanelMetrics.tv.bannerTextSize,
+        reason: 'the banner reads from the sofa like everything else',
+      );
+      expect(
+        _textSize(tester, l10n.playerQualityFilterDropped),
+        greaterThanOrEqualTo(14),
+        reason: 'the ten-foot type floor, which the banner never cleared',
+      );
+      expect(
+        _iconSize(tester, Icons.filter_alt_off_rounded),
+        PlayerPanelMetrics.tv.bannerIconSize,
+      );
+    });
+
+    testWidgets('the same banner on a phone is the 11 sp it always was', (
+      tester,
+    ) async {
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      await pumpPanel(
+        tester,
+        size: _phone,
+        isTv: false,
+        focusOnOpen: false,
+        qualityFilteredFallback: true,
+      );
+
+      expect(_textSize(tester, l10n.playerQualityFilterDropped), 11);
+      expect(_iconSize(tester, Icons.filter_alt_off_rounded), 16);
+    });
+
+    testWidgets(
+      'the Trying chip follows the ramp, like every badge beside it',
+      (tester) async {
+        // The probe chips are the one place the panel uses colour to mean
+        // something, and "in flight" is not one of the things it means. Pinning
+        // the ramp token rather than "not muted": a literal that happened to be
+        // brighter would still be a literal, and this is exactly how the one
+        // chip got left behind.
+        final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+        await pumpPanel(
+          tester,
+          size: _googleTv,
+          probes: const <int, ProbeOutcome>{
+            0: ProbeOutcome.healthy,
+            1: ProbeOutcome.unhealthy,
+            2: ProbeOutcome.trying,
+          },
+        );
+
+        expect(
+          _badgeColour(tester, l10n.trying),
+          PlayerPanelMetrics.tv.secondaryText,
+          reason:
+              'the one badge that says "still looking" was the hardest to read '
+              'on the set it was hardest to read on',
+        );
+        expect(
+          _badgeColour(tester, l10n.trying).a,
+          greaterThan(HotstarPlayerStyle.mutedText.a),
+          reason: '45 % white is a phone number against a set\'s picture modes',
+        );
+        expect(
+          _badgeColour(tester, l10n.playerSourceReachable),
+          const Color(0xFF4CAF50),
+          reason: 'green still means the probe answered',
+        );
+        expect(
+          _badgeColour(tester, l10n.failed),
+          const Color(0xFFE57373),
+          reason: 'and red still means it did not',
+        );
+      },
+    );
+
+    // One case per ramp. The scale differs because the point is the same on
+    // both: shrink the label until the narrowest tab's own word no longer
+    // fills 48 dp, and check the strip still gives it 48 - while the widest
+    // word, which does fill it, is left alone.
+    for (final (name, size, isTv, scaler, widest)
+        in <(String, Size, bool, double, String)>[
+          ('a phone', _phone, false, 0.4, 'Subtitles'),
+          ('a television', _googleTv, true, 0.25, 'Subtitles'),
+        ]) {
+      testWidgets('every stop in the strip is one focus target wide on $name', (
+        tester,
+      ) async {
+        // The other half of "one focus target". A Wrap gives a tab exactly the
+        // width of its word, and the real widths are nothing like this test
+        // font's: `Files` is 37 dp of Roboto at the touch ramp's 13 sp where
+        // the square-glyph placeholder makes it 74. Scaling the text down is
+        // how a widget test sees the tab a phone actually renders.
+        await pumpFiveTabs(
+          tester,
+          locale: const Locale('en'),
+          size: size,
+          isTv: isTv,
+          textScaler: TextScaler.linear(scaler),
+        );
+
+        for (final label in await _tabLabels(const Locale('en'))) {
+          expect(
+            _focusBox(tester, find.text(label)).width,
+            greaterThanOrEqualTo(48),
+            reason:
+                'tab "$label" is the whole tap target, and its neighbour is '
+                '4 dp away',
+          );
+        }
+        expect(
+          _focusBox(tester, find.text(widest)).width,
+          greaterThan(48),
+          reason:
+              'the floor is a floor: a word that needs more than 48 dp still '
+              'gets it, which is what the Wrap is for',
+        );
+      });
+    }
 
     testWidgets('nothing installs the ramp outside the panel', (tester) async {
       // A panel widget pumped on its own - the way the tab files\' own tests

@@ -395,19 +395,25 @@ class ExternalPlayerService {
         }
       }
 
-      // 3. Last resort: use Windows shell `start` to open with default handler
-      try {
-        // We use Process.run here as `start` is a cmd internal and returning
-        // quickly is already handled by start /b or similar if needed,
-        // but for safety with playUrl, run is fine for the fallback.
-        final result = await Process.run('cmd', [
-          '/c',
-          'start',
-          '',
-          '"$videoUrl"',
-        ], runInShell: true);
-        return result.exitCode == 0;
-      } catch (_) {}
+      // 3. Last resort: hand the URL to the shell's default handler.
+      //
+      // This used to be `Process.run('cmd', ['/c', 'start', '', '"$videoUrl"'],
+      // runInShell: true)`, and [videoUrl] is a link an add-on or a scraper
+      // plugin produced. Dart quotes Windows arguments for the C runtime's
+      // parser, not for cmd.exe's, and cmd re-parses the joined line after
+      // that: a `"` closes the quoted span, `&` and `|` then start a new
+      // command, and `%NAME%` expands. Nobody had established whether the
+      // rest of the pipeline can ever hand us such a URL, and `runInShell`
+      // stacked a second cmd on top of the first. `LaunchMode
+      // .externalApplication` reaches ShellExecute with the URL as one opaque
+      // argument, so the question does not arise - and it is the same call
+      // the Android fallback above already makes.
+      final uri = Uri.tryParse(videoUrl);
+      if (uri != null) {
+        try {
+          return await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      }
     } catch (e) {
       if (kDebugMode) debugPrint('Windows launch error: $e');
     }

@@ -60,11 +60,10 @@ class AppLocalizationsMk extends AppLocalizations {
   String get recordWatchHistory => 'Снимај историја на гледање';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Цел екран';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Се префрла на телевизискиот интерфејс';
 
   @override
   String get defaultHomeScreen => 'Стандарден почетен екран';
@@ -425,6 +424,28 @@ class AppLocalizationsMk extends AppLocalizations {
   String get min => 'мин';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Назад $count секунди',
+      one: 'Назад $count секунда',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Напред $count секунди',
+      one: 'Напред $count секунда',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Внатрешен (VLC)';
 
   @override
@@ -743,6 +764,9 @@ class AppLocalizationsMk extends AppLocalizations {
 
   @override
   String get goBack => 'Назад';
+
+  @override
+  String get restartApp => 'Рестартирај ја апликацијата';
 
   @override
   String get resolving => 'Разрешување...';
@@ -1604,6 +1628,29 @@ class AppLocalizationsMk extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Пребарување во скрејперите…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Ниту една врска не одговара на филтрите.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Нема TMDB ID за овој наслов. Внесете го преку \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Нема вклучени скрејпери. Додајте во \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Сите скрејпери не успеаја. Проверете ја врската или ажурирајте ги.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Не се најдени врски. $failed од $total скрејпери не успеаја.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Ниту еден од вашите скрејпери го нема овој наслов.';
 }

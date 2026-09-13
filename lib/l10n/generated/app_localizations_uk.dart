@@ -60,11 +60,10 @@ class AppLocalizationsUk extends AppLocalizations {
   String get recordWatchHistory => 'Записувати історію переглядів';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'На весь екран';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Перемикає на телевізійний інтерфейс';
 
   @override
   String get defaultHomeScreen => 'Головний екран за замовчуванням';
@@ -426,6 +425,32 @@ class AppLocalizationsUk extends AppLocalizations {
   String get min => 'хв';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Назад на $count секунди',
+      many: 'Назад на $count секунд',
+      few: 'Назад на $count секунди',
+      one: 'Назад на $count секунду',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Вперед на $count секунди',
+      many: 'Вперед на $count секунд',
+      few: 'Вперед на $count секунди',
+      one: 'Вперед на $count секунду',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Внутрішній (VLC)';
 
   @override
@@ -745,6 +770,9 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get goBack => 'Назад';
+
+  @override
+  String get restartApp => 'Перезапустити застосунок';
 
   @override
   String get resolving => 'Розв\'язання посилань...';
@@ -1611,6 +1639,30 @@ class AppLocalizationsUk extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Пошук у скрейперах…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'Немає посилань, що відповідають фільтрам.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Для цієї назви немає TMDB ID. Введіть його через \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Немає увімкнених скрейперів. Додайте в \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Усі скрейпери не спрацювали. Перевірте з\'єднання або оновіть їх.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Посилань не знайдено. Не спрацювали $failed з $total скрейперів.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Жоден із ваших скрейперів не має цієї назви.';
 }

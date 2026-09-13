@@ -35,7 +35,57 @@ class ContinueWatchingCard extends ConsumerStatefulWidget {
 }
 
 class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
+  /// Black wash over the whole card when nothing is pointing at it. It is the
+  /// *field* that gets dimmed, so a rail of eight rich backdrops reads as one
+  /// calm surface instead of eight competing pictures.
+  static const double _washAtRest = 0.20;
+
+  /// Black wash when the pointer is over the card or the D-pad ring is on it.
+  ///
+  /// Attention REVEALS the artwork; it does not bury it. The card previously
+  /// went the other way (0.20 -> 0.40 on hover), which put attention and
+  /// legibility at opposite ends: the one card you were looking at was the
+  /// least readable thing on the shelf. Every ten-foot shelf worth copying
+  /// dims the field and lifts the focused item, so this is the direction.
+  ///
+  /// Not zero: a whisper of veil keeps the lift from reading as a hard "image
+  /// pops in" flash on a 3 m viewing distance, and keeps the card sitting in
+  /// the app's dark surface rather than punching a hole in it.
+  static const double _washAttended = 0.05;
+
+  /// Track of the resume gauge, as white alpha over the bottom scrim.
+  ///
+  /// A fully transparent track (what this card shipped with) is not a gauge at
+  /// all — with no unfilled remainder to compare against, 15% watched and 95%
+  /// watched are both "a white sliver at the bottom", and on a bright frame
+  /// the sliver competes with the artwork underneath it. 0.40 is chosen, not
+  /// picked: composited over the black87 foot of the scrim the track lands at
+  /// roughly 40% grey on a dark frame and 48% on a bright one, which is 3.5:1
+  /// and 3.7:1 against the surrounding scrim — i.e. it clears the 3:1 that
+  /// WCAG 1.4.11 asks of a non-text UI component in both extremes — while the
+  /// pure-white fill still reads 4.3:1 against the track itself, so the two
+  /// halves of the gauge can never be confused.
+  static const double _progressTrackOpacity = 0.40;
+
+  /// Height of the resume gauge, unchanged at 4 dp and deliberately so.
+  ///
+  /// A television reports 960x540 dp, so 4 dp is 1/135 of the screen height:
+  /// about 5 mm on a 55" set, which subtends ~5.8 arcmin at 3 m — comfortably
+  /// above the ~3-4 arcmin where a hairline starts to disappear. On a phone at
+  /// 25 cm the same 4 dp subtends ~8.7 arcmin. The bar was never too thin; it
+  /// was missing its track.
+  static const double _progressBarHeight = 4;
+
   bool _isHovered = false;
+  bool _isFocused = false;
+
+  /// True when the card is the one the viewer is aimed at, by either input.
+  ///
+  /// Not gated on [FocusHighlightMode]: the reveal is the same affordance on a
+  /// remote, a mouse and a keyboard, and reading the highlight mode during
+  /// build without listening to it is how a card ends up stuck in the wrong
+  /// state when the input changes under it.
+  bool get _isAttended => _isHovered || _isFocused;
 
   static String _normalizeMatchKey(String value) {
     return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
@@ -256,6 +306,13 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
         );
       },
       borderRadius: BorderRadius.circular(LayoutConstants.radiusLg),
+      // Read the focus state out of the wrapper's own node rather than nesting
+      // a second Focus inside it: a nested node would add a second D-pad stop
+      // to every card in the rail.
+      onFocusChange: (hasFocus) {
+        if (_isFocused == hasFocus) return;
+        setState(() => _isFocused = hasFocus);
+      },
       child: MouseRegion(
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
@@ -280,25 +337,42 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                   ),
                 ),
 
-                // Dark overlay (full card) — 40% at rest, 60% on hover
+                // Field wash (full card). Lifts on attention, see _washAttended.
+                //
+                // Painted UNDER the scrim, the badge and the gauge, so none of
+                // those change legibility when the card is picked out: the only
+                // thing the reveal moves is the artwork.
                 Positioned.fill(
                   child: IgnorePointer(
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
                       curve: Curves.easeInOut,
                       color: Colors.black.withValues(
-                        alpha: _isHovered ? 0.40 : 0.20,
+                        alpha: _isAttended ? _washAttended : _washAtRest,
                       ),
                     ),
                   ),
                 ),
 
-                // Bottom scrim gradient (from-black/80 to transparent)
+                // Bottom scrim + info column.
+                //
+                // The scrim is attached to the text block instead of being a
+                // fixed-height band, so it is exactly as tall as the text it
+                // has to protect, in all 43 locales and for one- or two-line
+                // titles alike. A fixed 64 dp band was shorter than the block:
+                // a two-line "S2 E5 — …" label plus the 24/28 dp padding runs
+                // to ~100 dp, which left the top line standing on bare artwork
+                // and leaning entirely on the field wash for contrast. That
+                // was survivable while the wash got heavier on attention; it
+                // is not survivable now that the wash gets lighter.
+                //
+                // It sits before the badge and the gauge so that it cannot
+                // paint over them. It does not overlap them either way: the
+                // 28 dp bottom padding clears the badge, which ends 28 dp up.
                 Positioned(
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  height: 64,
                   child: IgnorePointer(
                     child: Container(
                       decoration: const BoxDecoration(
@@ -307,6 +381,59 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                           end: Alignment.topCenter,
                           colors: [Colors.black87, Colors.transparent],
                         ),
+                      ),
+                      padding: const EdgeInsets.fromLTRB(12, 24, 12, 28),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (hasEpisodes || isLivestream) ...[
+                            Text(
+                              item.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                          ],
+                          if (isLivestream)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.20),
+                                borderRadius: BorderRadius.circular(
+                                  LayoutConstants.radiusSm,
+                                ),
+                              ),
+                              child: const Text(
+                                'LIVE',
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            )
+                          else
+                            Text(
+                              episodeLabel ?? item.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
@@ -339,81 +466,25 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                     ),
                   ),
 
-                // Progress bar (bottom edge)
+                // Resume gauge (bottom edge). Track and fill, see
+                // _progressTrackOpacity — a fill on a transparent track is a
+                // sliver, not a gauge.
                 Positioned(
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  child: SizedBox(
-                    height: 4,
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      backgroundColor: Colors.transparent,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        Colors.white,
+                  child: IgnorePointer(
+                    child: SizedBox(
+                      height: _progressBarHeight,
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        backgroundColor: Colors.white.withValues(
+                          alpha: _progressTrackOpacity,
+                        ),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          Colors.white,
+                        ),
                       ),
-                    ),
-                  ),
-                ),
-
-                // Bottom info column
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 24, 12, 28),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (hasEpisodes || isLivestream) ...[
-                          Text(
-                            item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white60,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                        ],
-                        if (isLivestream)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withValues(alpha: 0.20),
-                              borderRadius: BorderRadius.circular(
-                                LayoutConstants.radiusSm,
-                              ),
-                            ),
-                            child: const Text(
-                              'LIVE',
-                              style: TextStyle(
-                                color: Colors.red,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          )
-                        else
-                          Text(
-                            episodeLabel ?? item.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                      ],
                     ),
                   ),
                 ),

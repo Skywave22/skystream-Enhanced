@@ -10,13 +10,36 @@ import torrServer.TorrServer
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
 import kotlin.concurrent.thread
+
+private const val AUTH_TOKEN_HEADER = "X-TorrServer-Token"
 
 /** FlutterTorrentServerPlugin */
 class FlutterTorrentServerPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var channel: MethodChannel
     private lateinit var cacheDir: String
     private var serverPort: Long = 0
+    private var authToken: String = ""
+
+    /**
+     * Per-launch secret for the embedded server's privileged endpoints.
+     *
+     * The server binds 127.0.0.1 only, so this is not about the network: on
+     * Android every app holding INTERNET can open a socket to another app's
+     * loopback, and the server never stops once started. Without a token any
+     * of them could read the user's torrent list.
+     */
+    private fun newAuthToken(): String {
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun HttpURLConnection.withAuth(): HttpURLConnection {
+        setRequestProperty(AUTH_TOKEN_HEADER, authToken)
+        return this
+    }
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "flutter_torrent_server")
@@ -31,12 +54,13 @@ class FlutterTorrentServerPlugin : FlutterPlugin, MethodCallHandler {
                 thread {
                     try {
                         if (serverPort == 0L) {
-                            TorrServer.startTorrentServer(cacheDir)
+                            authToken = newAuthToken()
+                            TorrServer.startTorrentServer(cacheDir, authToken)
                             serverPort = 8090 // Default port for this AAR version apparently
                         }
-                        
+
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
-                            result.success(serverPort)
+                            result.success(mapOf("port" to serverPort, "token" to authToken))
                         }
                     } catch (e: Exception) {
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -61,7 +85,7 @@ class FlutterTorrentServerPlugin : FlutterPlugin, MethodCallHandler {
                 thread {
                     try {
                         val url = URL("http://127.0.0.1:$serverPort/torrents")
-                        val conn = url.openConnection() as HttpURLConnection
+                        val conn = (url.openConnection() as HttpURLConnection).withAuth()
                         conn.requestMethod = "POST"
                         conn.doOutput = true
                         conn.setRequestProperty("Content-Type", "application/json")
@@ -109,7 +133,7 @@ class FlutterTorrentServerPlugin : FlutterPlugin, MethodCallHandler {
                 thread {
                     try {
                         val url = URL("http://127.0.0.1:$serverPort/torrents")
-                        val conn = url.openConnection() as HttpURLConnection
+                        val conn = (url.openConnection() as HttpURLConnection).withAuth()
                         conn.requestMethod = "POST"
                         conn.doOutput = true
                         conn.setRequestProperty("Content-Type", "application/json")

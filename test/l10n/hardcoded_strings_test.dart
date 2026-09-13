@@ -148,7 +148,7 @@ bool _isProse(String literal) {
 }
 
 /// Ceiling for the whole of `lib/`, recorded when this gate landed.
-const int _totalBudget = 164;
+const int _totalBudget = 157;
 
 /// Per-file counts as of the ARB migration. Lower them as strings move into
 /// app_en.arb; never raise one.
@@ -179,6 +179,4 @@ const Map<String, int> _budget = <String, int>{
   'lib/features/settings/presentation/widgets/tracking_auth_dialog.dart': 2,
   'lib/features/settings/presentation/widgets/webview_auth_dialog.dart': 5,
   'lib/features/sources/presentation/plugin_sources_sheet.dart': 14,
-  'lib/features/stream/presentation/stream_screen.dart': 2,
-  'lib/features/stream/presentation/stream_source_picker.dart': 5,
 };

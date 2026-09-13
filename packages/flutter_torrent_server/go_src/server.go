@@ -10,21 +10,35 @@ import (
 	"server/settings"
 	"server/torr/utils"
 	"server/web"
-) 
+)
 
-func Start(pathdb, port string, roSets, searchWA bool) {
+// Start brings up the embedded torrent server.
+//
+// authToken is the per-launch secret that privileged HTTP endpoints require.
+// Callers that need to talk to those endpoints (the Flutter plugin) generate
+// one and pass it in. Passing "" mints an unguessable token that nobody holds,
+// which locks the privileged surface rather than opening it.
+func Start(pathdb, port, authToken string, roSets, searchWA bool) {
 	settings.Path = pathdb
 	settings.InitSets(roSets, searchWA)
 	if roSets {
 		log.TLogln("Enabled Read-only DB mode!")
 	}
 
+	if authToken == "" {
+		authToken = web.NewAuthToken()
+	}
+	settings.AuthToken = authToken
+
 	// http checks
 	if port == "" {
 		port = "8090"
 	}
 	log.TLogln("Check web port", port)
-	l, err := net.Listen("tcp", ":"+port)
+	// Probe the same loopback address web.Start will bind, not every
+	// interface: a bare ":port" probe both reports false conflicts and hides
+	// the fact that the real listener is loopback-only.
+	l, err := net.Listen("tcp", net.JoinHostPort(web.LoopbackHost, port))
 	if l != nil {
 		l.Close()
 	}

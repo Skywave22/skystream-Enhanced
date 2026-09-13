@@ -60,11 +60,10 @@ class AppLocalizationsTa extends AppLocalizations {
   String get recordWatchHistory => 'பார்த்த வரலாற்றைப் பதிவு செய்';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'முழுத் திரை';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'தொலைக்காட்சித் தளவமைப்புக்கு மாறும்';
 
   @override
   String get defaultHomeScreen => 'இயல்புநிலை முகப்புத் திரை';
@@ -429,6 +428,28 @@ class AppLocalizationsTa extends AppLocalizations {
   String get min => 'நிமிடம்';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count வினாடிகள் பின்னோக்கி',
+      one: '1 வினாடி பின்னோக்கி',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count வினாடிகள் முன்னோக்கி',
+      one: '1 வினாடி முன்னோக்கி',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'உள் பிளேயர் (VLC)';
 
   @override
@@ -753,6 +774,9 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get goBack => 'பின்னோக்கி';
+
+  @override
+  String get restartApp => 'ஆப்ஸை மீண்டும் தொடங்கு';
 
   @override
   String get resolving => 'தீர்வு காணப்படுகிறது...';
@@ -1619,6 +1643,30 @@ class AppLocalizationsTa extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'ஸ்கிரேப்பர்களில் தேடுகிறது…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'தற்போதைய வடிகட்டிகளுக்கு எந்த இணைப்பும் பொருந்தவில்லை.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'இந்தத் தலைப்புக்கு TMDB ID இல்லை. \'Search manually\' மூலம் உள்ளிடவும்.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'எந்த ஸ்கிரேப்பரும் இயக்கப்படவில்லை. \'Nuvio Plugins\' இல் ஒன்றைச் சேர்க்கவும்.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'அனைத்து ஸ்கிரேப்பர்களும் தோல்வியடைந்தன. இணைப்பைச் சரிபார்க்கவும் அல்லது ஸ்கிரேப்பர்களைப் புதுப்பிக்கவும்.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'இணைப்புகள் எதுவும் இல்லை. $total இல் $failed ஸ்கிரேப்பர்கள் தோல்வியடைந்தன.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'உங்கள் ஸ்கிரேப்பர்கள் எதிலும் இந்தத் தலைப்பு இல்லை.';
 }

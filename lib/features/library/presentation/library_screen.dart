@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/layout_constants.dart';
 import '../../../core/utils/responsive_breakpoints.dart';
-import '../../../core/providers/device_info_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import 'widgets/bookmarks_tab.dart';
 import 'widgets/downloads_tab.dart';
@@ -56,9 +55,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   @override
   Widget build(BuildContext context) {
-    final profile = ref.watch(deviceProfileProvider).asData?.value;
-    final isTv = profile?.isTv == true || context.isTv;
-    final isWidescreen = isTv || context.isTabletOrLarger;
+    // Widescreen is a size question, so it is asked of the size. A
+    // television is 960 dp wide and clears the tablet breakpoint like any
+    // other big window; it needs no device clause of its own.
+    final isWidescreen = context.isTabletOrLarger;
 
     if (isWidescreen) {
       return Scaffold(

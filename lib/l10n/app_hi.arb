@@ -15,8 +15,8 @@
   "general": "सामान्य",
   "appTheme": "ऐप थीम",
   "recordWatchHistory": "वॉच हिस्ट्री रिकॉर्ड करें",
-  "bigPictureMode": "बिग पिक्चर मोड",
-  "bigPictureModeSubtitle": "टीवी से जुड़े कंप्यूटर के लिए, टीवी वाले बड़े लेआउट के साथ फ़ुल स्क्रीन",
+  "fullScreenMode": "फ़ुल स्क्रीन मोड",
+  "fullScreenModeSubtitle": "टीवी से जुड़े कंप्यूटर के लिए, फ़ुल स्क्रीन के साथ टीवी वाला बड़ा लेआउट भी मिलता है। बंद रहने पर ऐप विंडो में चलता है।",
   "defaultHomeScreen": "डिफ़ॉल्ट होम स्क्रीन",
   "player": "प्लेयर",
   "defaultPlayer": "डिफ़ॉल्ट प्लेयर",
@@ -120,6 +120,8 @@
   "loading": "लोड हो रहा है...",
   "sec": "सेकंड",
   "min": "मिनट",
+  "playerRewindSeconds": "{count, plural, =1{1 सेकंड पीछे जाएं} other{{count} सेकंड पीछे जाएं}}",
+  "playerForwardSeconds": "{count, plural, =1{1 सेकंड आगे जाएं} other{{count} सेकंड आगे जाएं}}",
   "internalPlayer": "आंतरिक (VLC)",
   "builtInPlayer": "बिल्ट-इन प्लेयर",
   "customNotSet": "कस्टम (सेट नहीं)",
@@ -211,6 +213,7 @@
   "invalidNavigation": "अमान्य नेविगेशन। कृपया वापस जाएं।",
   "startOver": "शुरू से शुरू करें",
   "goBack": "पीछे जाएं",
+  "restartApp": "ऐप पुनः आरंभ करें",
   "resolving": "समाधान हो रहा है...",
   "downloaded": "डाउनलोड किया गया",
   "download": "डाउनलोड करें",
@@ -459,8 +462,11 @@
   "@subtitleSearchSeasonFallback": {
     "description": "Note above online subtitle results when the episode-scoped search returned nothing and the search widened to the whole season. Distinct from subtitleSearchTitleFallback: it must warn that the list covers other episodes too, because the viewer has to pick their own episode's file by name, and it must not mention an ID (the season pass is reached with no ID in play)."
   },
-  "subtitleAccountsNotConfigured": "कोई उपशीर्षक खाता सेट नहीं है। ऑनलाइन खोजने के लिए सेटिंग्स में OpenSubtitles, SubDL या SubSource कुंजी जोड़ें।",
-  "@subtitleAccountsNotConfigured": {
-    "description": "Empty state of the online subtitle search when no provider has credentials, so a search would silently return nothing. Points at the Settings screen where keys are added."
-  }
+  "sourcesSearching": "स्क्रैपर खोजे जा रहे हैं…",
+  "sourcesEmptyFiltered": "मौजूदा फ़िल्टर से कोई लिंक मेल नहीं खाता।",
+  "sourcesEmptyNoTmdbId": "इस टाइटल की TMDB ID नहीं है। 'Search manually' से डालें।",
+  "sourcesEmptyNoScrapers": "कोई स्क्रैपर चालू नहीं है। 'Nuvio Plugins' में एक जोड़ें।",
+  "sourcesEmptyAllFailed": "सभी स्क्रैपर विफल रहे। अपना कनेक्शन जाँचें या स्क्रैपर अपडेट करें।",
+  "sourcesEmptySomeFailed": "कोई लिंक नहीं मिला। {total} में से {failed} स्क्रैपर विफल रहे।",
+  "sourcesEmptyNothingFound": "आपके किसी भी स्क्रैपर के पास यह टाइटल नहीं है।"
 }

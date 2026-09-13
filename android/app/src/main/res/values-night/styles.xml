@@ -14,5 +14,10 @@
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- Must match values/styles.xml. Without it a notched or punch-hole
+             phone letterboxes fullscreen video away from the cutout in dark
+             mode and not in light mode - the same handset, the same film, two
+             different pictures depending on a theme setting. -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

@@ -13,6 +13,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../domain/entity/multimedia_item.dart';
+import '../logger/app_logger.dart';
 import '../router/app_router.dart';
 import '../storage/storage_service.dart';
 import '../network/dio_client_provider.dart';
@@ -122,6 +123,7 @@ class DownloadService {
   final _updatesController = StreamController<TaskUpdate>.broadcast();
   StreamSubscription<TaskUpdate>? _updatesSubscription;
   bool _isInitialized = false;
+  bool _askedForNotificationPermission = false;
 
   DownloadService(this._ref) : _dio = _ref.read(dioClientProvider) {
     _continuedProcessing = DownloadContinuedProcessingService(
@@ -137,6 +139,28 @@ class DownloadService {
     _updatesController.close();
     // Do NOT cancel _fdSubscription — it matches FileDownloader()'s singleton
     // lifetime and cannot be re-subscribed after cancellation.
+  }
+
+  /// Asks for the notification permission at the first download, not at launch.
+  ///
+  /// The app sends no notification until a download exists, so a prompt during
+  /// the launch sequence has no context at all - it is the single most common
+  /// reason a user denies notifications permanently, which then silently kills
+  /// download progress notifications for good. Raising it here means the
+  /// system dialog arrives while the user is looking at the download they just
+  /// confirmed.
+  ///
+  /// At most one request per process: [status] already covers "granted", and
+  /// re-prompting on every download would be its own kind of rude.
+  Future<void> ensureNotificationPermission() async {
+    if (_askedForNotificationPermission) return;
+    _askedForNotificationPermission = true;
+    final status = await FileDownloader().permissions.status(
+      PermissionType.notifications,
+    );
+    if (status != PermissionStatus.granted) {
+      await FileDownloader().permissions.request(PermissionType.notifications);
+    }
   }
 
   Future<void> init() async {
@@ -200,15 +224,7 @@ class DownloadService {
           progressBar: !Platform.isIOS,
         );
 
-    // 3. Re-check Permission status (native API)
-    final status = await FileDownloader().permissions.status(
-      PermissionType.notifications,
-    );
-    if (status != PermissionStatus.granted) {
-      await FileDownloader().permissions.request(PermissionType.notifications);
-    }
-
-    // 4. Bridge FileDownloader updates into a shared broadcast stream (once),
+    // 3. Bridge FileDownloader updates into a shared broadcast stream (once),
     //    then let this instance listen to that broadcast proxy.
     _fdSubscription ??= FileDownloader().updates.listen(_sharedEvents.add);
     _updatesSubscription = _sharedEvents.stream.listen((update) {
@@ -337,11 +353,11 @@ class DownloadService {
       }
     });
 
-    // 5. Catch up on any running tasks and database tracking
+    // 4. Catch up on any running tasks and database tracking
     await FileDownloader().trackTasks();
     await FileDownloader().start();
 
-    // 6. Bridge Database Records to Riverpod (Persistence after restart)
+    // 5. Bridge Database Records to Riverpod (Persistence after restart)
     final records = await FileDownloader().database.allRecords();
     for (final record in records) {
       // Only recover paused tasks here.
@@ -572,163 +588,193 @@ class DownloadService {
     String? trackingUrl,
     Map<String, String>? headers,
   }) async {
-    if (kDebugMode) {
-      debugPrint('[DownloadService] startDownload called');
-      debugPrint('[DownloadService] - URL: $url');
-      debugPrint('[DownloadService] - Tracking URL: $trackingUrl');
-      debugPrint('[DownloadService] - Filename: $filename');
-      debugPrint('[DownloadService] - Directory: $directory');
-    }
-
-    // Industry Standard: Ask for battery optimization when a real download starts
-    await requestIgnoreBatteryOptimizations();
-
-    // Request permission on Android (Version Aware)
-    if (Platform.isAndroid) {
-      final androidInfo = await DeviceInfoPlugin().androidInfo;
-      if (androidInfo.version.sdkInt >= 30) {
-        // For Android 11+, request MANAGE_EXTERNAL_STORAGE so the native player can
-        // read downloaded files directly
-        // to bypass FUSE directory depth limits for deeply nested series folders
-        final status = await Permission.manageExternalStorage.status;
-        if (!status.isGranted) {
-          await Permission.manageExternalStorage.request();
-        }
-      } else {
-        // For Android 10 and below, request standard storage permission
-        await Permission.storage.request();
-      }
-    }
-
-    final isAndroid = Platform.isAndroid;
-    final isIOS = Platform.isIOS;
-
-    // Prevention: Check if task is ALREADY running (using database for robustness)
-    final records = await FileDownloader().database.allRecords();
-    final existingRecord = records.firstWhereOrNull(
-      (r) =>
-          (r.status == TaskStatus.enqueued ||
-              r.status == TaskStatus.running ||
-              r.status == TaskStatus.paused) &&
-          (r.task.metaData.isNotEmpty ? r.task.metaData : r.task.url) ==
-              (trackingUrl ?? url),
-    );
-
-    if (existingRecord != null) {
+    try {
       if (kDebugMode) {
-        debugPrint(
-          '[DownloadService] Task already exists in database with status: ${existingRecord.status}',
+        debugPrint('[DownloadService] startDownload called');
+        debugPrint('[DownloadService] - URL: $url');
+        debugPrint('[DownloadService] - Tracking URL: $trackingUrl');
+        debugPrint('[DownloadService] - Filename: $filename');
+        debugPrint('[DownloadService] - Directory: $directory');
+      }
+
+      // The notification permission is asked for HERE, at the start of a real
+      // download, rather than during the launch sequence - see
+      // [ensureNotificationPermission].
+      await ensureNotificationPermission();
+
+      // Industry Standard: Ask for battery optimization when a real download starts
+      await requestIgnoreBatteryOptimizations();
+
+      // Request permission on Android (Version Aware)
+      if (Platform.isAndroid) {
+        final androidInfo = await DeviceInfoPlugin().androidInfo;
+        if (androidInfo.version.sdkInt >= 30) {
+          // For Android 11+, request MANAGE_EXTERNAL_STORAGE so the native player can
+          // read downloaded files directly
+          // to bypass FUSE directory depth limits for deeply nested series folders
+          final status = await Permission.manageExternalStorage.status;
+          if (!status.isGranted) {
+            final result = await Permission.manageExternalStorage.request();
+            if (!result.isGranted) {
+              // Not fatal on its own - a custom download directory may still be
+              // writable - but it is the usual reason the `dir.create` below
+              // throws, so record it while we still know why.
+              talker.warning(
+                'DownloadService.startDownload: MANAGE_EXTERNAL_STORAGE denied '
+                '($result); writing to "$directory" will fail unless the '
+                'directory is app-owned',
+              );
+            }
+          }
+        } else {
+          // For Android 10 and below, request standard storage permission
+          await Permission.storage.request();
+        }
+      }
+
+      final isAndroid = Platform.isAndroid;
+      final isIOS = Platform.isIOS;
+
+      // Prevention: Check if task is ALREADY running (using database for robustness)
+      final records = await FileDownloader().database.allRecords();
+      final existingRecord = records.firstWhereOrNull(
+        (r) =>
+            (r.status == TaskStatus.enqueued ||
+                r.status == TaskStatus.running ||
+                r.status == TaskStatus.paused) &&
+            (r.task.metaData.isNotEmpty ? r.task.metaData : r.task.url) ==
+                (trackingUrl ?? url),
+      );
+
+      if (existingRecord != null) {
+        if (kDebugMode) {
+          debugPrint(
+            '[DownloadService] Task already exists in database with status: ${existingRecord.status}',
+          );
+        }
+
+        // If it was paused, resume it!
+        if (existingRecord.status == TaskStatus.paused) {
+          if (kDebugMode) {
+            debugPrint('[DownloadService] Auto-resuming paused task.');
+          }
+          if (existingRecord.task is DownloadTask) {
+            await FileDownloader().resume(existingRecord.task as DownloadTask);
+          }
+        }
+
+        _ref.read(activeDownloadsProvider.notifier).add(trackingUrl ?? url);
+        await _continuedProcessing.start(
+          taskId: existingRecord.task.taskId,
+          displayName: filename,
+          progress: existingRecord.progress,
+          totalBytes: existingRecord.expectedFileSize,
+        );
+        return true;
+      }
+
+      // Path Logic:
+      // Android/Desktop: use BaseDirectory.root with absolute path.
+      // iOS: use BaseDirectory.applicationDocuments with relative path for sandbox safety.
+      final customDir = _ref.read(storageServiceProvider).getDownloadDirectory();
+      final hasCustomDir = customDir != null && customDir.trim().isNotEmpty;
+      BaseDirectory baseDir;
+      String taskDirectory;
+
+      if (isIOS && !hasCustomDir) {
+        baseDir = BaseDirectory.applicationDocuments;
+        // On iOS, 'directory' (from getDownloadPath(absolute: false)) is relative: "Skystream/Title"
+        taskDirectory = directory;
+      } else {
+        // Android, Windows, macOS, Linux: use absolute paths with BaseDirectory.root
+        baseDir = BaseDirectory.root;
+        if (isAndroid && !hasCustomDir) {
+          taskDirectory = p.join(await _getPublicDownloadsPath(), directory);
+        } else if (isIOS && hasCustomDir) {
+          taskDirectory = p.join(customDir.trim(), directory);
+        } else {
+          // Desktop / custom: directory is already absolute.
+          taskDirectory = directory;
+        }
+      }
+
+      final chunks = _ref
+          .read(storageServiceProvider)
+          .getDownloadChunks()
+          .clamp(1, 8);
+      final DownloadTask task = chunks > 1
+          ? ParallelDownloadTask(
+              url: url,
+              filename: filename,
+              displayName: filename,
+              baseDirectory: baseDir,
+              directory: taskDirectory,
+              headers: headers ?? {},
+              updates: Updates.statusAndProgress,
+              retries: 3,
+              allowPause: true,
+              chunks: chunks,
+              metaData: trackingUrl ?? url,
+            )
+          : DownloadTask(
+              url: url,
+              filename: filename,
+              displayName: filename,
+              baseDirectory: baseDir,
+              directory: taskDirectory,
+              headers: headers ?? {},
+              updates: Updates.statusAndProgress,
+              retries: 3, // Align with example
+              allowPause: true,
+              metaData: trackingUrl ?? url,
+            );
+
+      if (kDebugMode) debugPrint('[DownloadService] Enqueuing task...');
+
+      // Create the directory if it doesn't exist
+      final String fullDirPath;
+      if (isIOS && !hasCustomDir) {
+        final docsDir = await getApplicationDocumentsDirectory();
+        fullDirPath = p.join(docsDir.path, taskDirectory);
+      } else {
+        // Android/Desktop/custom iOS: taskDirectory is already absolute
+        fullDirPath = taskDirectory;
+      }
+
+      final dir = Directory(fullDirPath);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+
+      final success = await FileDownloader().enqueue(task);
+      if (kDebugMode) debugPrint('[DownloadService] Enqueue result: $success');
+
+      if (success) {
+        _ref.read(activeDownloadsProvider.notifier).add(trackingUrl ?? url);
+        // Save metadata for offline support
+        await _ref
+            .read(storageServiceProvider)
+            .saveDownloadMetadata(task.taskId, item, episode: episode);
+        await _continuedProcessing.start(
+          taskId: task.taskId,
+          displayName: filename,
         );
       }
-
-      // If it was paused, resume it!
-      if (existingRecord.status == TaskStatus.paused) {
-        if (kDebugMode) {
-          debugPrint('[DownloadService] Auto-resuming paused task.');
-        }
-        if (existingRecord.task is DownloadTask) {
-          await FileDownloader().resume(existingRecord.task as DownloadTask);
-        }
-      }
-
-      _ref.read(activeDownloadsProvider.notifier).add(trackingUrl ?? url);
-      await _continuedProcessing.start(
-        taskId: existingRecord.task.taskId,
-        displayName: filename,
-        progress: existingRecord.progress,
-        totalBytes: existingRecord.expectedFileSize,
+      return success;
+    } catch (error, stackTrace) {
+      // Every failure below this line used to vanish: the confirm dialog had
+      // already popped, nothing was enqueued, and nothing was written
+      // anywhere the user or we could see it. `dir.create` alone throws a
+      // FileSystemException whenever the target is unwritable, which is the
+      // default outcome on Android 11+ once All-files-access is declined.
+      // Log it, then rethrow so the call site can say so on screen.
+      talker.error(
+        'DownloadService.startDownload failed for "$filename" in "$directory"',
+        error,
+        stackTrace,
       );
-      return true;
+      rethrow;
     }
-
-    // Path Logic:
-    // Android/Desktop: use BaseDirectory.root with absolute path.
-    // iOS: use BaseDirectory.applicationDocuments with relative path for sandbox safety.
-    final customDir = _ref.read(storageServiceProvider).getDownloadDirectory();
-    final hasCustomDir = customDir != null && customDir.trim().isNotEmpty;
-    BaseDirectory baseDir;
-    String taskDirectory;
-
-    if (isIOS && !hasCustomDir) {
-      baseDir = BaseDirectory.applicationDocuments;
-      // On iOS, 'directory' (from getDownloadPath(absolute: false)) is relative: "Skystream/Title"
-      taskDirectory = directory;
-    } else {
-      // Android, Windows, macOS, Linux: use absolute paths with BaseDirectory.root
-      baseDir = BaseDirectory.root;
-      if (isAndroid && !hasCustomDir) {
-        taskDirectory = p.join(await _getPublicDownloadsPath(), directory);
-      } else if (isIOS && hasCustomDir) {
-        taskDirectory = p.join(customDir.trim(), directory);
-      } else {
-        // Desktop / custom: directory is already absolute.
-        taskDirectory = directory;
-      }
-    }
-
-    final chunks = _ref
-        .read(storageServiceProvider)
-        .getDownloadChunks()
-        .clamp(1, 8);
-    final DownloadTask task = chunks > 1
-        ? ParallelDownloadTask(
-            url: url,
-            filename: filename,
-            displayName: filename,
-            baseDirectory: baseDir,
-            directory: taskDirectory,
-            headers: headers ?? {},
-            updates: Updates.statusAndProgress,
-            retries: 3,
-            allowPause: true,
-            chunks: chunks,
-            metaData: trackingUrl ?? url,
-          )
-        : DownloadTask(
-            url: url,
-            filename: filename,
-            displayName: filename,
-            baseDirectory: baseDir,
-            directory: taskDirectory,
-            headers: headers ?? {},
-            updates: Updates.statusAndProgress,
-            retries: 3, // Align with example
-            allowPause: true,
-            metaData: trackingUrl ?? url,
-          );
-
-    if (kDebugMode) debugPrint('[DownloadService] Enqueuing task...');
-
-    // Create the directory if it doesn't exist
-    final String fullDirPath;
-    if (isIOS && !hasCustomDir) {
-      final docsDir = await getApplicationDocumentsDirectory();
-      fullDirPath = p.join(docsDir.path, taskDirectory);
-    } else {
-      // Android/Desktop/custom iOS: taskDirectory is already absolute
-      fullDirPath = taskDirectory;
-    }
-
-    final dir = Directory(fullDirPath);
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-
-    final success = await FileDownloader().enqueue(task);
-    if (kDebugMode) debugPrint('[DownloadService] Enqueue result: $success');
-
-    if (success) {
-      _ref.read(activeDownloadsProvider.notifier).add(trackingUrl ?? url);
-      // Save metadata for offline support
-      await _ref
-          .read(storageServiceProvider)
-          .saveDownloadMetadata(task.taskId, item, episode: episode);
-      await _continuedProcessing.start(
-        taskId: task.taskId,
-        displayName: filename,
-      );
-    }
-    return success;
   }
 
   Future<String?> pickDownloadDirectory() async {

@@ -60,11 +60,10 @@ class AppLocalizationsHu extends AppLocalizations {
   String get recordWatchHistory => 'Megtekintési előzmények rögzítése';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Teljes képernyő';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Átvált a TV-elrendezésre';
 
   @override
   String get defaultHomeScreen => 'Alapértelmezett kezdőképernyő';
@@ -427,6 +426,28 @@ class AppLocalizationsHu extends AppLocalizations {
   String get min => 'perc';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Vissza $count másodpercet',
+      one: 'Vissza 1 másodpercet',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Előre $count másodpercet',
+      one: 'Előre 1 másodpercet',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Belső lejátszó (VLC)';
 
   @override
@@ -747,6 +768,9 @@ class AppLocalizationsHu extends AppLocalizations {
 
   @override
   String get goBack => 'Vissza';
+
+  @override
+  String get restartApp => 'Alkalmazás újraindítása';
 
   @override
   String get resolving => 'Feloldás...';
@@ -1604,6 +1628,29 @@ class AppLocalizationsHu extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Keresés a scraperekben…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Egyetlen link sem felel meg a szűrőknek.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Ehhez a címhez nincs TMDB azonosító. Adja meg a \'Search manually\' ponttal.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Nincs engedélyezett scraper. Adjon hozzá egyet a \'Nuvio Plugins\' alatt.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Minden scraper hibázott. Ellenőrizze a kapcsolatot, vagy frissítse őket.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Nem található link. $total scraperből $failed hibázott.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Egyik scraperében sincs meg ez a cím.';
 }

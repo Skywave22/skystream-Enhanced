@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'flutter_torrent_server_platform_interface.dart';
+import 'src/auth_token.dart';
 
 class FlutterTorrentServerDesktop extends FlutterTorrentServerPlatform {
   /// Registers this class as the default instance of [FlutterTorrentServerPlatform].
@@ -15,15 +16,33 @@ class FlutterTorrentServerDesktop extends FlutterTorrentServerPlatform {
 
   Process? _serverProcess;
   final int _port = 8090;
+  String? _authToken;
+
+  /// Injection point for tests. Production always uses a real client.
+  @visibleForTesting
+  http.Client httpClient = http.Client();
+
+  @override
+  String? get authToken => _authToken;
+
+  /// Injection point for tests: pretend a server was started with [token].
+  @visibleForTesting
+  void debugSetAuthToken(String? token) => _authToken = token;
+
+  /// Headers every privileged request to the embedded server must carry.
+  Map<String, String> _authHeaders([Map<String, String>? extra]) => {
+    FlutterTorrentServerPlatform.authTokenHeader: ?_authToken,
+    ...?extra,
+  };
 
   @override
   Future<int> start() async {
     if (_serverProcess != null) return _port;
 
-    if (await _checkConnection()) {
-      debugPrint("TorrServer is already running on port $_port, reusing.");
-      return _port;
-    }
+    // No reusing a server we did not start. Every launch mints its own token,
+    // so a leftover or foreign TorrServer on this port would reject every
+    // privileged call we make; worse, we would have no idea whose torrent
+    // library we were talking to. The kill below clears the port instead.
 
     // Forcefully cleanup any lingering instances to ensure a fresh start
     // This prevents "Connection closed" issues from zombie processes.
@@ -76,12 +95,16 @@ class FlutterTorrentServerDesktop extends FlutterTorrentServerPlatform {
       // As we just killed everything, valid server start is handled below.
       // But just in case, let's proceed.
       debugPrint("Starting TorrServer: $binaryPath");
+      final token = generateAuthToken();
+      _authToken = token;
+      // The token goes through the environment, never argv: argv is readable
+      // by every process on the machine via `ps`.
       _serverProcess = await Process.start(binaryPath, [
         '-p',
         '$_port',
         '-d',
         appDir.path,
-      ]);
+      ], environment: {'TORRSERVER_AUTH_TOKEN': token});
 
       _serverProcess!.stdout.transform(utf8.decoder).listen((data) {
         debugPrint("TorrServer: $data");
@@ -116,21 +139,14 @@ class FlutterTorrentServerDesktop extends FlutterTorrentServerPlatform {
 
   Future<bool> _checkConnection() async {
     try {
-      final response = await http.get(
+      // /echo is the liveness probe and is deliberately unauthenticated: it
+      // answers with a version string and nothing about the user.
+      final response = await httpClient.get(
         Uri.parse('http://127.0.0.1:$_port/echo'),
       );
-      return response.statusCode ==
-          200; // TorrServer usually replies to /echo or just /
+      return response.statusCode == 200;
     } catch (_) {
-      try {
-        // Fallback check
-        final response = await http.get(
-          Uri.parse('http://127.0.0.1:$_port/settings'),
-        );
-        return response.statusCode == 200;
-      } catch (__) {
-        return false;
-      }
+      return false;
     }
   }
 
@@ -138,15 +154,16 @@ class FlutterTorrentServerDesktop extends FlutterTorrentServerPlatform {
   Future<void> stop() async {
     _serverProcess?.kill();
     _serverProcess = null;
+    _authToken = null;
   }
 
   @override
   Future<String?> addTorrent(String link) async {
     try {
       final uri = Uri.parse('http://127.0.0.1:$_port/torrents');
-      final response = await http.post(
+      final response = await httpClient.post(
         uri,
-        headers: {'Content-Type': 'application/json'},
+        headers: _authHeaders({'Content-Type': 'application/json'}),
         body: jsonEncode({
           'action': 'add',
           'link': link,
@@ -181,9 +198,9 @@ class FlutterTorrentServerDesktop extends FlutterTorrentServerPlatform {
   Future<Map<String, dynamic>> getTorrentStatus(String hash) async {
     try {
       final uri = Uri.parse('http://127.0.0.1:$_port/torrents');
-      final response = await http.post(
+      final response = await httpClient.post(
         uri,
-        headers: {'Content-Type': 'application/json'},
+        headers: _authHeaders({'Content-Type': 'application/json'}),
         body: jsonEncode({'action': 'get', 'hash': hash}),
       );
 

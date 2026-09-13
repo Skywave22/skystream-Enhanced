@@ -60,11 +60,10 @@ class AppLocalizationsSv extends AppLocalizations {
   String get recordWatchHistory => 'Spara tittarhistorik';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Helskärm';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Växlar till TV-läget';
 
   @override
   String get defaultHomeScreen => 'Standardhemskärm';
@@ -426,6 +425,28 @@ class AppLocalizationsSv extends AppLocalizations {
   String get min => 'min';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Bakåt $count sekunder',
+      one: 'Bakåt 1 sekund',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Framåt $count sekunder',
+      one: 'Framåt 1 sekund',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Intern (VLC)';
 
   @override
@@ -746,6 +767,9 @@ class AppLocalizationsSv extends AppLocalizations {
 
   @override
   String get goBack => 'Gå tillbaka';
+
+  @override
+  String get restartApp => 'Starta om appen';
 
   @override
   String get resolving => 'Löser länkar...';
@@ -1603,6 +1627,29 @@ class AppLocalizationsSv extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Söker i scrapers…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Inga länkar matchar filtren.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Ingen TMDB-id för den här titeln. Ange den via \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Inga scrapers aktiverade. Lägg till en i \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Alla scrapers misslyckades. Kontrollera anslutningen eller uppdatera dem.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Inga länkar hittades. $failed av $total scrapers misslyckades.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Ingen av dina scrapers har den här titeln.';
 }

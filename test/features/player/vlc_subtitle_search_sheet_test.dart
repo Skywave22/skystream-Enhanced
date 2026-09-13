@@ -146,6 +146,33 @@ Future<void> _down(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// The retired "no subtitle account is set up" advice, matched by what it
+/// claimed rather than by an ARB key that no longer exists.
+///
+/// `subtitleAccountsNotConfigured` told a fresh install to go to Settings and
+/// add an OpenSubtitles, SubDL or SubSource key before it could search online.
+/// That was untrue on a default install - OpenSubtitles runs on the bundled
+/// `_defaultApiKey` and SubSource takes a keyless path - so the call site went
+/// first and the key has now followed it out of all 44 ARBs.
+///
+/// The three cases below exist to keep that claim out of the empty state, and
+/// they still do: the matcher is the claim itself - a line naming one of the
+/// three providers and sending the viewer to Settings - so re-adding the
+/// advice under any key, or spelling it out inline, fails them again. The
+/// matcher is itself pinned by 'the retired advice is still catchable', so it
+/// cannot rot into a finder that matches nothing.
+final Finder _accountAdvice = find.byWidgetPredicate(
+  (Widget widget) =>
+      widget is Text && _accountAdviceClaim.hasMatch(widget.data ?? ''),
+  description: 'text blaming an unconfigured subtitle account',
+);
+
+final RegExp _accountAdviceClaim = RegExp(
+  r'(OpenSubtitles|SubDL|SubSource)[\s\S]*Settings'
+  r'|Settings[\s\S]*(OpenSubtitles|SubDL|SubSource)',
+  caseSensitive: false,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -433,6 +460,10 @@ void main() {
       // deep, and came back empty. Blaming the viewer's configuration for
       // that sent them out of the player to Settings for nothing and hid
       // the only advice that helps.
+      //
+      // The string that did the blaming is gone now, ARB key and all, so
+      // these three cases match the CLAIM rather than a key - see
+      // [_accountAdvice].
       final provider = _RecordingProvider()
         ..respond = (_) async => const <OnlineSubtitle>[];
       await pumpSheet(tester, target: _episode, provider: provider);
@@ -443,7 +474,7 @@ void main() {
         reason: 'id, title, then the season: the chain ran out',
       );
       expect(find.text(l10n.noSubtitlesFoundTryAnother), findsOneWidget);
-      expect(find.text(l10n.subtitleAccountsNotConfigured), findsNothing);
+      expect(_accountAdvice, findsNothing);
     });
 
     testWidgets('nothing found with a key is just nothing found', (
@@ -459,7 +490,7 @@ void main() {
       );
 
       expect(find.text(l10n.noSubtitlesFoundTryAnother), findsOneWidget);
-      expect(find.text(l10n.subtitleAccountsNotConfigured), findsNothing);
+      expect(_accountAdvice, findsNothing);
     });
 
     testWidgets('an OpenSubtitles login changes nothing about the note', (
@@ -475,7 +506,28 @@ void main() {
       );
 
       expect(find.text(l10n.noSubtitlesFoundTryAnother), findsOneWidget);
-      expect(find.text(l10n.subtitleAccountsNotConfigured), findsNothing);
+      expect(_accountAdvice, findsNothing);
+    });
+
+    testWidgets('the retired advice is still catchable', (tester) async {
+      // A positive control for the three findsNothing above. They lost their
+      // subject when `subtitleAccountsNotConfigured` was deleted from the
+      // ARBs, and a finder for a string nothing renders passes for free. This
+      // renders the exact wording that was retired and requires the matcher to
+      // see it, so the three cases keep failing if anyone brings the claim
+      // back - under a new key, or hardcoded.
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Text(
+              'No subtitle account is set up. Add an OpenSubtitles, SubDL or '
+              'SubSource key in Settings to search online.',
+            ),
+          ),
+        ),
+      );
+
+      expect(_accountAdvice, findsOneWidget);
     });
   });
 

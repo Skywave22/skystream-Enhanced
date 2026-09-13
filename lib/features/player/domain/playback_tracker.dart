@@ -23,6 +23,13 @@
 ///      marks a title watched seconds after it opens.
 ///   5. **The latch never resets on failover or retry** — only a genuinely new
 ///      episode gets a new session.
+///   6. **The terminal write is durable, and therefore needs an identity.**
+///      `SyncManager` now persists `markWatched`/`scrobbleStop` and replays
+///      them until they land, so this class hands it [token] as the session
+///      key: a replay of this session's write must collapse onto the queued
+///      one, while a genuinely new viewing must queue a new entry. Nothing
+///      about *when* a mark is emitted changed — rules 1-5 still decide that,
+///      from the last sample taken while playing.
 library;
 
 import 'dart:async';
@@ -138,9 +145,31 @@ class PlaybackTracker {
 
     _dispatch(
       'scrobbleStop',
-      (m) => m.scrobbleStop(item, episode, sample.fraction),
+      (m) => m.scrobbleStop(item, episode, sample.fraction, sessionKey: _key),
     );
   }
+
+  /// This session's identity, handed to [SyncManager] so its outbox can tell a
+  /// retry of *this* write apart from a genuinely new viewing. Rule 6 of the
+  /// header: a terminal write is now queued and replayed, so it needs a name
+  /// that is stable across the retries and different across sessions.
+  ///
+  /// Minted once per tracker, and deliberately *not* `'$token'`. [token]
+  /// counts stream resolutions inside one player screen and every launch
+  /// builds a fresh screen, so the first — usually only — resolution of every
+  /// viewing produced the literal `"1"`. Two viewings of the same episode on
+  /// two launches therefore shared an outbox key, and while the first was
+  /// still queued the second, newer terminal write was silently dropped as a
+  /// duplicate of it. The queue then delivered the older progress.
+  ///
+  /// [token] is kept on the end for diagnostics only; the wall clock plus the
+  /// process-local [_sessionSeq] is what carries the uniqueness, so the value
+  /// is unique even if the clock stands still or steps backwards.
+  late final String _key =
+      '${DateTime.now().microsecondsSinceEpoch}-${++_sessionSeq}-$token';
+
+  /// Tie-breaker for two trackers minted inside the same microsecond.
+  static int _sessionSeq = 0;
 
   /// VLC revises duration during startup, so a value is only trusted once it
   /// has been reported unchanged several times running.
@@ -169,15 +198,18 @@ class PlaybackTracker {
     final currentEpisode = episode;
     if (_isSeries && currentEpisode != null) {
       unawaited(
-        read(episodeWatchRepositoryProvider)
-            .setWatched(item.url, currentEpisode, true)
-            .catchError((Object e) {
-              talker.error('Failed to save local watched state', e);
-            }),
+        read(
+          episodeWatchRepositoryProvider,
+        ).setWatched(item.url, currentEpisode, true).catchError((Object e) {
+          talker.error('Failed to save local watched state', e);
+        }),
       );
     }
 
-    _dispatch('markWatched', (m) => m.markWatched(item, currentEpisode));
+    _dispatch(
+      'markWatched',
+      (m) => m.markWatched(item, currentEpisode, sessionKey: _key),
+    );
     _rollHistoryForward(currentEpisode);
   }
 
@@ -211,11 +243,11 @@ class PlaybackTracker {
     }
 
     unawaited(
-      read(watchHistoryProvider.notifier)
-          .removeFromHistory(item.url)
-          .catchError((Object e) {
-            talker.error('Failed to clear finished item from history', e);
-          }),
+      read(
+        watchHistoryProvider.notifier,
+      ).removeFromHistory(item.url).catchError((Object e) {
+        talker.error('Failed to clear finished item from history', e);
+      }),
     );
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/features/player/domain/playback_recovery.dart';
 
 void main() {
@@ -55,19 +56,11 @@ void main() {
 
       test('a torrent gets minutes to seed, not seconds', () {
         expect(
-          at(
-            60,
-            hadFrames: false,
-            recoverAfter: kTorrentStallRecoverAfter,
-          ),
+          at(60, hadFrames: false, recoverAfter: kTorrentStallRecoverAfter),
           StallAction.none,
         );
         expect(
-          at(
-            181,
-            hadFrames: false,
-            recoverAfter: kTorrentStallRecoverAfter,
-          ),
+          at(181, hadFrames: false, recoverAfter: kTorrentStallRecoverAfter),
           StallAction.recover,
         );
       });
@@ -116,7 +109,153 @@ void main() {
     });
 
     test('an empty candidate list has no next', () {
-      expect(nextFailoverIndex(from: 0, total: 0, tried: const <int>{}), isNull);
+      expect(
+        nextFailoverIndex(from: 0, total: 0, tried: const <int>{}),
+        isNull,
+      );
+    });
+  });
+
+  /// The signal that answers the one question an advancing position cannot:
+  /// whether anything is actually on the screen.
+  ///
+  /// The failure it exists for is invisible to every other watchdog. Audio
+  /// drives libVLC's clock, so a 2016 television box software-decoding a 4K
+  /// HEVC rendition reports a perfect position, `playing`, and a decoded video
+  /// size, while the viewer watches two frames a second.
+  group('videoHealthFor', () {
+    VideoHealth read({
+      bool available = true,
+      bool video = true,
+      int seconds = 10,
+      required int displayed,
+      required int lost,
+    }) => videoHealthFor(
+      statsAvailable: available,
+      hasVideoTrack: video,
+      measuredFor: Duration(seconds: seconds),
+      displayed: displayed,
+      lost: lost,
+    );
+
+    test('ordinary playback is healthy', () {
+      // Ten seconds at 24 fps with the odd frame missed.
+      expect(read(displayed: 240, lost: 3), VideoHealth.ok);
+    });
+
+    test('a clock that advances over no picture at all is absent', () {
+      expect(read(displayed: 0, lost: 0), VideoHealth.absent);
+      // A vout that opened, produced nothing, and is dropping everything it
+      // decodes is the same failure wearing different numbers.
+      expect(read(displayed: 0, lost: 900), VideoHealth.absent);
+    });
+
+    test('a decoder throwing most of its work away is overwhelmed', () {
+      // The slideshow: sixteen pictures shown in ten seconds against a flood
+      // dropped for arriving late.
+      expect(read(displayed: 16, lost: 220), VideoHealth.overwhelmed);
+    });
+
+    // The whole reason the caller keeps a baseline rather than reading libVLC's
+    // cumulative totals: a device that dropped frames while the buffer filled
+    // and then settled must not be convicted on the first ten seconds forever.
+    test('a busy patch under the share is not a verdict', () {
+      expect(read(displayed: 200, lost: 40), VideoHealth.ok);
+    });
+
+    test('a window too short to have seen anything convicts nobody', () {
+      expect(read(seconds: 7, displayed: 0, lost: 0), VideoHealth.ok);
+      expect(read(seconds: 7, displayed: 4, lost: 400), VideoHealth.ok);
+    });
+
+    // A handful of pictures either way is noise, and the ratio over a handful
+    // is meaningless. Absence is still absence.
+    test('a ratio needs a sample behind it', () {
+      expect(read(displayed: 8, lost: 8), VideoHealth.ok);
+      expect(read(displayed: 20, lost: 40), VideoHealth.overwhelmed);
+    });
+
+    // Every backend implements getMediaStats and some answer nothing. Zeroes
+    // from an engine that said it has no numbers are not evidence of anything,
+    // and reading them as absence would fail every source over on the spot.
+    test('an engine with no numbers is never convicted', () {
+      expect(read(available: false, displayed: 0, lost: 0), VideoHealth.ok);
+    });
+
+    test('audio-only media has no picture to miss', () {
+      expect(read(video: false, displayed: 0, lost: 0), VideoHealth.ok);
+    });
+  });
+
+  /// The cap that stops the weakest device in the support window being handed
+  /// the rendition it cannot decode in the first place.
+  group('adaptiveMaxHeightFor', () {
+    int cap({
+      DeviceTier tier = DeviceTier.standard,
+      int panel = 0,
+      bool hardware = true,
+    }) => adaptiveMaxHeightFor(
+      tier: tier,
+      panelHeightPx: panel,
+      hardwareDecoding: hardware,
+    );
+
+    // The headline case, and the one that has to hold: two devices behind the
+    // same 4K panel, and only the one that can be shown to cope is offered the
+    // top rung.
+    test('the top rung is for devices known to manage it', () {
+      expect(cap(tier: DeviceTier.high, panel: 2160), 2160);
+      expect(cap(tier: DeviceTier.standard, panel: 2160), 1080);
+      expect(cap(tier: DeviceTier.low, panel: 2160), 1080);
+    });
+
+    // Nothing Flutter can reach reports which MediaCodec profiles the SoC
+    // implements, so an unresolved device profile is the common case on a cold
+    // deep link. It has to read as the weak device, not the capable one.
+    test('an unknown device is treated as the weak one', () {
+      expect(cap(tier: DeviceTier.standard), 1080);
+    });
+
+    test('nobody is asked for more than the panel can show', () {
+      expect(cap(tier: DeviceTier.high, panel: 1080), 1080);
+      // A 1080p television at the density Android TV reports: 1920x1080
+      // physical, and the shorter side is what a rendition height means.
+      expect(cap(tier: DeviceTier.high, panel: 1080), 1080);
+      // Rounded up, never down: a 900-line panel takes the 1080 rung rather
+      // than being handed something smaller than itself to upscale.
+      expect(cap(tier: DeviceTier.high, panel: 900), 1080);
+    });
+
+    // A desktop window is resized, maximised and full-screened mid-playback,
+    // so its height when the engine is built is not a ceiling on anything.
+    // Zero is how the caller says so.
+    test('no panel measurement leaves the tier in charge', () {
+      expect(cap(tier: DeviceTier.high, panel: 0), 2160);
+    });
+
+    test('software decode is nobody\'s capable class', () {
+      expect(cap(tier: DeviceTier.high, panel: 2160, hardware: false), 1080);
+      expect(cap(tier: DeviceTier.low, panel: 2160, hardware: false), 720);
+    });
+
+    test('never below the floor', () {
+      expect(cap(tier: DeviceTier.low, panel: 240, hardware: false), 720);
+      expect(cap(tier: DeviceTier.high, panel: 360), 720);
+    });
+  });
+
+  group('stepDownFrom', () {
+    test('walks the rungs it was given', () {
+      expect(stepDownFrom(2160), 1440);
+      expect(stepDownFrom(1440), 1080);
+      expect(stepDownFrom(1080), 720);
+    });
+
+    // Null is what stops a device that cannot decode anything reopening its
+    // media forever.
+    test('the floor has nothing below it', () {
+      expect(stepDownFrom(720), isNull);
+      expect(stepDownFrom(480), isNull);
     });
   });
 }

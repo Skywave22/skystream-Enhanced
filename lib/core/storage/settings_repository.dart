@@ -94,7 +94,9 @@ class SettingsRepository {
     await _storageService.setLanguage(lang);
   }
 
-  String getLanguage() {
+  /// `null` when the user has never chosen a language - see
+  /// [StorageService.getLanguage].
+  String? getLanguage() {
     return _storageService.getLanguage();
   }
 

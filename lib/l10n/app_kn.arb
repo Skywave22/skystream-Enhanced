@@ -15,8 +15,8 @@
   "general": "ಸಾಮಾನ್ಯ",
   "appTheme": "ಆಪ್ ಥೀಮ್",
   "recordWatchHistory": "ವೀಕ್ಷಣೆಯ ಇತಿಹಾಸವನ್ನು ದಾಖಲಿಸಿ",
-  "bigPictureMode": "ಬಿಗ್ ಪಿಕ್ಚರ್ ಮೋಡ್",
-  "bigPictureModeSubtitle": "ಟಿವಿಗೆ ಸಂಪರ್ಕಿಸಿದ ಕಂಪ್ಯೂಟರ್‌ಗಾಗಿ, ಟಿವಿಯ ದೊಡ್ಡ ವಿನ್ಯಾಸದೊಂದಿಗೆ ಪೂರ್ಣ ಪರದೆ",
+  "fullScreenMode": "ಪೂರ್ಣ ಪರದೆ ಮೋಡ್",
+  "fullScreenModeSubtitle": "ಟಿವಿಗೆ ಸಂಪರ್ಕಿಸಿದ ಕಂಪ್ಯೂಟರ್‌ಗಾಗಿ, ಪೂರ್ಣ ಪರದೆಯೊಂದಿಗೆ ಟಿವಿಯ ದೊಡ್ಡ ವಿನ್ಯಾಸವೂ ಬರುತ್ತದೆ. ಆಫ್ ಇದ್ದಾಗ ಆ್ಯಪ್ ವಿಂಡೋದಲ್ಲಿಯೇ ಇರುತ್ತದೆ.",
   "defaultHomeScreen": "ಡೀಫಾಲ್ಟ್ ಮುಖಪುಟ",
   "player": "ಪ್ಲೇಯರ್",
   "defaultPlayer": "ಡೀಫಾಲ್ಟ್ ಪ್ಲೇಯರ್",
@@ -120,6 +120,8 @@
   "loading": "ಲೋಡ್ ಆಗುತ್ತಿದೆ...",
   "sec": "ಸೆಕೆಂಡ್",
   "min": "ನಿಮಿಷ",
+  "playerRewindSeconds": "{count, plural, =1{1 ಸೆಕೆಂಡ್ ಹಿಂದಕ್ಕೆ ಹೋಗಿ} other{{count} ಸೆಕೆಂಡ್ ಹಿಂದಕ್ಕೆ ಹೋಗಿ}}",
+  "playerForwardSeconds": "{count, plural, =1{1 ಸೆಕೆಂಡ್ ಮುಂದಕ್ಕೆ ಹೋಗಿ} other{{count} ಸೆಕೆಂಡ್ ಮುಂದಕ್ಕೆ ಹೋಗಿ}}",
   "internalPlayer": "ಆಂತರಿಕ (VLC)",
   "builtInPlayer": "ಬಿಲ್ಟ್-ಇನ್ ಪ್ಲೇಯರ್",
   "customNotSet": "ಕಸ್ಟಮ್ (ಸೆಟ್ ಮಾಡಿಲ್ಲ)",
@@ -211,6 +213,7 @@
   "invalidNavigation": "ಅಮಾನ್ಯ ನ್ಯಾವಿಗೇಶನ್. ದಯವಿಟ್ಟು ಹಿಂತಿರುಗಿ.",
   "startOver": "ಮೊದಲಿನಿಂದ ಪ್ರಾರಂಭಿಸಿ",
   "goBack": "ಹಿಂದೆ ಹೋಗಿ",
+  "restartApp": "ಆ್ಯಪ್ ಮರುಪ್ರಾರಂಭಿಸಿ",
   "resolving": "ಪರಿಹರಿಸಲಾಗುತ್ತಿದೆ...",
   "downloaded": "ಡೌನ್‌ಲೋಡ್ ಮಾಡಲಾಗಿದೆ",
   "download": "ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ",
@@ -459,8 +462,11 @@
   "@subtitleSearchSeasonFallback": {
     "description": "Note above online subtitle results when the episode-scoped search returned nothing and the search widened to the whole season. Distinct from subtitleSearchTitleFallback: it must warn that the list covers other episodes too, because the viewer has to pick their own episode's file by name, and it must not mention an ID (the season pass is reached with no ID in play)."
   },
-  "subtitleAccountsNotConfigured": "ಯಾವುದೇ ಉಪಶೀರ್ಷಿಕೆ ಖಾತೆ ಸೆಟ್ ಆಗಿಲ್ಲ. ಆನ್‌ಲೈನ್ ಹುಡುಕಲು ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ OpenSubtitles, SubDL ಅಥವಾ SubSource ಕೀಲಿ ಸೇರಿಸಿ.",
-  "@subtitleAccountsNotConfigured": {
-    "description": "Empty state of the online subtitle search when no provider has credentials, so a search would silently return nothing. Points at the Settings screen where keys are added."
-  }
+  "sourcesSearching": "ಸ್ಕ್ರೇಪರ್‌ಗಳಲ್ಲಿ ಹುಡುಕಲಾಗುತ್ತಿದೆ…",
+  "sourcesEmptyFiltered": "ಪ್ರಸ್ತುತ ಫಿಲ್ಟರ್‌ಗಳಿಗೆ ಯಾವ ಲಿಂಕ್ ಕೂಡ ಹೊಂದಿಕೆಯಾಗಿಲ್ಲ.",
+  "sourcesEmptyNoTmdbId": "ಈ ಶೀರ್ಷಿಕೆಗೆ TMDB ID ಇಲ್ಲ. 'Search manually' ಮೂಲಕ ನಮೂದಿಸಿ.",
+  "sourcesEmptyNoScrapers": "ಯಾವುದೇ ಸ್ಕ್ರೇಪರ್ ಸಕ್ರಿಯವಾಗಿಲ್ಲ. 'Nuvio Plugins' ನಲ್ಲಿ ಒಂದನ್ನು ಸೇರಿಸಿ.",
+  "sourcesEmptyAllFailed": "ಎಲ್ಲಾ ಸ್ಕ್ರೇಪರ್‌ಗಳು ವಿಫಲವಾದವು. ನಿಮ್ಮ ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಅಥವಾ ಸ್ಕ್ರೇಪರ್ ನವೀಕರಿಸಿ.",
+  "sourcesEmptySomeFailed": "ಯಾವುದೇ ಲಿಂಕ್ ಸಿಗಲಿಲ್ಲ. {total} ರಲ್ಲಿ {failed} ಸ್ಕ್ರೇಪರ್ ವಿಫಲವಾದವು.",
+  "sourcesEmptyNothingFound": "ನಿಮ್ಮ ಯಾವುದೇ ಸ್ಕ್ರೇಪರ್‌ನಲ್ಲಿ ಈ ಶೀರ್ಷಿಕೆ ಇಲ್ಲ."
 }

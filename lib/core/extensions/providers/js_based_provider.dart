@@ -84,7 +84,13 @@ Future<List<R>> _processInChunks<T, R>(
 }
 
 class JsBasedProvider extends SkyStreamProvider {
-  static const int _iifeWrapperVersion = 2;
+  // Bumped to 3 by audit W12 — the wrapper now captures a bridge capability
+  // token and routes storage/preference/HTTP through it, so v2 bytecode on
+  // disk is stale and must be recompiled.
+  // Bumped to 4 — the wrapper takes the token as a function argument instead
+  // of reading it off a shared global (see [_buildIife]), so v3 bytecode is
+  // stale too.
+  static const int _iifeWrapperVersion = 4;
 
   final JsEngineService _jsEngine;
   final String _scriptPath;
@@ -192,28 +198,105 @@ class JsBasedProvider extends SkyStreamProvider {
     return '$dir${safeId}_v$_iifeWrapperVersion.qbc';
   }
 
-  // Wraps the raw plugin source in a namespaced IIFE with manifest + storage API.
+  /// Where this provider's compiled wrapper bytecode lives, or null for asset
+  /// plugins. Test seam: lets a test put a fresh `.qbc` in place and drive the
+  /// bytecode fast path without hard-coding [_iifeWrapperVersion] into a
+  /// filename that would silently go stale on the next bump.
+  @visibleForTesting
+  String? get bytecodePath => _qbcPath;
+
+  /// Name of the one-shot installer function this plugin's wrapper publishes
+  /// on `globalThis`. Derived from the namespace, so it is unique per plugin
+  /// (and per sub-provider). Null for un-namespaced raw scripts.
+  String? get _installerGlobal => _namespace == null
+      ? null
+      : '${JsEngineService.kBridgeInstallerPrefix}$_namespace';
+
+  /// Wraps the raw plugin source in a namespaced installer function with
+  /// manifest, storage API and HTTP, all bound to this plugin's bridge
+  /// capability token.
+  ///
+  /// The token itself is NOT in here: it is minted fresh per launch, and
+  /// baking it into the wrapper text would make the compiled bytecode
+  /// unusable on the next launch. Instead the wrapper publishes a one-shot
+  /// installer under a name derived from this plugin's namespace, and the
+  /// one-line eval [_installBridgeToken] runs right after this one takes that
+  /// installer off `globalThis` and calls it WITH the token as an argument.
+  ///
+  /// The token must never travel through a slot shared between plugins. This
+  /// wrapper used to read it off one global `__ssBridgeToken` that Dart parked
+  /// just before the wrapper eval, and concurrent plugin init is the normal
+  /// path — a search fans out to every installed provider at once, and
+  /// ExtensionManager `Future.wait`s a batch of loads. Each plugin's two evals
+  /// are separated by real awaits (a staleness check, a bytecode read), so the
+  /// worker's single FIFO eval queue interleaves them as
+  /// `park A, park B, wrapper A, wrapper B`: A captured B's token and B
+  /// captured nothing, which put A's storage and preference writes in B's key
+  /// space and had B's refused for lack of a token, for the life of the
+  /// process. A per-plugin installer taking the token as an argument cannot
+  /// cross, in any interleaving. Audit W12.
+  @visibleForTesting
+  String buildIife(String rawScript) => _buildIife(rawScript);
+
   String _buildIife(String rawScript) {
     if (_namespace == null) return rawScript;
     final manifestJson = jsonEncode(_manifest);
     final providerIdLine = _providerId != null
         ? "manifest.providerId = ${jsonEncode(_providerId)};"
         : "";
+    final installerKey = jsonEncode(_installerGlobal);
+    const tokenField = JsEngineService.kBridgeTokenField;
     return """
-          (function() {
+          globalThis[$installerKey] = function(__ssTok) {
+              // __ssTok is this plugin's bridge capability token, passed in by
+              // Dart. Every bridge call below carries it; Dart attributes the
+              // call from the token and nothing else.
+
+              const __ssSend = function(channel, params) {
+                  params.$tokenField = __ssTok;
+                  return sendMessage(channel, JSON.stringify(params));
+              };
+              const __ssAsync = function(channel, params) {
+                  params.$tokenField = __ssTok;
+                  return _dartAsyncCall(channel, params);
+              };
+
               const manifest = $manifestJson;
               $providerIdLine
 
               const getPreference = (key) => {
-                  return sendMessage('get_preference', JSON.stringify({ packageName: '$_jsPackageName', key: key }));
+                  return __ssSend('get_preference', { key: key });
               };
 
               const setPreference = (key, value) => {
-                  return sendMessage('set_preference', JSON.stringify({ packageName: '$_jsPackageName', key: key, value: value }));
+                  return __ssSend('set_preference', { key: key, value: value });
               };
 
-              globalThis.getPreference = getPreference;
-              globalThis.setPreference = setPreference;
+              // Same shape as the runtime's globals, but attributed. Declared
+              // in this closure so the plugin body below binds to these and
+              // not to the shared globalThis ones.
+              const __ssHttp = function(method, url, headers, body) {
+                  if (method === 'POST' && typeof headers === 'object' && headers !== null && !body && (headers.body || headers.headers)) {
+                      body = headers.body; headers = headers.headers;
+                  }
+                  return __ssAsync('http_request', { method: method, url: url, headers: headers || {}, body: body });
+              };
+              const http_get = function(url, headers, cb) {
+                  return __ssHttp('GET', url, headers, null).then(function(res) {
+                      if (cb && typeof cb === 'function') cb(res);
+                      return res;
+                  });
+              };
+              const http_post = function(url, headers, body, cb) {
+                  return __ssHttp('POST', url, headers, body).then(function(res) {
+                      if (cb && typeof cb === 'function') cb(res);
+                      return res;
+                  });
+              };
+              const http_parallel = function(requests) {
+                  return __ssAsync('http_parallel', { requests: requests });
+              };
+              const _fetch = async function(url) { return await http_get(url, {}); };
 
               var exports = (function() {
                   $rawScript
@@ -235,8 +318,68 @@ class JsBasedProvider extends SkyStreamProvider {
               if (globalThis.loadStreams) delete globalThis.loadStreams;
               if (globalThis.getProviders) delete globalThis.getProviders;
               if (globalThis.getSettings) delete globalThis.getSettings;
-          })();
+          };
           """;
+  }
+
+  /// Mints this plugin's bridge capability token and evaluates the one line
+  /// that hands it to the installer [_buildIife] published, then drops the
+  /// installer.
+  ///
+  /// Runs AFTER the wrapper eval, and only ever touches this plugin's own
+  /// installer name, so another plugin's init interleaving here — the normal
+  /// case — cannot cross the two tokens. Taking the installer off `globalThis`
+  /// before calling it also makes it one-shot: a second, concurrent init of
+  /// the same namespace finds nothing to call and leaves the already-installed
+  /// (correctly attributed) exports alone. Audit W12.
+  ///
+  /// Text is generated per launch and deliberately never compiled to cached
+  /// bytecode — it is the only place the token appears.
+  ///
+  /// The slot is read with `getOwnPropertyDescriptor` and the token is handed
+  /// over only if it holds a plain, configurable, own data property — i.e.
+  /// exactly what this plugin's own wrapper assignment leaves there. Every
+  /// plugin shares one `globalThis`, and this installer name is derived from
+  /// the namespace, so it is predictable to a hostile co-resident plugin: one
+  /// loaded earlier could `Object.defineProperty(globalThis, thisName, {...})`
+  /// a non-configurable accessor whose setter captures the real installer and
+  /// whose getter returns a trampoline. Plain `globalThis[name]` would then
+  /// read the trampoline, the `delete` would silently fail, and the line below
+  /// would hand this plugin's capability token to the attacker while the
+  /// plugin kept working — after which every bridge call the attacker makes is
+  /// attributed here, reading and overwriting this plugin's stored
+  /// credentials, session tokens and settings.
+  ///
+  /// A squatted slot therefore fails closed and loud: no token is handed out,
+  /// the installer is never called, so the plugin body does not run and the
+  /// plugin is simply unavailable for the session, with the reason logged.
+  /// That is the right trade — a co-resident plugin can always deny another
+  /// one service in a shared realm (it can clobber the exports slot just as
+  /// easily); what it must never get is a working impersonation. Audit W12.
+  Future<void> _installBridgeToken() async {
+    final namespace = _namespace;
+    final installer = _installerGlobal;
+    if (namespace == null || installer == null) return;
+    final token = _jsEngine.mintBridgeToken(
+      namespace: namespace,
+      packageName: _jsPackageName,
+    );
+    final key = jsonEncode(installer);
+    final warn = jsonEncode(
+      '[bridge] installer slot $installer is not this plugin\'s own — '
+      'refusing to hand over its capability token',
+    );
+    await _jsEngine.loadScript(
+      '(function(){'
+      'var __d = Object.getOwnPropertyDescriptor(globalThis, $key);'
+      'if (!__d) return;'
+      'try { delete globalThis[$key]; } catch (e) {}'
+      'if (typeof __d.value !== "function" || !__d.configurable) {'
+      'try { console.error($warn); } catch (e) {} return; }'
+      '__d.value(${jsonEncode(token)});'
+      '})();',
+      tag: _packageName,
+    );
   }
 
   Future<void> _init() async {
@@ -268,6 +411,10 @@ class JsBasedProvider extends SkyStreamProvider {
       if (qbc != null && !await JsBytecodeCompiler.isStale(_scriptPath, qbc)) {
         final bytes = await File(qbc).readAsBytes();
         await _jsEngine.loadBytes(bytes, tag: _packageName);
+        // Nothing has run yet: the wrapper only published this plugin's
+        // installer. Hand it the capability token to actually install the
+        // plugin. Audit W12.
+        await _installBridgeToken();
         if (kDebugMode) {
           talker.debug("JsBasedProvider: Loaded bytecode for $_packageName");
         }
@@ -276,6 +423,7 @@ class JsBasedProvider extends SkyStreamProvider {
 
       // Slow path: text eval, then compile bytecode in the background.
       await _jsEngine.loadScript(script, tag: _packageName);
+      await _installBridgeToken();
       if (kDebugMode) {
         talker.debug("JsBasedProvider: Loaded script for $_packageName");
       }
@@ -562,25 +710,31 @@ class JsBasedProvider extends SkyStreamProvider {
   Future<MultimediaItem> getDetails(String url) async {
     await _ensureReady();
     if (_error != null) throw JsPluginException("INIT_ERROR", _error!);
-    try {
-      final result = await _jsEngine.invokeAsync(_fn('load'), [url]);
-      if (result is Map) {
-        final map = Map<String, dynamic>.from(result);
-        if (map['url'] == null || map['url'].toString().isEmpty) {
-          map['url'] = url;
+    // Serialized like every other export: the engine cancels a namespace's
+    // in-flight HTTP when that namespace's last invocation ends, so two
+    // overlapping invocations on one namespace would let either one's end
+    // hang up on the other's sockets. Audit W12.
+    return _serializedInvoke(() async {
+      try {
+        final result = await _jsEngine.invokeAsync(_fn('load'), [url]);
+        if (result is Map) {
+          final map = Map<String, dynamic>.from(result);
+          if (map['url'] == null || map['url'].toString().isEmpty) {
+            map['url'] = url;
+          }
+          return MultimediaItem.fromJson(map);
         }
-        return MultimediaItem.fromJson(map);
+        throw Exception("Extension returned invalid detail data.");
+      } on JsPluginException catch (e) {
+        if (kDebugMode) debugPrint("JsPluginException in getDetails: $e");
+        talker.error("JsPluginException in getDetails: $e");
+        rethrow;
+      } catch (e) {
+        if (kDebugMode) debugPrint("Error in getDetails: $e");
+        talker.error("Error in getDetails: $e");
+        return MultimediaItem(title: "Error: $e", url: url, posterUrl: "");
       }
-      throw Exception("Extension returned invalid detail data.");
-    } on JsPluginException catch (e) {
-      if (kDebugMode) debugPrint("JsPluginException in getDetails: $e");
-      talker.error("JsPluginException in getDetails: $e");
-      rethrow;
-    } catch (e) {
-      if (kDebugMode) debugPrint("Error in getDetails: $e");
-      talker.error("Error in getDetails: $e");
-      return MultimediaItem(title: "Error: $e", url: url, posterUrl: "");
-    }
+    });
   }
 
   @override

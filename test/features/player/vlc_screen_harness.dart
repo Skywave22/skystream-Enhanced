@@ -357,9 +357,18 @@ Future<void> pumpPlayer(
   bool isTv = true,
   bool pushed = false,
   List<Override> overrides = const <Override>[],
+  DeviceProfile? profile,
+  Size panelPhysicalSize = tvSize,
+  double panelDevicePixelRatio = 1,
 }) async {
-  tester.view.physicalSize = tvSize;
-  tester.view.devicePixelRatio = 1;
+  // The two panel arguments default to the harness size at density 1, so a
+  // caller that says nothing gets exactly what every test got before they
+  // existed. They are here for the one question that needs a real panel: the
+  // player reads the physical height of the surface to decide how tall a
+  // rendition this device may be handed, and 960x540 at density 1 is not a
+  // panel any device has.
+  tester.view.physicalSize = panelPhysicalSize;
+  tester.view.devicePixelRatio = panelDevicePixelRatio;
   addTearDown(tester.view.reset);
 
   final media =
@@ -392,7 +401,7 @@ Future<void> pumpPlayer(
     ProviderScope(
       overrides: [
         deviceProfileProvider.overrideWithValue(
-          AsyncValue.data(DeviceProfile(isTv: isTv)),
+          AsyncValue.data(profile ?? DeviceProfile(isTv: isTv)),
         ),
         playerSettingsProvider.overrideWithBuild(
           (_, _) => const PlayerSettings(),

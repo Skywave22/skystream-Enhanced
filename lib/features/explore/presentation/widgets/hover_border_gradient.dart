@@ -115,9 +115,24 @@ class _HoverBorderGradientState extends State<HoverBorderGradient>
     _controller = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: (widget.durationSeconds * 1000).toInt()),
-    )..repeat();
+    );
     _focusNode = widget.focusNode ?? FocusNode();
     _focusNode!.addListener(_onFocusChange);
+  }
+
+  /// Honour the OS 'Remove animations' / 'Reduce motion' switch. The border
+  /// sweep is decoration - it carries no state - so with motion off it simply
+  /// holds still at the top of its cycle instead of turning forever. Read
+  /// through [MediaQuery] so the setting takes effect without a restart.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.stop();
+      _controller.value = 0;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   void _onFocusChange() {

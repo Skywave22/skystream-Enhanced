@@ -101,6 +101,9 @@ void VlcPixelBufferSink::FrameSize(uint32_t* width, uint32_t* height) const {
 void VlcPixelBufferSink::Resize(uint32_t width,
                                 uint32_t height,
                                 uint32_t pitch) {
+  // Whatever the *previous* format change retired. Freed here, on the way out
+  // of the function, so the allocator is never called with the lock held.
+  std::vector<uint8_t> released;
   std::lock_guard<std::mutex> lock(mutex_);
   const auto buffer_size = static_cast<size_t>(pitch) * height;
   if (width_ == width && height_ == height && pitch_ == pitch &&
@@ -112,6 +115,22 @@ void VlcPixelBufferSink::Resize(uint32_t width,
   pitch_ = pitch;
   frame_buffer_.assign(buffer_size, 0);
   render_buffer_.assign(buffer_size, 0);
+  // texture_buffer_ is retired, never reallocated in place.
+  //
+  // Its address is what CopyPixels hands the embedder, and the embedder reads
+  // through that address *after* CopyPixels has returned and dropped this
+  // mutex - flutter_windows copies it into a staging texture, the GTK
+  // embedder glTexImage2Ds it. Reallocating here freed the block underneath
+  // that read: a crash when the picture grows, which is exactly what an
+  // adaptive ladder stepping up a rendition does mid-play, and a torn frame
+  // when it shrinks. Only the next format change releases it, a whole
+  // resolution later.
+  //
+  // The other two are safe to reallocate in place. frame_buffer_ is written
+  // only by libVLC, on the thread that calls Resize; render_buffer_ never
+  // leaves this class.
+  released = std::move(retired_);
+  retired_ = std::move(texture_buffer_);
   texture_buffer_.assign(buffer_size, 0);
   render_generation_ = 0;
   texture_generation_ = 0;
@@ -147,6 +166,16 @@ size_t VlcPixelBufferSink::FrameBufferSizeForTesting() const {
 const uint8_t* VlcPixelBufferSink::TextureBufferDataForTesting() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return texture_buffer_.data();
+}
+
+const uint8_t* VlcPixelBufferSink::RetiredBufferDataForTesting() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return retired_.empty() ? nullptr : retired_.data();
+}
+
+size_t VlcPixelBufferSink::RetiredBufferSizeForTesting() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return retired_.size();
 }
 
 uint64_t VlcPixelBufferSink::RenderGenerationForTesting() const {

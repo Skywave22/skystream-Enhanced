@@ -57,6 +57,25 @@ class FakeVlcEngine {
   /// empty [VlcMediaInfo].
   Map<String, Object?>? mediaInfo;
 
+  /// What `getMediaStats` returns, in the engine's own shape. Null is what an
+  /// engine with nothing to say answers, and [VlcMediaStats.isAvailable] is
+  /// then false - which is the default because a fake that claimed available
+  /// counters of zero would look exactly like a decoder producing no picture.
+  ///
+  /// Use [decodedPictures] for the common shape rather than writing the map.
+  Map<String, Object?>? mediaStats;
+
+  /// Sets [mediaStats] to a session that has shown [displayed] pictures and
+  /// thrown [lost] away. Counters are cumulative in libVLC, so a test that
+  /// walks a window calls this repeatedly with growing totals.
+  void decodedPictures({required int displayed, required int lost}) {
+    mediaStats = <String, Object?>{
+      'available': true,
+      'displayedPictures': displayed,
+      'lostPictures': lost,
+    };
+  }
+
   /// The audio track the engine has on; -1 means none.
   int activeAudioId = -1;
 
@@ -225,6 +244,8 @@ class FakeVlcEngine {
         return subtitle;
       case 'getMediaInfo':
         return mediaInfo;
+      case 'getMediaStats':
+        return mediaStats;
       case 'setAudioTrack':
         activeAudioId = _knownId(call, audio);
         return null;
@@ -245,7 +266,7 @@ class FakeVlcEngine {
         return null;
       default:
         // play, pause, stop, seekTo, setVolume, setPlaybackSpeed, setFit,
-        // setSource, takeSnapshot, getMediaStats, dispose: recorded above,
+        // setSource, takeSnapshot, dispose: recorded above,
         // answered the way a void method is. The controller's `_invokeFor<T>`
         // is `Future<T?>`.
         return null;

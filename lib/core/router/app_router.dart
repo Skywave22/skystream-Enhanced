@@ -409,6 +409,25 @@ class ViewAllRoute extends GoRouteData with $ViewAllRoute {
 /// pinned to `PlayerRoute.location` by a test rather than left to drift.
 const String kPlayerRoutePath = '/player';
 
+/// Whether the route on top of the root Navigator is the player.
+///
+/// The single copy of that question. The global toast layer stands down over
+/// full-screen video and so does the update prompt; two hand-rolled answers
+/// would eventually disagree about a transition frame or an empty match list,
+/// and only one of them would get fixed.
+///
+/// Every entry point *pushes* [kPlayerRoutePath]
+/// (`PlayerRoute(...).push(context)`), and go_router deliberately leaves
+/// `RouteMatchList.uri` on the location that did the pushing - so the pushed
+/// location has to be read off the top match's state rather than off the
+/// match list.
+bool playerRouteIsOnTop(GoRouter router) {
+  // `state` reads `currentConfiguration.last`, which throws on the empty match
+  // list the delegate starts life with.
+  if (router.routerDelegate.currentConfiguration.isEmpty) return false;
+  return router.state.uri.path == kPlayerRoutePath;
+}
+
 @TypedGoRoute<PlayerRoute>(path: '/player')
 class PlayerRoute extends GoRouteData with $PlayerRoute {
   const PlayerRoute({required this.$extra});

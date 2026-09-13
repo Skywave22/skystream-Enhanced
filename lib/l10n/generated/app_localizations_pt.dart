@@ -60,11 +60,10 @@ class AppLocalizationsPt extends AppLocalizations {
   String get recordWatchHistory => 'Gravar Histórico';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Ecrã Inteiro';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Muda para a interface de TV';
 
   @override
   String get defaultHomeScreen => 'Ecrã Inicial Padrão';
@@ -425,6 +424,28 @@ class AppLocalizationsPt extends AppLocalizations {
   String get min => 'min';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Recuar $count segundos',
+      one: 'Recuar 1 segundo',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Avançar $count segundos',
+      one: 'Avançar 1 segundo',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Interno (VLC)';
 
   @override
@@ -743,6 +764,9 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get goBack => 'Voltar';
+
+  @override
+  String get restartApp => 'Reiniciar a aplicação';
 
   @override
   String get resolving => 'A resolver...';
@@ -1602,8 +1626,31 @@ class AppLocalizationsPt extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'A pesquisar nos scrapers…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Nenhuma ligação corresponde aos filtros.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Este título não tem ID do TMDB. Introduza-o em \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Nenhum scraper ativado. Adicione um em \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Todos os scrapers falharam. Verifique a ligação ou atualize os scrapers.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Nenhuma ligação encontrada. Falharam $failed de $total scrapers.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Nenhum dos seus scrapers tem este título.';
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).
@@ -1660,6 +1707,12 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
 
   @override
   String get recordWatchHistory => 'Gravar Histórico';
+
+  @override
+  String get fullScreenMode => 'Tela Cheia';
+
+  @override
+  String get fullScreenModeSubtitle => 'Alterna para o layout de TV';
 
   @override
   String get defaultHomeScreen => 'Tela Inicial Padrão';
@@ -2020,6 +2073,28 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
   String get min => 'min';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Voltar $count segundos',
+      one: 'Voltar 1 segundo',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Avançar $count segundos',
+      one: 'Avançar 1 segundo',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Interno (VLC)';
 
   @override
@@ -2338,6 +2413,9 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
 
   @override
   String get goBack => 'Voltar';
+
+  @override
+  String get restartApp => 'Reiniciar o app';
 
   @override
   String get resolving => 'Resolvendo...';
@@ -2912,4 +2990,31 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
 
   @override
   String get showEpisodes => 'Episodes button';
+
+  @override
+  String get sourcesSearching => 'Pesquisando nos scrapers…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Nenhum link corresponde aos filtros.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Este título não tem ID do TMDB. Informe em \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Nenhum scraper ativado. Adicione um em \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Todos os scrapers falharam. Verifique sua conexão ou atualize os scrapers.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Nenhum link encontrado. $failed de $total scrapers falharam.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Nenhum dos seus scrapers tem este título.';
 }

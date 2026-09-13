@@ -10,13 +10,14 @@ import UserNotifications
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Only the delegate is installed here. Authorisation is deliberately NOT
+    // requested at launch: the app posts no notification until a download
+    // exists, so a cold-start prompt has no context, and it is the single most
+    // common reason a user denies notifications permanently. The request is
+    // raised in-context by DownloadService.ensureNotificationPermission when
+    // the first download actually starts.
     if #available(iOS 10.0, *) {
       UNUserNotificationCenter.current().delegate = self
-      UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
-        if granted {
-          print("[AppDelegate] Notification permission granted")
-        }
-      }
     }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

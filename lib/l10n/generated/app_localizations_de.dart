@@ -60,11 +60,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get recordWatchHistory => 'Verlauf speichern';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Vollbild';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Wechselt zur TV-Ansicht';
 
   @override
   String get defaultHomeScreen => 'Standard-Startbildschirm';
@@ -427,6 +426,28 @@ class AppLocalizationsDe extends AppLocalizations {
   String get min => 'Min.';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Sekunden zurück',
+      one: '1 Sekunde zurück',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Sekunden vor',
+      one: '1 Sekunde vor',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Intern (VLC)';
 
   @override
@@ -748,6 +769,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get goBack => 'Zurück';
+
+  @override
+  String get restartApp => 'App neu starten';
 
   @override
   String get resolving => 'Wird aufgelöst...';
@@ -1620,6 +1644,29 @@ class AppLocalizationsDe extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Scraper werden durchsucht…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Keine Links passen zu den Filtern.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Keine TMDB-ID für diesen Titel. Gib sie über \'Search manually\' ein.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Kein Scraper aktiv. Füge einen in \'Nuvio Plugins\' hinzu.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Alle Scraper sind fehlgeschlagen. Prüfe deine Verbindung oder aktualisiere die Scraper.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Keine Links gefunden. $failed von $total Scrapern fehlgeschlagen.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Keiner deiner Scraper hat diesen Titel.';
 }

@@ -60,11 +60,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get recordWatchHistory => 'Înregistrează istoricul vizionărilor';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Ecran complet';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Comută la interfața TV';
 
   @override
   String get defaultHomeScreen => 'Ecran principal implicit';
@@ -427,6 +426,30 @@ class AppLocalizationsRo extends AppLocalizations {
   String get min => 'min';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Înapoi cu $count de secunde',
+      few: 'Înapoi cu $count secunde',
+      one: 'Înapoi cu $count secundă',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Înainte cu $count de secunde',
+      few: 'Înainte cu $count secunde',
+      one: 'Înainte cu $count secundă',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Intern (VLC)';
 
   @override
@@ -747,6 +770,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get goBack => 'Înapoi';
+
+  @override
+  String get restartApp => 'Repornește aplicația';
 
   @override
   String get resolving => 'Se rezolvă...';
@@ -1607,6 +1633,29 @@ class AppLocalizationsRo extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Se caută în scrapere…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Niciun link nu corespunde filtrelor.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Acest titlu nu are ID TMDB. Introduceți-l din \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Niciun scraper activat. Adăugați unul în \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Toate scraperele au eșuat. Verificați conexiunea sau actualizați-le.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Niciun link găsit. $failed din $total scrapere au eșuat.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Niciunul dintre scraperele dvs. nu are acest titlu.';
 }

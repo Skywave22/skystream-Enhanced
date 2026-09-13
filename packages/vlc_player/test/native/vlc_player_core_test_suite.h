@@ -10,7 +10,7 @@
 
 #include <gtest/gtest.h>
 
-#include "vlc_pixel_buffer_sink.h"
+#include "vlc_pixel_buffer_sink_test_suite.h"
 #include "vlc_player_core.h"
 
 namespace vlc_player {
@@ -261,97 +261,6 @@ TEST(VlcPlayerCore, CopyPixelsPublishesOnlyNewRenderGenerations) {
   EXPECT_EQ(buffer[0], 23u);
   EXPECT_EQ(core->TextureGenerationForTesting(),
             core->RenderGenerationForTesting());
-}
-
-TEST(VlcPixelBufferSink, CopyPixelsRotatesBuffersInsteadOfCopying) {
-  VlcPixelBufferSink sink([] {});
-  const uint8_t* first = nullptr;
-  const uint8_t* second = nullptr;
-  const uint8_t* third = nullptr;
-  uint32_t width = 0;
-  uint32_t height = 0;
-
-  sink.ResizeForTesting(2, 2, 8);
-
-  sink.SimulateFrameForTesting(17);
-  ASSERT_TRUE(sink.CopyPixels(&first, &width, &height));
-  sink.SimulateFrameForTesting(23);
-  ASSERT_TRUE(sink.CopyPixels(&second, &width, &height));
-  sink.SimulateFrameForTesting(29);
-  ASSERT_TRUE(sink.CopyPixels(&third, &width, &height));
-
-  // A stable address would mean the frame was memcpy'd into a fixed buffer
-  // rather than rotated, which is megabytes of traffic every frame.
-  EXPECT_NE(first, second);
-  EXPECT_NE(second, third);
-  EXPECT_NE(first, third);
-  EXPECT_EQ(second[0], 23u);
-  EXPECT_EQ(third[0], 29u);
-
-  // Rotation must never hand the embedder the buffer libVLC is about to
-  // write into - that is the invariant the third buffer exists to keep.
-  EXPECT_NE(third, sink.FrameBufferDataForTesting());
-
-  const uint8_t* repeat = nullptr;
-  ASSERT_TRUE(sink.CopyPixels(&repeat, &width, &height));
-  EXPECT_EQ(repeat, third);
-}
-
-// A detach between libVLC's lock and unlock callbacks skips Release. That
-// must cost a frame and nothing more: when Acquire held the mutex until
-// Release, the skip left it locked forever and the next CopyPixels - on the
-// raster thread - hung the window.
-TEST(VlcPixelBufferSink, AnAcquireWithNoReleaseDoesNotStrandTheMutex) {
-  VlcPixelBufferSink sink([] {});
-  sink.ResizeForTesting(4, 4, 16);
-  sink.SimulateFrameForTesting(11);
-
-  void* planes[1] = {nullptr};
-  ASSERT_NE(sink.Acquire(planes), nullptr);
-  // Deliberately no Release, exactly as UnlockCallback does after a Detach.
-
-  const uint8_t* pixels = nullptr;
-  uint32_t width = 0;
-  uint32_t height = 0;
-  EXPECT_TRUE(sink.CopyPixels(&pixels, &width, &height));
-  EXPECT_EQ(pixels[0], 11u);
-
-  uint32_t w = 0;
-  uint32_t h = 0;
-  sink.FrameSize(&w, &h);
-  EXPECT_EQ(w, 4u);
-}
-
-TEST(VlcPixelBufferSink, ConfigureRequestsRgbaAndSizesTheBuffers) {
-  VlcPixelBufferSink sink([] {});
-  VlcFrameFormat format;
-  std::memcpy(format.chroma, "I420", 5);
-  format.width = 4;
-  format.height = 3;
-
-  EXPECT_EQ(sink.Configure(&format), 1u);
-
-  EXPECT_STREQ(format.chroma, "RGBA");
-  EXPECT_EQ(format.pitches[0], 16u);
-  EXPECT_EQ(format.lines[0], 3u);
-  EXPECT_EQ(sink.FrameBufferSizeForTesting(), 48u);
-
-  uint32_t width = 0;
-  uint32_t height = 0;
-  sink.FrameSize(&width, &height);
-  EXPECT_EQ(width, 4u);
-  EXPECT_EQ(height, 3u);
-}
-
-TEST(VlcPixelBufferSink, CommitNotifiesOnlyForRealPictures) {
-  int notifications = 0;
-  VlcPixelBufferSink sink([&notifications] { ++notifications; });
-
-  sink.Commit(nullptr);
-  EXPECT_EQ(notifications, 0);
-
-  sink.Commit(&sink);
-  EXPECT_EQ(notifications, 1);
 }
 
 TEST(VlcPlayerCore, DisposeIsIdempotentAndGuardsCommands) {

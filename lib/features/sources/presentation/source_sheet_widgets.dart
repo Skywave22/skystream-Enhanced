@@ -1,3 +1,4 @@
+import 'package:dpad/dpad.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
@@ -41,6 +42,303 @@ class SourceTag extends StatelessWidget {
   }
 }
 
+/// The frosted-glass colour set both source sheets are painted with.
+///
+/// A sheet paints its own glass instead of sitting on a themed [Material], so
+/// nothing underneath it resolves `onSurface` for the content on top. The dark
+/// values are the literals the glass design ships with; the light ones keep
+/// every alpha and only flip the ink, so the panel stays legible over a bright
+/// backdrop without changing shape.
+///
+/// It used to be a private `_GlassPalette` declared twice, once per sheet, and
+/// the two copies had drifted: in light mode the Nuvio sheet used an 85%-opaque
+/// warm-white pane and a 50%-black drop shadow while the Stremio sheet used a
+/// 65%-opaque cool-white pane and an 18% shadow, and the focused Play chip was
+/// a dark fill with light content on one and a white fill with accent content
+/// on the other. A user with a scraper *and* an add-on installed - the intended
+/// configuration - meets both sheets in one session, and on a television the
+/// focus treatment is the cursor, so the divergence was not only cosmetic.
+class GlassPalette {
+  const GlassPalette._({
+    required this.pane,
+    required this.paneShadow,
+    required this.ink,
+    required this.cardFocusFill,
+    required this.raisedFill,
+    required this.raisedBorder,
+  });
+
+  /// Backdrop tint painted behind the blur.
+  final Color pane;
+
+  /// Drop shadow under the whole panel.
+  final Color paneShadow;
+
+  /// Text, icons and hairlines drawn on the glass. Callers dial it down with
+  /// `withValues(alpha:)` rather than reaching for another literal.
+  final Color ink;
+
+  /// Fill behind the focused source card.
+  final Color cardFocusFill;
+
+  /// Fill and border of an action chip lifted out of the accent, i.e. the
+  /// focused or hovered Play button.
+  final Color raisedFill;
+  final Color raisedBorder;
+
+  /// Content sitting on a solid [sourceSheetAccent] fill. The accent is
+  /// saturated enough to carry white in either brightness.
+  Color get onAccent => Colors.white;
+
+  /// [ink] at [alpha]. Every overlay fill and hairline on the glass is the
+  /// ink at some alpha, so this saves the call sites reaching for a literal.
+  Color tint(double alpha) => ink.withValues(alpha: alpha);
+
+  static const _dark = GlassPalette._(
+    pane: Color(0xA6060608), // Frosted glass obsidian tint (65% opacity)
+    paneShadow: Color(0x80000000),
+    ink: Colors.white,
+    cardFocusFill: Color(0xFF242430),
+    raisedFill: Colors.white,
+    raisedBorder: Colors.white,
+  );
+
+  static const _light = GlassPalette._(
+    pane: Color(0xA6F4F4F7),
+    paneShadow: Color(0x2E000000),
+    ink: Color(0xFF16161C),
+    cardFocusFill: Color(0xFFE6E6EE),
+    raisedFill: Colors.white,
+    // A white chip on a pale pane needs the accent to draw its own edge.
+    raisedBorder: sourceSheetAccent,
+  );
+
+  static GlassPalette of(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark ? _dark : _light;
+}
+
+/// Resolution pill on a source row. Shared: it was byte-identical in the two
+/// sheets.
+class QualityBadge extends StatelessWidget {
+  final String resolution;
+
+  const QualityBadge({super.key, required this.resolution});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final res = resolution.toUpperCase();
+
+    Color accentColor;
+    if (res.contains('4K') || res.contains('2160') || res.contains('UHD')) {
+      accentColor = const Color(0xFFFFB800);
+    } else if (res.contains('1080')) {
+      accentColor = const Color(0xFF38BDF8);
+    } else if (res.contains('720')) {
+      accentColor = const Color(0xFF34D399);
+    } else {
+      accentColor = cs.primary;
+    }
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 80),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: accentColor.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(
+          color: accentColor.withValues(alpha: 0.4),
+          width: 0.8,
+        ),
+      ),
+      child: Text(
+        resolution,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w900,
+          color: accentColor,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+/// The Play / Download chip on a source row.
+///
+/// One focus stop, with arrow keys answered on its own node - see
+/// [SourceCardActions] for how the card lets its chips into traversal.
+class DpadSourceButton extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final String? tooltip;
+  final VoidCallback? onPressed;
+  final bool isPrimary;
+  final FocusNode? focusNode;
+
+  /// Arrow keys the chip answers itself. Handled on the chip's own node rather
+  /// than in a wrapping [Focus] so it keeps contributing exactly one focus
+  /// node to directional traversal.
+  final DpadDirectionCallback? onDirection;
+
+  const DpadSourceButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.tooltip,
+    required this.onPressed,
+    this.isPrimary = false,
+    this.focusNode,
+    this.onDirection,
+  });
+
+  @override
+  State<DpadSourceButton> createState() => _DpadSourceButtonState();
+}
+
+class _DpadSourceButtonState extends State<DpadSourceButton> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = GlassPalette.of(context);
+    final enabled = widget.onPressed != null;
+
+    if (!enabled) {
+      return SourceActionSemantics(
+        enabled: false,
+        child: ExcludeFocus(
+          child: Tooltip(
+            message: widget.tooltip ?? '',
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: glass.ink.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: glass.ink.withValues(alpha: 0.06),
+                  width: 0.8,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    widget.icon,
+                    size: 14,
+                    color: glass.ink.withValues(alpha: 0.25),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    widget.label,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: glass.ink.withValues(alpha: 0.25),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return DpadFocusable(
+      focusNode: widget.focusNode,
+      onSelect: widget.onPressed,
+      onDirection: widget.onDirection,
+      child: const SizedBox.shrink(),
+      builder: (context, state, _) {
+        final isFocused = state.focused;
+        final highlight = isFocused || _isHovered;
+
+        final Color bgColor;
+        final Color borderColor;
+        final Color contentColor;
+
+        if (widget.isPrimary) {
+          if (highlight) {
+            bgColor = glass.raisedFill;
+            borderColor = glass.raisedBorder;
+            contentColor = sourceSheetAccent;
+          } else {
+            bgColor = sourceSheetAccent;
+            borderColor = sourceSheetAccent;
+            contentColor = glass.onAccent;
+          }
+        } else {
+          if (highlight) {
+            bgColor = sourceSheetAccent.withValues(alpha: 0.20);
+            borderColor = sourceSheetAccent;
+            contentColor = glass.ink;
+          } else {
+            bgColor = glass.ink.withValues(alpha: 0.06);
+            borderColor = glass.ink.withValues(alpha: 0.12);
+            contentColor = glass.ink.withValues(alpha: 0.85);
+          }
+        }
+
+        return SourceActionSemantics(
+          enabled: true,
+          child: Tooltip(
+            message: widget.tooltip ?? widget.label,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                // DpadFocusable already publishes this chip's focus node; a
+                // focusable InkWell would add a second one over the same rect
+                // and directional traversal would settle on that instead.
+                canRequestFocus: false,
+                onTap: widget.onPressed,
+                overlayColor: WidgetStateProperty.all(Colors.transparent),
+                hoverColor: Colors.transparent,
+                splashColor: Colors.transparent,
+                highlightColor: Colors.transparent,
+                onHover: (hovered) {
+                  if (_isHovered != hovered) {
+                    setState(() => _isHovered = hovered);
+                  }
+                },
+                borderRadius: BorderRadius.circular(6),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: borderColor, width: 1.0),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(widget.icon, size: 14, color: contentColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        widget.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: contentColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
 /// Working / dead / testing indicator driven by [LinkProbeService].
 class ProbeBadge extends StatelessWidget {
   final LinkProbeResult? probe;

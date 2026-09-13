@@ -17,6 +17,8 @@
   "general": "Ümumi",
   "appTheme": "Tətbiq teması",
   "recordWatchHistory": "Baxış tarixçəsini yaz",
+  "fullScreenMode": "Tam ekran",
+  "fullScreenModeSubtitle": "TV görünüşünə keçir",
   "defaultHomeScreen": "Standart əsas ekran",
   "titlePosition": "Başlığın mövqeyi",
   "titlePositionBelowPoster": "Posterin altında",
@@ -178,6 +180,8 @@
   "loading": "Yüklənir...",
   "sec": "san",
   "min": "dəq",
+  "playerRewindSeconds": "{count, plural, =1{1 saniyə geri sar} other{{count} saniyə geri sar}}",
+  "playerForwardSeconds": "{count, plural, =1{1 saniyə irəli sar} other{{count} saniyə irəli sar}}",
   "internalPlayer": "Daxili (VLC)",
   "builtInPlayer": "Daxili pleyer",
   "customNotSet": "Fərdi (təyin edilməyib)",
@@ -310,6 +314,7 @@
   "invalidNavigation": "Naviqasiya yanlışdır. Zəhmət olmasa geri qayıt.",
   "startOver": "Yenidən başla",
   "goBack": "Geri qayıt",
+  "restartApp": "Tətbiqi yenidən başlat",
   "resolving": "Həll edilir...",
   "downloaded": "Endirilib",
   "download": "Endir",
@@ -700,5 +705,11 @@
   "audioDelay": "Audio gecikməsi",
   "subtitleSearchTitleFallback": "Bu başlığın ID-sinə uyğun heç nə tapılmadı. Əvəzində başlığa uyğun nəticələr göstərilir.",
   "subtitleSearchSeasonFallback": "Bu epizod üçün altyazı yoxdur. Bunlar bütün mövsümə aiddir, ona görə fayl adındakı epizod nömrəsini yoxla.",
-  "subtitleAccountsNotConfigured": "Heç bir altyazı hesabı qurulmayıb. Onlayn axtarış üçün Parametrlərdə OpenSubtitles, SubDL və ya SubSource açarı əlavə et."
+  "sourcesSearching": "Skreperlər axtarılır…",
+  "sourcesEmptyFiltered": "Cari filtrlərə uyğun keçid yoxdur.",
+  "sourcesEmptyNoTmdbId": "Bu başlıq üçün TMDB ID yoxdur. Daxil etmək üçün 'Search manually' istifadə edin.",
+  "sourcesEmptyNoScrapers": "Aktiv skreper yoxdur. 'Nuvio Plugins' bölməsində əlavə edin.",
+  "sourcesEmptyAllFailed": "Bütün skreperlər uğursuz oldu. Bağlantınızı yoxlayın və ya skreperləri yeniləyin.",
+  "sourcesEmptySomeFailed": "Keçid tapılmadı. {total} skreperdən {failed} uğursuz oldu.",
+  "sourcesEmptyNothingFound": "Skreperlərinizin heç birində bu başlıq yoxdur."
 }

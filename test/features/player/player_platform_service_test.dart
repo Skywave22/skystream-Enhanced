@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,25 +67,25 @@ void main() {
       expect(playerFormFactorOf(const DeviceProfile()), PlayerFormFactor.phone);
     });
 
-    test('Big Picture is a television, whatever the hardware says', () {
+    test('full screen mode is a television, whatever the hardware says', () {
       // The whole point of the flag: a desktop plugged into a TV gets the
       // ten-foot player without a single widget learning a new parameter.
-      addTearDown(() => bigPictureActive.value = false);
+      addTearDown(() => fullScreenModeActive.value = false);
       const desktop = DeviceProfile(isDesktopOS: true);
 
       expect(playerFormFactorOf(desktop), PlayerFormFactor.desktop);
 
-      bigPictureActive.value = true;
+      fullScreenModeActive.value = true;
       expect(playerFormFactorOf(desktop), PlayerFormFactor.tv);
       expect(
         playerFormFactorOf(null),
         PlayerFormFactor.unknown,
         reason:
-            'Big Picture changes the verdict, it does not manufacture one '
-            'before the device profile has resolved',
+            'full screen mode changes the verdict, it does not manufacture '
+            'one before the device profile has resolved',
       );
 
-      bigPictureActive.value = false;
+      fullScreenModeActive.value = false;
       expect(playerFormFactorOf(desktop), PlayerFormFactor.desktop);
     });
 
@@ -185,6 +186,87 @@ void main() {
       await fromNative('play');
 
       expect(actions, isEmpty);
+    });
+  });
+
+  /// The window has to be shaped like the film. MainActivity cannot work the
+  /// shape out for itself - the decoded size lives in the Dart controller -
+  /// so if these arguments are not on the wire the aspect ratio is whatever
+  /// Android happened to use last, and a 2.39:1 film is letterboxed inside a
+  /// window that is already small.
+  group('PiP video size', () {
+    late List<MethodCall> sent;
+
+    setUp(() {
+      sent = [];
+      // Overridden rather than read: `Platform.isAndroid` is false on the host
+      // running these tests, so without this the call under test returns
+      // before it sends anything and the assertions below would pass against
+      // any implementation at all.
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      messenger.setMockMethodCallHandler(const MethodChannel(_pipChannel), (
+        call,
+      ) async {
+        sent.add(call);
+        return call.method == 'enterPip' ? true : null;
+      });
+    });
+
+    tearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+      messenger.setMockMethodCallHandler(
+        const MethodChannel(_pipChannel),
+        null,
+      );
+    });
+
+    test(
+      'enterPip carries the decoded size alongside the play state',
+      () async {
+        final entered = await PlayerPlatformService().enterPip(
+          true,
+          videoSize: const Size(1920, 800),
+        );
+
+        expect(entered, isTrue);
+        expect(sent.single.method, 'enterPip');
+        expect(sent.single.arguments, {
+          'isPlaying': true,
+          'videoWidth': 1920,
+          'videoHeight': 800,
+        });
+      },
+    );
+
+    test(
+      'a size that has not been decoded yet is left off the message',
+      () async {
+        await PlayerPlatformService().enterPip(false);
+        await PlayerPlatformService().enterPip(false, videoSize: Size.zero);
+
+        // Not zero, and not a guess at square: MainActivity keeps the last
+        // shape it was given, and Android throws IllegalArgumentException out
+        // of enterPictureInPictureMode for a ratio it will not accept.
+        expect(sent.map((c) => c.arguments), [
+          {'isPlaying': false},
+          {'isPlaying': false},
+        ]);
+      },
+    );
+
+    test('a mid-window episode change re-shapes through setPipState', () async {
+      PlayerPlatformService().syncPipState(
+        true,
+        videoSize: const Size(1280, 720),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(sent.single.method, 'setPipState');
+      expect(sent.single.arguments, {
+        'isPlaying': true,
+        'videoWidth': 1280,
+        'videoHeight': 720,
+      });
     });
   });
 

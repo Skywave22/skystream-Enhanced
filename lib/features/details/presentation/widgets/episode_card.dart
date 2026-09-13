@@ -11,7 +11,6 @@ import 'package:skystream/core/storage/history_repository.dart';
 import 'package:skystream/core/storage/episode_watch_repository.dart';
 import 'package:skystream/core/services/download_service.dart';
 import 'package:skystream/core/utils/layout_constants.dart';
-import 'package:skystream/core/utils/responsive_breakpoints.dart';
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../library/presentation/history_provider.dart';
 import '../details_controller.dart';
@@ -120,6 +119,16 @@ class EpisodeCard extends HookConsumerWidget {
     final isFocused = useState(false);
     final downloadFocusNode = useFocusNode(debugLabel: 'ep_download');
     final bodyFocusNode = useFocusNode(debugLabel: 'ep_body');
+    // The card-wide InkWell owns a node that is permanently out of traversal.
+    // `canRequestFocus: false` alone would not do it: [InkResponse] forces
+    // `canRequestFocus` to true whenever the host declares
+    // `NavigationMode.directional` — i.e. on precisely the televisions this
+    // card has to behave on — and a focusable node the size of the card would
+    // swallow the traversal step that belongs to the body.
+    final cardInkFocusNode = useFocusNode(
+      debugLabel: 'ep_card_ink',
+      skipTraversal: true,
+    );
     final theme = Theme.of(context);
     final primary = theme.colorScheme.primary;
     final normalCardColor = theme.colorScheme.surfaceContainerLow;
@@ -179,8 +188,10 @@ class EpisodeCard extends HookConsumerWidget {
     final longPressTriggered = useRef(false);
 
     return Focus(
-      // Passive observer — let the inner InkWell be the real focus target so
-      // OK plays and Right can traverse into the download icon (a descendant).
+      // Passive observer for the card as a whole. `hasFocus` here stays true
+      // while the download button is the focused child, which is what keeps
+      // the card's border lit and the button's traversal permit open (see
+      // [_EpisodeCardAction]).
       canRequestFocus: false,
       skipTraversal: true,
       onFocusChange: (f) {
@@ -205,154 +216,178 @@ class EpisodeCard extends HookConsumerWidget {
           });
         }
       },
-      child: Focus(
-        focusNode: bodyFocusNode,
-        onKeyEvent: (node, event) {
-          // Menu key → trigger download immediately.
-          final isMenu =
-              event.logicalKey == LogicalKeyboardKey.contextMenu ||
-              event.logicalKey == LogicalKeyboardKey.f10;
-          if (event is KeyDownEvent && isMenu) {
-            triggerDownload();
-            return KeyEventResult.handled;
-          }
-
-          // Select / Enter / Space → long-press detection via KeyRepeatEvent.
-          if (event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.space) {
-            if (event is KeyDownEvent) {
-              selectKeyDown.value = true;
-              longPressTriggered.value = false;
-              return KeyEventResult.handled;
-            } else if (event is KeyRepeatEvent) {
-              if (selectKeyDown.value && !longPressTriggered.value) {
-                longPressTriggered.value = true;
-                updateSelection();
-              }
-              return KeyEventResult.handled;
-            } else if (event is KeyUpEvent) {
-              if (selectKeyDown.value && !longPressTriggered.value) {
-                // Short press plays normally, or toggles when selecting.
-                handleEpisodeTap();
-              }
-              selectKeyDown.value = false;
-              longPressTriggered.value = false;
-              return KeyEventResult.handled;
-            }
-          }
-
-          return KeyEventResult.ignored;
-        },
-        child: InkWell(
-          onTap: handleEpisodeTap,
-          onLongPress: updateSelection,
-          borderRadius: BorderRadius.circular(12),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            width: width,
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? primary.withValues(alpha: 0.24)
-                  : isFocused.value
-                  ? primary.withValues(alpha: 0.18)
-                  : isWatched
-                  ? watchedCardColor
-                  : normalCardColor,
-              borderRadius: BorderRadius.circular(12.0),
-              border: Border.all(
-                color: isSelected || isFocused.value
-                    ? primary
-                    : Theme.of(context).dividerColor.withValues(
-                        alpha: Theme.of(context).brightness == Brightness.dark
-                            ? 0.1
-                            : 0.5,
-                      ),
-                width: isSelected || isFocused.value ? 2 : 1,
-              ),
+      child: InkWell(
+        onTap: handleEpisodeTap,
+        onLongPress: updateSelection,
+        // Deliberately NOT a focus stop. The focusable body is the smaller
+        // node inside the header row below. An InkWell that wraps the whole
+        // card would be a second stop per card, and its rect *encloses* the
+        // download button: directional traversal only ever considers
+        // candidates whose centre lies past the focused rect's edge
+        // (`_sortAndFilterHorizontally` / `_sortAndFilterVertically`), so from
+        // a node the size of the card the button is unreachable in every
+        // direction. Tap and long-press still cover the whole card.
+        focusNode: cardInkFocusNode,
+        canRequestFocus: false,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: width,
+          decoration: BoxDecoration(
+            color: isSelected
+                ? primary.withValues(alpha: 0.24)
+                : isFocused.value
+                ? primary.withValues(alpha: 0.18)
+                : isWatched
+                ? watchedCardColor
+                : normalCardColor,
+            borderRadius: BorderRadius.circular(12.0),
+            border: Border.all(
+              color: isSelected || isFocused.value
+                  ? primary
+                  : Theme.of(context).dividerColor.withValues(
+                      alpha: Theme.of(context).brightness == Brightness.dark
+                          ? 0.1
+                          : 0.5,
+                    ),
+              width: isSelected || isFocused.value ? 2 : 1,
             ),
-            clipBehavior: Clip.antiAlias,
-            padding: const EdgeInsets.all(LayoutConstants.spacingSm),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildThumbnail(
-                      context,
-                      displayedProgress,
-                      statusBadge,
-                      isWatched: isWatched,
-                      isSelectionMode: isSelectionMode,
-                      isSelected: isSelected,
-                    ),
-                    const SizedBox(width: LayoutConstants.spacingMd),
-                    Expanded(
-                      child: Text(
-                        "${episode.episode}. ${episode.name.toUpperCase()}",
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: isWatched
-                              ? theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.65,
-                                )
-                              : theme.colorScheme.onSurface,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+          ),
+          clipBehavior: Clip.antiAlias,
+          padding: const EdgeInsets.all(LayoutConstants.spacingSm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // The card's single traversal stop, covering the thumbnail
+                  // and the title but NOT the trailing action. Keeping the
+                  // action outside this rect is what lets plain directional
+                  // traversal walk RIGHT into it and LEFT back out, with no
+                  // hand-rolled arrow handling anywhere in this file.
+                  Expanded(
+                    child: Focus(
+                      focusNode: bodyFocusNode,
+                      onKeyEvent: (node, event) {
+                        // Menu key → trigger download immediately.
+                        final isMenu =
+                            event.logicalKey ==
+                                LogicalKeyboardKey.contextMenu ||
+                            event.logicalKey == LogicalKeyboardKey.f10;
+                        if (event is KeyDownEvent && isMenu) {
+                          triggerDownload();
+                          return KeyEventResult.handled;
+                        }
+
+                        // Select / Enter / Space → long-press detection via
+                        // KeyRepeatEvent.
+                        if (event.logicalKey == LogicalKeyboardKey.select ||
+                            event.logicalKey == LogicalKeyboardKey.enter ||
+                            event.logicalKey == LogicalKeyboardKey.space) {
+                          if (event is KeyDownEvent) {
+                            selectKeyDown.value = true;
+                            longPressTriggered.value = false;
+                            return KeyEventResult.handled;
+                          } else if (event is KeyRepeatEvent) {
+                            if (selectKeyDown.value &&
+                                !longPressTriggered.value) {
+                              longPressTriggered.value = true;
+                              updateSelection();
+                            }
+                            return KeyEventResult.handled;
+                          } else if (event is KeyUpEvent) {
+                            if (selectKeyDown.value &&
+                                !longPressTriggered.value) {
+                              // Short press plays normally, or toggles when
+                              // selecting.
+                              handleEpisodeTap();
+                            }
+                            selectKeyDown.value = false;
+                            longPressTriggered.value = false;
+                            return KeyEventResult.handled;
+                          }
+                        }
+
+                        return KeyEventResult.ignored;
+                      },
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildThumbnail(
+                            context,
+                            displayedProgress,
+                            statusBadge,
+                            isWatched: isWatched,
+                            isSelectionMode: isSelectionMode,
+                            isSelected: isSelected,
+                          ),
+                          const SizedBox(width: LayoutConstants.spacingMd),
+                          Expanded(
+                            child: Text(
+                              "${episode.episode}. ${episode.name.toUpperCase()}",
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: isWatched
+                                        ? theme.colorScheme.onSurface
+                                              .withValues(alpha: 0.65)
+                                        : theme.colorScheme.onSurface,
+                                  ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: LayoutConstants.spacingXs),
-                    // Download icon — uses an explicit FocusNode so the parent
-                    // onKeyEvent can force focus here from the body. Left from
-                    // the icon returns focus to the body via this widget's own
-                    // onKeyEvent.
-                    if (isSelectionMode)
-                      Icon(
-                        isSelected
-                            ? Icons.check_circle_rounded
-                            : Icons.radio_button_unchecked_rounded,
-                        color: isSelected
-                            ? primary
-                            : theme.colorScheme.onSurfaceVariant,
-                        size: 30,
-                      )
-                    else
-                      _buildActionButtons(
-                        context,
-                        ref,
-                        downloadedFile,
-                        isDownloading,
-                        downloadProgress,
-                        downloadProgressData,
-                        details,
-                        downloadFocusNode,
-                        bodyFocusNode,
-                      ),
-                  ],
-                ),
-                if (episode.description != null &&
-                    episode.description!.isNotEmpty) ...[
-                  const SizedBox(height: LayoutConstants.spacingSm),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                    child: Text(
-                      episode.description!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
-                        height: 1.4,
-                      ),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  const SizedBox(width: LayoutConstants.spacingXs),
+                  if (isSelectionMode)
+                    Icon(
+                      isSelected
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: isSelected
+                          ? primary
+                          : theme.colorScheme.onSurfaceVariant,
+                      size: 30,
+                    )
+                  else
+                    _buildActionButtons(
+                      context,
+                      ref,
+                      downloadedFile,
+                      isDownloading,
+                      downloadProgress,
+                      downloadProgressData,
+                      details,
+                      downloadFocusNode,
+                      cardHasFocus: isFocused.value,
+                      onActivate: triggerDownload,
+                    ),
                 ],
+              ),
+              if (episode.description != null &&
+                  episode.description!.isNotEmpty) ...[
+                const SizedBox(height: LayoutConstants.spacingSm),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: Text(
+                    episode.description!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                      height: 1.4,
+                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -367,9 +402,10 @@ class EpisodeCard extends HookConsumerWidget {
     double downloadProgress,
     DownloadProgressData? downloadProgressData,
     MultimediaItem? details,
-    FocusNode focusNode,
-    FocusNode bodyFocusNode,
-  ) {
+    FocusNode focusNode, {
+    required bool cardHasFocus,
+    required VoidCallback onActivate,
+  }) {
     final raw = _buildRawActionButton(
       context,
       ref,
@@ -378,20 +414,19 @@ class EpisodeCard extends HookConsumerWidget {
       downloadProgress,
       downloadProgressData,
       details,
+      focusNode,
     );
     if (raw == null) return const SizedBox.shrink();
 
-    // On desktop/TV the download icon stays visible for mouse clicks but
-    // is NOT a separate D-pad focus target. Downloads are triggered via
-    // Menu key or long-press OK (handled in the outer Focus.onKeyEvent).
-    // This keeps D-pad Right → next episode card in the grid.
-    if (context.isDesktop) {
-      return ExcludeFocus(child: raw);
-    }
-
-    return _FocusableActionWrapper(
-      focusNode: focusNode,
-      bodyFocusNode: bodyFocusNode,
+    // One shape on every platform. What used to stand here was
+    // `if (context.isDesktop) return ExcludeFocus(child: raw)`, which made the
+    // download unreachable by remote and by keyboard on any surface 900 dp or
+    // wider — every television (960 dp), every landscape tablet, every wide
+    // desktop window — and offered a Menu key as the substitute on exactly the
+    // devices least likely to have one.
+    return _EpisodeCardAction(
+      cardHasFocus: cardHasFocus,
+      onActivate: onActivate,
       child: raw,
     );
   }
@@ -404,9 +439,11 @@ class EpisodeCard extends HookConsumerWidget {
     double downloadProgress,
     DownloadProgressData? downloadProgressData,
     MultimediaItem? details,
+    FocusNode focusNode,
   ) {
     if (downloadedFile != null) {
       return IconButton(
+        focusNode: focusNode,
         icon: const Icon(
           Icons.download_done_sharp,
           color: Colors.green,
@@ -428,6 +465,7 @@ class EpisodeCard extends HookConsumerWidget {
         width: 32,
         height: 32,
         child: InkWell(
+          focusNode: focusNode,
           onTap: () => DownloadProgressDialog.show(
             context,
             '${parentItem.title} - ${episode.name}',
@@ -463,6 +501,7 @@ class EpisodeCard extends HookConsumerWidget {
       );
     } else {
       return IconButton(
+        focusNode: focusNode,
         icon: Icon(
           Icons.file_download_outlined,
           size: 32,
@@ -587,50 +626,73 @@ class EpisodeCard extends HookConsumerWidget {
   }
 }
 
-/// Wraps the small download icon so D-pad / Tab focus is unmistakable when it
-/// has focus (the IconButton's default focus ring is too subtle on TV).
-class _FocusableActionWrapper extends StatefulWidget {
+/// The card's trailing download action: one focus stop, reachable by D-pad,
+/// by remote and by keyboard on every platform.
+///
+/// **Traversal.** The card body is the UP/DOWN stop; this button is reached
+/// with RIGHT once the card holds focus (LEFT comes back), which is ordinary
+/// directional traversal — the body's rect stops short of this button, so
+/// Flutter's own policy resolves both moves and this file hand-rolls no arrow
+/// handling at all.
+///
+/// What the wrapper adds is the gate `SourceCardActions` uses for the source
+/// sheet: while the card does NOT hold focus its descendants are
+/// untraversable, so no OTHER row's icon is ever in the candidate set. Two
+/// moves depend on it. DOWN from this button lands on the next episode rather
+/// than on the next episode's icon, so every DOWN press is one episode, which
+/// is what keeps a fifty-episode list walkable. And in the two-column grid a
+/// television lays out (crossAxisExtent / 480), LEFT from the right-hand card
+/// lands on the left-hand EPISODE rather than on its icon, which is nearer.
+/// The button stays *focusable* throughout; only traversal is gated.
+///
+/// **Activation.** OK / Enter / Space are answered here rather than left to
+/// Flutter's default `SingleActivator -> ActivateIntent`, for one reason:
+/// those activators take repeats (`includeRepeats` defaults to true), and a
+/// remote repeats OK for as long as it is held. Native activation therefore
+/// fires a download — a resolve dialog, a launcher call — on every repeat
+/// tick. Answering the key here means the down edge acts and the repeats are
+/// swallowed. The wrapper cannot take focus itself, so it sees these events on
+/// their way up from the button, which is the only node below it.
+class _EpisodeCardAction extends StatefulWidget {
   final Widget child;
-  final FocusNode focusNode;
-  final FocusNode bodyFocusNode;
-  const _FocusableActionWrapper({
+
+  /// Whether the episode card this action belongs to holds focus, directly or
+  /// through this button.
+  final bool cardHasFocus;
+
+  final VoidCallback onActivate;
+
+  const _EpisodeCardAction({
     required this.child,
-    required this.focusNode,
-    required this.bodyFocusNode,
+    required this.cardHasFocus,
+    required this.onActivate,
   });
 
   @override
-  State<_FocusableActionWrapper> createState() =>
-      _FocusableActionWrapperState();
+  State<_EpisodeCardAction> createState() => _EpisodeCardActionState();
 }
 
-class _FocusableActionWrapperState extends State<_FocusableActionWrapper> {
+class _EpisodeCardActionState extends State<_EpisodeCardAction> {
   bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     return Focus(
-      focusNode: widget.focusNode,
-      onFocusChange: (f) => setState(() => _focused = f),
+      canRequestFocus: false,
+      skipTraversal: true,
+      descendantsAreTraversable: widget.cardHasFocus,
+      onFocusChange: (f) {
+        if (f != _focused) setState(() => _focused = f);
+      },
       onKeyEvent: (node, event) {
-        // Left from the download icon returns focus to the card body.
-        if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
-            event.logicalKey == LogicalKeyboardKey.arrowLeft &&
-            widget.bodyFocusNode.canRequestFocus) {
-          widget.bodyFocusNode.requestFocus();
+        if (event.logicalKey == LogicalKeyboardKey.select ||
+            event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.space) {
+          // The down edge acts; the repeats and the up edge are swallowed so
+          // one held press is one download.
+          if (event is KeyDownEvent) widget.onActivate();
           return KeyEventResult.handled;
-        }
-        // Enter/Select on the download icon activates it (the child
-        // IconButton/InkWell already handles mouse tap, but D-pad
-        // select events may not propagate to the IconButton.onPressed).
-        if (event is KeyDownEvent &&
-            (event.logicalKey == LogicalKeyboardKey.select ||
-                event.logicalKey == LogicalKeyboardKey.enter ||
-                event.logicalKey == LogicalKeyboardKey.space)) {
-          // Find and activate the nearest InkWell / IconButton child.
-          // The child's onPressed is what we need to trigger.
-          return KeyEventResult.ignored; // Let it bubble to the IconButton
         }
         return KeyEventResult.ignored;
       },

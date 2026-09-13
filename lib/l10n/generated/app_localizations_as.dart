@@ -60,11 +60,10 @@ class AppLocalizationsAs extends AppLocalizations {
   String get recordWatchHistory => 'চোৱা ইতিহাস ৰেকৰ্ড কৰক';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'সম্পূৰ্ণ স্ক্ৰীণ';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'টিভি লেআউটলৈ সলনি কৰে';
 
   @override
   String get defaultHomeScreen => 'ডিফৰ্ট হোম স্ক্ৰীণ';
@@ -424,6 +423,28 @@ class AppLocalizationsAs extends AppLocalizations {
   String get min => 'মিনিট';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ছেকেণ্ড পিছলৈ যাওক',
+      one: '1 ছেকেণ্ড পিছলৈ যাওক',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ছেকেণ্ড আগলৈ যাওক',
+      one: '1 ছেকেণ্ড আগলৈ যাওক',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'অভ্যন্তৰীণ প্লেয়াৰ (VLC)';
 
   @override
@@ -744,6 +765,9 @@ class AppLocalizationsAs extends AppLocalizations {
 
   @override
   String get goBack => 'পাছলৈ যাওক';
+
+  @override
+  String get restartApp => 'এপ্ পুনৰ আৰম্ভ কৰক';
 
   @override
   String get resolving => 'সমাধান কৰা হৈছে...';
@@ -1611,6 +1635,29 @@ class AppLocalizationsAs extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'স্ক্ৰেপাৰ সন্ধান কৰি আছে…';
+
+  @override
+  String get sourcesEmptyFiltered => 'বৰ্তমান ফিল্টাৰৰ লগত কোনো লিংক মিলা নাই।';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'এই শিৰোনামৰ TMDB আইডি নাই। \'Search manually\' ব্যৱহাৰ কৰি দিয়ক।';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'কোনো স্ক্ৰেপাৰ সক্ৰিয় নহয়। \'Nuvio Plugins\'ত এটা যোগ কৰক।';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'সকলো স্ক্ৰেপাৰ বিফল হ\'ল। সংযোগ পৰীক্ষা কৰক বা স্ক্ৰেপাৰ আপডেট কৰক।';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'কোনো লিংক পোৱা নগ\'ল। $total টাৰ ভিতৰত $failed টা স্ক্ৰেপাৰ বিফল হ\'ল।';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'আপোনাৰ কোনো স্ক্ৰেপাৰৰ ওচৰত এই শিৰোনাম নাই।';
 }

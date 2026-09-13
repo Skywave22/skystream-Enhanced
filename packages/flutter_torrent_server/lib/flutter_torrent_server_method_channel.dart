@@ -9,15 +9,27 @@ class MethodChannelFlutterTorrentServer extends FlutterTorrentServerPlatform {
   @visibleForTesting
   final methodChannel = const MethodChannel('flutter_torrent_server');
 
+  String? _authToken;
+
+  @override
+  String? get authToken => _authToken;
+
   @override
   Future<int> start() async {
-    final port = await methodChannel.invokeMethod<int>('start');
+    // The native side mints the per-launch token and hands it back with the
+    // port, because it is the side that passes the token into the Go server.
+    final result = await methodChannel.invokeMapMethod<String, dynamic>(
+      'start',
+    );
+    _authToken = result?['token'] as String?;
+    final port = result?['port'] as int?;
     return port ?? -1;
   }
 
   @override
   Future<void> stop() async {
     await methodChannel.invokeMethod<void>('stop');
+    _authToken = null;
   }
 
   @override

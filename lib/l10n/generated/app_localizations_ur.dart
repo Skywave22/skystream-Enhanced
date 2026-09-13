@@ -60,11 +60,10 @@ class AppLocalizationsUr extends AppLocalizations {
   String get recordWatchHistory => 'دیکھنے کی تاریخ ریکارڈ کریں';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'فل اسکرین';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'ٹی وی لے آؤٹ پر بدل جاتا ہے';
 
   @override
   String get defaultHomeScreen => 'ڈیفالٹ ہوم اسکرین';
@@ -426,6 +425,28 @@ class AppLocalizationsUr extends AppLocalizations {
   String get min => 'منٹ';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count سیکنڈ پیچھے جائیں',
+      one: '1 سیکنڈ پیچھے جائیں',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count سیکنڈ آگے جائیں',
+      one: '1 سیکنڈ آگے جائیں',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'اندرونی (VLC)';
 
   @override
@@ -747,6 +768,9 @@ class AppLocalizationsUr extends AppLocalizations {
 
   @override
   String get goBack => 'پیچھے جائیں';
+
+  @override
+  String get restartApp => 'ایپ دوبارہ شروع کریں';
 
   @override
   String get resolving => 'حل کیا جا رہا ہے...';
@@ -1616,6 +1640,29 @@ class AppLocalizationsUr extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'اسکریپرز میں تلاش جاری ہے…';
+
+  @override
+  String get sourcesEmptyFiltered => 'موجودہ فلٹرز سے کوئی لنک میل نہیں کھاتا۔';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'اس عنوان کی TMDB ID نہیں ہے۔ \'Search manually\' سے درج کریں۔';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'کوئی اسکریپر فعال نہیں۔ \'Nuvio Plugins\' میں ایک شامل کریں۔';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'تمام اسکریپرز ناکام ہو گئے۔ اپنا کنکشن دیکھیں یا اسکریپرز اپ ڈیٹ کریں۔';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'کوئی لنک نہیں ملا۔ $total میں سے $failed اسکریپرز ناکام۔';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'آپ کے کسی اسکریپر کے پاس یہ عنوان نہیں ہے۔';
 }

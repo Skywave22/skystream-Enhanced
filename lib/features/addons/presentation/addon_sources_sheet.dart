@@ -301,7 +301,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
   }
 
   Widget _details(ThemeData theme, ColorScheme cs) {
-    final glass = _GlassPalette.of(context);
+    final glass = GlassPalette.of(context);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -452,7 +452,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final glass = _GlassPalette.of(context);
+    final glass = GlassPalette.of(context);
     final episode = widget.episode;
     final subtitleText = episode != null
         ? 'S${episode.season} · E${episode.episode} ${episode.name}'
@@ -518,33 +518,23 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
                       ),
                     ),
                   ),
-                  // 4. FRESNEL EDGE HIGHLIGHTS WITH SOFT GRADIENT BLENDING
+                  // Hairline edge on the glass. It used to be wrapped in
+                  // a full-bleed ShaderMask that faded the line out over the
+                  // top and bottom 15% of the panel: a BlendMode.dstIn mask
+                  // costs an offscreen surface the size of the whole sheet,
+                  // and what it bought was a gradient between "0.5 dp line at
+                  // 12% ink" and "no line at all" - a transition between two
+                  // states that are already at the edge of visible. The line
+                  // itself is kept, and now closes around the top and bottom
+                  // corners as well.
                   Positioned.fill(
                     child: IgnorePointer(
-                      child: ShaderMask(
-                        // dstIn: only the gradient's alpha is read, so the
-                        // white stops are opacity, not colour.
-                        shaderCallback: (rect) {
-                          return const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.white,
-                              Colors.white,
-                              Colors.transparent,
-                            ],
-                            stops: [0.0, 0.15, 0.85, 1.0],
-                          ).createShader(rect);
-                        },
-                        blendMode: BlendMode.dstIn,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: glass.ink.withValues(alpha: 0.12),
-                              width: 0.5,
-                            ),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: glass.ink.withValues(alpha: 0.12),
+                            width: 0.5,
                           ),
                         ),
                       ),
@@ -917,292 +907,6 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
   }
 }
 
-/// Ink and pane colours for the frosted sheet.
-///
-/// The sheet paints its own glass instead of sitting on a themed [Material],
-/// so nothing underneath resolves `onSurface` for the content on top of it.
-/// The dark values are the literals the glass design ships with; the light
-/// ones keep every alpha and only flip the ink, so the panel stays legible
-/// over a bright backdrop without changing shape.
-class _GlassPalette {
-  const _GlassPalette._({
-    required this.pane,
-    required this.paneShadow,
-    required this.ink,
-    required this.cardFocusFill,
-    required this.raisedFill,
-    required this.raisedBorder,
-  });
-
-  /// Backdrop tint painted behind the blur.
-  final Color pane;
-
-  /// Drop shadow under the whole panel.
-  final Color paneShadow;
-
-  /// Text, icons and hairlines drawn on the glass. Callers dial it down with
-  /// `withValues(alpha:)` rather than reaching for another literal.
-  final Color ink;
-
-  /// Fill behind the focused source card.
-  final Color cardFocusFill;
-
-  /// Fill and border of an action chip lifted out of the accent, i.e. the
-  /// focused or hovered Play button.
-  final Color raisedFill;
-  final Color raisedBorder;
-
-  /// Content sitting on a solid [sourceSheetAccent] fill. The accent is
-  /// saturated enough to carry white in either brightness.
-  Color get onAccent => Colors.white;
-
-  static const _dark = _GlassPalette._(
-    pane: Color(0xA6060608), // Frosted glass obsidian tint (65% opacity)
-    paneShadow: Color(0x80000000),
-    ink: Colors.white,
-    cardFocusFill: Color(0xFF242430),
-    raisedFill: Colors.white,
-    raisedBorder: Colors.white,
-  );
-
-  static const _light = _GlassPalette._(
-    pane: Color(0xA6F4F4F7),
-    paneShadow: Color(0x2E000000),
-    ink: Color(0xFF16161C),
-    cardFocusFill: Color(0xFFE6E6EE),
-    raisedFill: Colors.white,
-    // A white chip on a pale pane needs the accent to draw its own edge.
-    raisedBorder: sourceSheetAccent,
-  );
-
-  static _GlassPalette of(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark ? _dark : _light;
-}
-
-class _DpadSourceButton extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final String? tooltip;
-  final VoidCallback? onPressed;
-  final bool isPrimary;
-  final FocusNode? focusNode;
-
-  /// Arrow keys the chip answers itself. Handled on the chip's own node rather
-  /// than in a wrapping [Focus] so it keeps contributing exactly one focus
-  /// node to directional traversal.
-  final DpadDirectionCallback? onDirection;
-
-  const _DpadSourceButton({
-    required this.icon,
-    required this.label,
-    this.tooltip,
-    required this.onPressed,
-    this.isPrimary = false,
-    this.focusNode,
-    this.onDirection,
-  });
-
-  @override
-  State<_DpadSourceButton> createState() => _DpadSourceButtonState();
-}
-
-class _DpadSourceButtonState extends State<_DpadSourceButton> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final glass = _GlassPalette.of(context);
-    final enabled = widget.onPressed != null;
-
-    if (!enabled) {
-      return SourceActionSemantics(
-        enabled: false,
-        child: ExcludeFocus(
-          child: Tooltip(
-            message: widget.tooltip ?? '',
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-              decoration: BoxDecoration(
-                color: glass.ink.withValues(alpha: 0.04),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: glass.ink.withValues(alpha: 0.06),
-                  width: 0.8,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    widget.icon,
-                    size: 14,
-                    color: glass.ink.withValues(alpha: 0.25),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    widget.label,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: glass.ink.withValues(alpha: 0.25),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return DpadFocusable(
-      focusNode: widget.focusNode,
-      onSelect: widget.onPressed,
-      onDirection: widget.onDirection,
-      child: const SizedBox.shrink(),
-      builder: (context, state, _) {
-        final isFocused = state.focused;
-        final highlight = isFocused || _isHovered;
-
-        final Color bgColor;
-        final Color borderColor;
-        final Color contentColor;
-
-        if (widget.isPrimary) {
-          if (highlight) {
-            bgColor = glass.raisedFill;
-            borderColor = glass.raisedBorder;
-            contentColor = sourceSheetAccent;
-          } else {
-            bgColor = sourceSheetAccent;
-            borderColor = sourceSheetAccent;
-            contentColor = glass.onAccent;
-          }
-        } else {
-          if (highlight) {
-            bgColor = sourceSheetAccent.withValues(alpha: 0.20);
-            borderColor = sourceSheetAccent;
-            contentColor = glass.ink;
-          } else {
-            bgColor = glass.ink.withValues(alpha: 0.06);
-            borderColor = glass.ink.withValues(alpha: 0.12);
-            contentColor = glass.ink.withValues(alpha: 0.85);
-          }
-        }
-
-        return SourceActionSemantics(
-          enabled: true,
-          child: Tooltip(
-            message: widget.tooltip ?? widget.label,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                // DpadFocusable already publishes this chip's focus node; a
-                // focusable InkWell would add a second one over the same rect
-                // and directional traversal would settle on that instead.
-                canRequestFocus: false,
-                onTap: widget.onPressed,
-                overlayColor: WidgetStateProperty.all(Colors.transparent),
-                hoverColor: Colors.transparent,
-                splashColor: Colors.transparent,
-                highlightColor: Colors.transparent,
-                onHover: (hovered) {
-                  if (_isHovered != hovered) {
-                    setState(() => _isHovered = hovered);
-                  }
-                },
-                borderRadius: BorderRadius.circular(6),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: borderColor,
-                      width: 1.0,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        widget.icon,
-                        size: 14,
-                        color: contentColor,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        widget.label,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: contentColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Premium quality badge styled consistently with player UI badges.
-class _QualityBadge extends StatelessWidget {
-  final String resolution;
-
-  const _QualityBadge({required this.resolution});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final res = resolution.toUpperCase();
-
-    Color accentColor;
-    if (res.contains('4K') || res.contains('2160') || res.contains('UHD')) {
-      accentColor = const Color(0xFFFFB800);
-    } else if (res.contains('1080')) {
-      accentColor = const Color(0xFF38BDF8);
-    } else if (res.contains('720')) {
-      accentColor = const Color(0xFF34D399);
-    } else {
-      accentColor = cs.primary;
-    }
-
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 80),
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-      decoration: BoxDecoration(
-        color: accentColor.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-          color: accentColor.withValues(alpha: 0.4),
-          width: 0.8,
-        ),
-      ),
-      child: Text(
-        resolution,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w900,
-          color: accentColor,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
 class _SourceRow extends StatefulWidget {
   final AddonStreamSource stream;
   final bool isBest;
@@ -1250,7 +954,7 @@ class _SourceRowState extends State<_SourceRow> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final glass = _GlassPalette.of(context);
+    final glass = GlassPalette.of(context);
     final stream = widget.stream;
     final isBest = widget.isBest;
     final downloadMode = widget.downloadMode;
@@ -1332,7 +1036,7 @@ class _SourceRowState extends State<_SourceRow> {
                           runSpacing: 4,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            _QualityBadge(resolution: stream.qualityLabel),
+                            QualityBadge(resolution: stream.qualityLabel),
                             const SourceTag(
                               text: 'STREMIO',
                               color: Color(0xFF7C6BF5),
@@ -1422,7 +1126,7 @@ class _SourceRowState extends State<_SourceRow> {
                     child: Row(
                       children: [
                         const Spacer(),
-                        _DpadSourceButton(
+                        DpadSourceButton(
                           focusNode: _playFocusNode,
                           icon: stream.isExternal
                               ? Icons.open_in_new_rounded
@@ -1446,7 +1150,7 @@ class _SourceRowState extends State<_SourceRow> {
                           },
                         ),
                         const SizedBox(width: 8),
-                        _DpadSourceButton(
+                        DpadSourceButton(
                           focusNode: _downloadFocusNode,
                           icon: Icons.download_rounded,
                           label: 'Download now',

@@ -1,80 +1,83 @@
 #!/bin/bash
+#
+# Regenerates every prebuilt artifact in this package from go_src/.
+#
+# THE GO SOURCE IS NOT WHAT SHIPS. The app loads prebuilt binaries that are
+# committed to the repo, so a change under go_src/ reaches users only after
+# this script has run and the artifacts below have been committed:
+#
+#   assets/torrserver/TorrServer-*                        desktop (6 targets)
+#   go_src/torrserver.aar                                 Android, reference copy
+#   android/repo/com/local/torrentserver/1.0/…-1.0.aar    Android, the one Gradle resolves
+#   ios/TorrServer.xcframework                            iOS
+#
+# Requirements: Go, Xcode (for iOS), Android NDK, and gomobile/gobind on PATH
+#   go install golang.org/x/mobile/cmd/gomobile@latest
+#   go install golang.org/x/mobile/cmd/gobind@latest
+#
+set -euo pipefail
 
-# Configuration
-MODULE_NAME="github.com/Diegopyl1209/torrentserver-aniyomi"
-SRC_DIR="go_src"
-OUTPUT_ANDROID="android/libs/torrentserver.aar"
-OUTPUT_IOS="ios/Frameworks/TorrServer.xcframework"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+SRC_DIR="$ROOT/go_src"
 
-# EXPLICIT SDK PATHS
-export ANDROID_HOME="/Users/akash/Library/Android/sdk"
-export ANDROID_NDK_HOME="/Users/akash/Library/Android/sdk/ndk/27.0.12077973"
-export PATH=$PATH:~/go/bin
+export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/27.0.12077973}"
+export PATH="$PATH:$HOME/go/bin"
 
 echo "Building Torrent Server Libraries..."
 
-# 1. Update Dependencies
-cd $SRC_DIR
-go mod tidy
-cd ..
+# ---------------------------------------------------------------------------
+# 1. Desktop standalone binaries.
+#
+# Built straight out of go_src with its vendored dependencies, so these are
+# reproducible from what is committed. No `go mod tidy` — that would silently
+# move the pinned dependency set.
+# ---------------------------------------------------------------------------
+echo "Building desktop binaries..."
+mkdir -p "$ROOT/assets/torrserver"
+build_desktop() {
+  echo "  $3"
+  ( cd "$SRC_DIR" && CGO_ENABLED=0 GOOS="$1" GOARCH="$2" \
+      go build -mod=vendor -o "$ROOT/assets/torrserver/$3" ./cmd/torrserver )
+}
+build_desktop darwin  amd64 TorrServer-darwin-amd64
+build_desktop darwin  arm64 TorrServer-darwin-arm64
+build_desktop linux   amd64 TorrServer-linux-amd64
+build_desktop linux   arm64 TorrServer-linux-arm64
+build_desktop windows amd64 TorrServer-windows-amd64.exe
+build_desktop windows arm64 TorrServer-windows-arm64.exe
 
-# 2. Build for Android (aar)
-echo "Building for Android..."
-mkdir -p android/libs
-cd $SRC_DIR
-# Bind the 'bindings' package which contains the public API (TorrServer class)
-~/go/bin/gomobile bind -target=android -androidapi 21 -o ../$OUTPUT_ANDROID ./bindings
-cd ..
-echo "Android build complete: $OUTPUT_ANDROID"
+# ---------------------------------------------------------------------------
+# 2. Mobile artifacts.
+#
+# gomobile has to import golang.org/x/mobile/bind, which is not one of this
+# module's dependencies and is not vendored. Adding it to go.mod would drag
+# x/tools and a Go toolchain bump into the vendored tree that the desktop
+# binaries are built from, so the bind runs against a throwaway copy instead
+# and go_src/go.mod is left exactly as committed.
+# ---------------------------------------------------------------------------
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+tar cf - -C "$SRC_DIR" \
+  --exclude=vendor --exclude=.gradle --exclude=torrserver.aar --exclude='*_test.go' . \
+  | ( cd "$WORK" && tar xf - )
+( cd "$WORK" && go get golang.org/x/mobile/bind && gomobile init )
 
-# 3. Build for iOS (xcframework)
-echo "Building for iOS..."
-mkdir -p ios/Frameworks
-cd $SRC_DIR
-# Note: Requires Xcode and macOS
+echo "Building Android AAR..."
+# ./bindings is package torrServer -> torrServer.TorrServer.startTorrentServer
+( cd "$WORK" && gomobile bind -target=android -androidapi 21 -ldflags="-s -w" \
+    -o "$ROOT/go_src/torrserver.aar" ./bindings )
+cp "$ROOT/go_src/torrserver.aar" \
+   "$ROOT/android/repo/com/local/torrentserver/1.0/torrentserver-1.0.aar"
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    ~/go/bin/gomobile bind -target=ios -o ../$OUTPUT_IOS ./bindings
-    echo "iOS build complete: $OUTPUT_IOS"
+  echo "Building iOS xcframework..."
+  # "." is package server -> ServerStart(pathdb, port, authToken, roSets, searchWA)
+  rm -rf "$ROOT/ios/TorrServer.xcframework"
+  ( cd "$WORK" && gomobile bind -target=ios,iossimulator -ldflags="-s -w" \
+      -o "$ROOT/ios/TorrServer.xcframework" . )
 else
-    echo "Skipping iOS build (not on macOS)"
+  echo "Skipping iOS build (not on macOS)"
 fi
-cd ..
-
-# 4. Build for Desktop (Shared Libraries - Legacy/Optional)
-echo "Building for Desktop Shared Libraries..."
-mkdir -p assets
-cd $SRC_DIR
-
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    go build -buildmode=c-shared -o ../assets/libtorrentserver.dylib ./bindings
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    go build -buildmode=c-shared -o ../assets/libtorrentserver.so ./bindings
-elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
-    go build -buildmode=c-shared -o ../assets/libtorrentserver.dll ./bindings
-fi
-cd ..
-
-# 5. Build Standalone Binaries for Desktop (Used by Desktop Plugin)
-echo "Building Standalone Binaries for Desktop..."
-mkdir -p assets/torrserver
-cd $SRC_DIR
-
-# macOS
-echo "Building for macOS (amd64 & arm64)..."
-GOOS=darwin GOARCH=amd64 go build -o ../assets/torrserver/TorrServer-darwin-amd64 ./cmd/torrserver
-GOOS=darwin GOARCH=arm64 go build -o ../assets/torrserver/TorrServer-darwin-arm64 ./cmd/torrserver
-
-# Linux
-echo "Building for Linux (amd64 & arm64)..."
-GOOS=linux GOARCH=amd64 go build -o ../assets/torrserver/TorrServer-linux-amd64 ./cmd/torrserver
-GOOS=linux GOARCH=arm64 go build -o ../assets/torrserver/TorrServer-linux-arm64 ./cmd/torrserver
-
-# Windows
-echo "Building for Windows (amd64 & arm64)..."
-GOOS=windows GOARCH=amd64 go build -o ../assets/torrserver/TorrServer-windows-amd64.exe ./cmd/torrserver
-GOOS=windows GOARCH=arm64 go build -o ../assets/torrserver/TorrServer-windows-arm64.exe ./cmd/torrserver
-
-cd ..
-echo "Standalone binaries build complete."
 
 echo "All builds finished."

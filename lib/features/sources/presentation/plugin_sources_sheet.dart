@@ -13,7 +13,68 @@ import '../../../core/nuvio/models/nuvio_models.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/services/download_service.dart';
 import '../../../core/utils/source_text.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import 'source_sheet_widgets.dart';
+
+/// Why the source list came up empty, as far as the sheet can actually tell.
+///
+/// `NuvioStreamService` already reports a [NuvioScraperStatus] per scraper, so
+/// "a scraper threw", "every scraper answered and none had it" and "there are
+/// no scrapers" are three separate facts the sheet holds and used to throw
+/// away: all of them rendered as `No links found. Verify scraper repos are
+/// installed.`, which is advice for exactly one of them and sends everybody
+/// else off to reinstall plugins that were working.
+///
+/// Deliberately absent: an `offline` reason. Nothing at this layer can tell a
+/// dead network from a dead scraper mirror — both arrive as every scraper
+/// failing — so [allScrapersFailed] names the connection first and leaves the
+/// per-scraper reasons to the Details panel instead of guessing.
+enum SourcesEmptyReason {
+  /// Scrapers are still running; nothing has been decided yet.
+  searching,
+
+  /// Links exist, the quality/provider/verified filters are hiding them.
+  hiddenByFilters,
+
+  /// No TMDB id to search with. Nuvio scrapers take a numeric id and nothing
+  /// else, so this never reached a scraper at all.
+  noTmdbId,
+
+  /// No enabled scraper supports this media type.
+  noScrapers,
+
+  /// Every scraper that ran threw. Offline, or the scrapers are broken.
+  allScrapersFailed,
+
+  /// Some scrapers threw and the rest found nothing, so the empty list is not
+  /// trustworthy.
+  someScrapersFailed,
+
+  /// Every scraper answered and none of them has this title.
+  nobodyHasIt,
+}
+
+/// Classifies [progress] into the one thing worth telling the user.
+///
+/// [hasRows] is whether any link was resolved at all (before filtering) and
+/// [hasTmdbId] whether the sheet had an id to search with.
+SourcesEmptyReason sourcesEmptyReason({
+  required NuvioProgress progress,
+  required bool hasRows,
+  required bool hasTmdbId,
+}) {
+  if (progress.isLoading) return SourcesEmptyReason.searching;
+  if (hasRows) return SourcesEmptyReason.hiddenByFilters;
+  if (!hasTmdbId) return SourcesEmptyReason.noTmdbId;
+  if (progress.statuses.isEmpty) return SourcesEmptyReason.noScrapers;
+  final int failed = progress.statuses
+      .where((status) => status.outcome == NuvioScraperOutcome.failed)
+      .length;
+  if (failed == 0) return SourcesEmptyReason.nobodyHasIt;
+  return failed == progress.statuses.length
+      ? SourcesEmptyReason.allScrapersFailed
+      : SourcesEmptyReason.someScrapersFailed;
+}
 
 /// Nuvio-powered sources sheet used from Explore / TMDB details.
 ///
@@ -127,55 +188,6 @@ class _Row {
   StreamResult toStreamResult() => nuvio.toStreamResult();
 }
 
-/// Colours for the frosted panel the sheet paints on.
-///
-/// The panel is not a themed surface — it is a blurred tint over whatever is
-/// behind the dialog — so its fills, hairlines and labels cannot come from
-/// [ColorScheme] directly. Dark is the palette this sheet already shipped,
-/// value for value; light mirrors it so the sheet stays legible under
-/// [ThemeMode.light].
-class _GlassPalette {
-  /// Tint painted behind the blur.
-  final Color panel;
-
-  /// Maximum contrast against [panel]. Every overlay fill, hairline and label
-  /// on the glass is this colour at some alpha, and it is also the focus ring.
-  final Color ink;
-
-  /// Fill behind a focused source card.
-  final Color cardFocusFill;
-
-  /// Label colour of a highlighted primary chip, which fills with [ink].
-  final Color inkContent;
-
-  const _GlassPalette({
-    required this.panel,
-    required this.ink,
-    required this.cardFocusFill,
-    required this.inkContent,
-  });
-
-  factory _GlassPalette.of(BuildContext context) {
-    final theme = Theme.of(context);
-    if (theme.brightness == Brightness.dark) {
-      return const _GlassPalette(
-        panel: Color(0xA6060608),
-        ink: Colors.white,
-        cardFocusFill: Color(0xFF242430),
-        inkContent: sourceSheetAccent,
-      );
-    }
-    final cs = theme.colorScheme;
-    return _GlassPalette(
-      panel: const Color(0xD9FCFAF7),
-      ink: cs.onSurface,
-      cardFocusFill: cs.surfaceContainerHighest,
-      inkContent: cs.surface,
-    );
-  }
-
-  Color tint(double alpha) => ink.withValues(alpha: alpha);
-}
 
 /// Section chrome in the flattened list.
 enum _SectionKind { topPick, ready, unavailableToggle }
@@ -250,8 +262,14 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
     super.dispose();
   }
 
+  /// The id the scrapers are actually given. Nuvio plugins are written against
+  /// a numeric TMDB id; without one the sheet never reaches a scraper, which is
+  /// a different empty list from a scraper coming back with nothing.
+  String get _searchId =>
+      (_tmdbOverride ?? widget.target.tmdbId?.toString() ?? '').trim();
+
   void _startNuvio() {
-    final tmdbId = _tmdbOverride ?? widget.target.tmdbId?.toString() ?? '';
+    final tmdbId = _searchId;
     if (tmdbId.isEmpty) {
       setState(() => _nuvioResult = const NuvioProgress(isLoading: false));
       return;
@@ -365,6 +383,31 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
 
   bool get _isLoading => _nuvioResult.isLoading;
 
+  /// What to put where the list would be. See [SourcesEmptyReason] for why
+  /// this is seven sentences and not one.
+  String _emptyMessage(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context)!;
+    final List<NuvioScraperStatus> statuses = _nuvioResult.statuses;
+    return switch (sourcesEmptyReason(
+      progress: _nuvioResult,
+      hasRows: _allRows.isNotEmpty,
+      hasTmdbId: _searchId.isNotEmpty,
+    )) {
+      SourcesEmptyReason.searching => l10n.sourcesSearching,
+      SourcesEmptyReason.hiddenByFilters => l10n.sourcesEmptyFiltered,
+      SourcesEmptyReason.noTmdbId => l10n.sourcesEmptyNoTmdbId,
+      SourcesEmptyReason.noScrapers => l10n.sourcesEmptyNoScrapers,
+      SourcesEmptyReason.allScrapersFailed => l10n.sourcesEmptyAllFailed,
+      SourcesEmptyReason.someScrapersFailed => l10n.sourcesEmptySomeFailed(
+        statuses
+            .where((s) => s.outcome == NuvioScraperOutcome.failed)
+            .length,
+        statuses.length,
+      ),
+      SourcesEmptyReason.nobodyHasIt => l10n.sourcesEmptyNothingFound,
+    };
+  }
+
   void _play(_Row row) {
     final ordered = <_Row>[row, ..._visible.where((r) => r.key != row.key)];
     final streams = [for (final r in ordered) r.toStreamResult()];
@@ -445,7 +488,7 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
   }
 
   Widget _diagnosticsPanel(ThemeData theme, ColorScheme cs) {
-    final palette = _GlassPalette.of(context);
+    final palette = GlassPalette.of(context);
     final statuses = _nuvioResult.statuses.toList()
       ..sort((a, b) => a.scraperName.compareTo(b.scraperName));
     return Container(
@@ -581,7 +624,7 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final palette = _GlassPalette.of(context);
+    final palette = GlassPalette.of(context);
     final episode = widget.episode;
 
     final visible = _visible;
@@ -653,7 +696,9 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.50),
+                          // Themed, like the add-on sheet's: a 50%-black drop
+                          // under a pale panel in light mode was a bruise.
+                          color: palette.paneShadow,
                           blurRadius: 50,
                           spreadRadius: 0,
                           offset: const Offset(0, 10),
@@ -674,37 +719,29 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
                               ),
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  color: palette
-                                      .panel, // Frosted glass tint (65% opacity)
+                                  color: palette.pane,
                                 ),
                               ),
                             ),
                           ),
-                          // 4. FRESNEL EDGE HIGHLIGHTS WITH SOFT GRADIENT BLENDING
+                          // Hairline edge on the glass. It used to be
+                          // wrapped in a full-bleed ShaderMask that faded the
+                          // line out over the top and bottom 15% of the
+                          // panel: a BlendMode.dstIn mask costs an offscreen
+                          // surface the size of the whole sheet, and what it
+                          // bought was a gradient between "0.5 dp line at 12%
+                          // ink" and "no line at all" - a transition between
+                          // two states that are already at the edge of
+                          // visible. The line itself is kept, and now closes
+                          // around the top and bottom corners as well.
                           Positioned.fill(
                             child: IgnorePointer(
-                              child: ShaderMask(
-                                shaderCallback: (rect) {
-                                  return const LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.transparent,
-                                      Colors.white,
-                                      Colors.white,
-                                      Colors.transparent,
-                                    ],
-                                    stops: [0.0, 0.15, 0.85, 1.0],
-                                  ).createShader(rect);
-                                },
-                                blendMode: BlendMode.dstIn,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                      color: palette.tint(0.12),
-                                      width: 0.5,
-                                    ),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: palette.tint(0.12),
+                                    width: 0.5,
                                   ),
                                 ),
                               ),
@@ -1020,11 +1057,7 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
                                           child: Padding(
                                             padding: const EdgeInsets.all(24),
                                             child: Text(
-                                              _isLoading
-                                                  ? 'Searching active scrapers…'
-                                                  : (_allRows.isNotEmpty
-                                                        ? 'No links match the current filters.'
-                                                        : 'No links found. Verify scraper repos are installed.'),
+                                              _emptyMessage(context),
                                               textAlign: TextAlign.center,
                                               style: theme.textTheme.bodyMedium
                                                   ?.copyWith(
@@ -1185,7 +1218,7 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
         );
 
       case _SectionEntry(kind: _SectionKind.unavailableToggle, :final count):
-        final palette = _GlassPalette.of(context);
+        final palette = GlassPalette.of(context);
         return Padding(
           padding: EdgeInsets.only(bottom: entry.gap),
           child: DpadFocusable(
@@ -1373,7 +1406,7 @@ class _DpadDialogButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final palette = _GlassPalette.of(context);
+    final palette = GlassPalette.of(context);
 
     return DpadFocusable(
       onSelect: onPressed,
@@ -1418,212 +1451,9 @@ class _DpadDialogButton extends StatelessWidget {
   }
 }
 
-class _DpadSourceButton extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final String? tooltip;
-  final VoidCallback? onPressed;
-  final bool isPrimary;
-  final FocusNode? focusNode;
 
-  /// Arrow keys the chip answers itself. Handled on the chip's own focus node
-  /// rather than a wrapping [Focus] so the chip stays a single focus stop.
-  final DpadDirectionCallback? onDirection;
-
-  const _DpadSourceButton({
-    required this.icon,
-    required this.label,
-    this.tooltip,
-    required this.onPressed,
-    this.isPrimary = false,
-    this.focusNode,
-    this.onDirection,
-  });
-
-  @override
-  State<_DpadSourceButton> createState() => _DpadSourceButtonState();
-}
-
-class _DpadSourceButtonState extends State<_DpadSourceButton> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.onPressed != null;
-    final palette = _GlassPalette.of(context);
-
-    if (!enabled) {
-      return SourceActionSemantics(
-        enabled: false,
-        child: ExcludeFocus(
-          child: Tooltip(
-            message: widget.tooltip ?? '',
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-              decoration: BoxDecoration(
-                color: palette.tint(0.04),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: palette.tint(0.06), width: 0.8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(widget.icon, size: 14, color: palette.tint(0.25)),
-                  const SizedBox(width: 4),
-                  Text(
-                    widget.label,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: palette.tint(0.25),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return DpadFocusable(
-      focusNode: widget.focusNode,
-      onSelect: widget.onPressed,
-      onDirection: widget.onDirection,
-      child: const SizedBox.shrink(),
-      builder: (context, state, _) {
-        final isFocused = state.focused;
-        final highlight = isFocused || _isHovered;
-
-        final Color bgColor;
-        final Color borderColor;
-        final Color contentColor;
-
-        if (widget.isPrimary) {
-          if (highlight) {
-            bgColor = palette.ink;
-            borderColor = palette.ink;
-            contentColor = palette.inkContent;
-          } else {
-            bgColor = sourceSheetAccent;
-            borderColor = sourceSheetAccent;
-            contentColor = Colors.white;
-          }
-        } else {
-          if (highlight) {
-            bgColor = sourceSheetAccent.withValues(alpha: 0.20);
-            borderColor = sourceSheetAccent;
-            contentColor = palette.ink;
-          } else {
-            bgColor = palette.tint(0.06);
-            borderColor = palette.tint(0.12);
-            contentColor = palette.tint(0.85);
-          }
-        }
-
-        return SourceActionSemantics(
-          enabled: true,
-          child: Tooltip(
-            message: widget.tooltip ?? widget.label,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                // DpadFocusable already owns this chip's focus node.
-                canRequestFocus: false,
-                onTap: widget.onPressed,
-                overlayColor: WidgetStateProperty.all(Colors.transparent),
-                hoverColor: Colors.transparent,
-                splashColor: Colors.transparent,
-                highlightColor: Colors.transparent,
-                onHover: (hovered) {
-                  if (_isHovered != hovered) {
-                    setState(() => _isHovered = hovered);
-                  }
-                },
-                borderRadius: BorderRadius.circular(6),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: borderColor, width: 1.0),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(widget.icon, size: 14, color: contentColor),
-                      const SizedBox(width: 4),
-                      Text(
-                        widget.label,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: contentColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
 
 /// Premium quality badge styled consistently with player UI badges.
-class _QualityBadge extends StatelessWidget {
-  final String resolution;
-
-  const _QualityBadge({required this.resolution});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final res = resolution.toUpperCase();
-
-    Color accentColor;
-    if (res.contains('4K') || res.contains('2160') || res.contains('UHD')) {
-      accentColor = const Color(0xFFFFB800);
-    } else if (res.contains('1080')) {
-      accentColor = const Color(0xFF38BDF8);
-    } else if (res.contains('720')) {
-      accentColor = const Color(0xFF34D399);
-    } else {
-      accentColor = cs.primary;
-    }
-
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 80),
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-      decoration: BoxDecoration(
-        color: accentColor.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-          color: accentColor.withValues(alpha: 0.4),
-          width: 0.8,
-        ),
-      ),
-      child: Text(
-        resolution,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w900,
-          color: accentColor,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
 
 class _SourceRow extends StatefulWidget {
   final _Row row;
@@ -1690,7 +1520,7 @@ class _SourceRowState extends State<_SourceRow> {
     final isBest = widget.isBest;
     final onPlay = widget.onPlay;
     final onDownload = widget.onDownload;
-    final palette = _GlassPalette.of(context);
+    final palette = GlassPalette.of(context);
     final activate = widget.downloadMode && row.canDownload
         ? onDownload
         : onPlay;
@@ -1775,7 +1605,7 @@ class _SourceRowState extends State<_SourceRow> {
                           runSpacing: 4,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            _QualityBadge(resolution: resolution),
+                            QualityBadge(resolution: resolution),
                             if (row.isHdr)
                               const SourceTag(
                                 text: 'HDR',
@@ -1857,7 +1687,7 @@ class _SourceRowState extends State<_SourceRow> {
                     child: Row(
                       children: [
                         const Spacer(),
-                        _DpadSourceButton(
+                        DpadSourceButton(
                           focusNode: _playFocusNode,
                           icon: Icons.play_arrow_rounded,
                           label: 'Play',
@@ -1880,7 +1710,7 @@ class _SourceRowState extends State<_SourceRow> {
                           },
                         ),
                         const SizedBox(width: 8),
-                        _DpadSourceButton(
+                        DpadSourceButton(
                           focusNode: _downloadFocusNode,
                           icon: Icons.download_rounded,
                           label: 'Download now',

@@ -8,6 +8,7 @@ import '../../../core/services/notification_service.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../core/utils/image_fallbacks.dart';
+import '../../../core/utils/image_utils.dart';
 
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:skystream/core/utils/layout_constants.dart';
@@ -161,10 +162,22 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                       // Bound decoded bitmap; plugin backdrops are often at
                       // source resolution. Without this, 4K-source posters
                       // burn ~33 MB per detail page.
-                      memCacheWidth:
-                          (MediaQuery.sizeOf(context).width *
-                                  MediaQuery.devicePixelRatioOf(context))
-                              .round(),
+                      //
+                      // The box is the window width by the sliver's expanded
+                      // extent — the same constant handed to `expandedHeight`
+                      // above, which is what FlexibleSpaceBar lays the
+                      // background out at (`settings.maxExtent`). Not read
+                      // from a LayoutBuilder here on purpose: with
+                      // StretchMode.zoomBackground the background grows with
+                      // an overscroll bounce, so constraints here change every
+                      // frame of the stretch and the decode bound would churn
+                      // the image cache with them.
+                      memCacheWidth: ImageUtils.coverDecodeWidth(
+                        context,
+                        width: MediaQuery.sizeOf(context).width,
+                        height: LayoutConstants.detailsExpandedHeightMobile,
+                        sourceAspectRatio: ImageUtils.backdropAspectRatio,
+                      ),
                       placeholder: (context, url) =>
                           Container(color: Theme.of(context).dividerColor),
                       errorWidget: (_, _, _) => ThumbnailErrorPlaceholder(

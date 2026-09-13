@@ -75,8 +75,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   bool _isWidescreenForScroll() {
     final profile = ref.read(deviceProfileProvider).asData?.value;
-    final isTv = profile?.isTv == true || context.isTv;
-    return isTv || profile?.isLargeScreen == true || context.isTabletOrLarger;
+    return profile?.isLargeScreen == true || context.isTabletOrLarger;
   }
 
   void _onScroll() {
@@ -126,12 +125,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         : SystemUiOverlayStyle.dark;
 
     final profile = ref.watch(deviceProfileProvider).asData?.value;
-    final isTv = profile?.isTv == true || context.isTv;
     // Use profile?.isLargeScreen so this matches AppScaffold's sidebar
     // decision even when the HomeScreen's context width is narrowed
-    // by the sidebar (e.g. iPad portrait).
+    // by the sidebar (e.g. iPad portrait). A television needs no clause of
+    // its own: isLargeScreen already ORs in DeviceProfile.isTv, and 960 dp
+    // clears the tablet breakpoint regardless.
     final isWidescreen =
-        isTv || profile?.isLargeScreen == true || context.isTabletOrLarger;
+        profile?.isLargeScreen == true || context.isTabletOrLarger;
 
     // On widescreen: no AppBar, no FAB — we use the DashboardHeaderBar instead.
     // The header lives outside the scroll view in a plain Column so there is

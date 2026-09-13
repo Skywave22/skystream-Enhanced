@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/utils/responsive_breakpoints.dart';
 import '../../core/providers/device_info_provider.dart';
 
 class DesktopScrollWrapper extends ConsumerStatefulWidget {
@@ -66,7 +65,8 @@ class _DesktopScrollWrapperState extends ConsumerState<DesktopScrollWrapper> {
 
     final position = widget.controller.position;
     final showLeft = position.pixels > 1.0;
-    final showRight = position.maxScrollExtent > 1.0 &&
+    final showRight =
+        position.maxScrollExtent > 1.0 &&
         position.pixels < (position.maxScrollExtent - 1.0);
 
     if (showLeft != _showLeft || showRight != _showRight) {
@@ -104,13 +104,14 @@ class _DesktopScrollWrapperState extends ConsumerState<DesktopScrollWrapper> {
   }
 
   bool get _shouldShowButtons {
-    // If running on a TV, always hide buttons (D-pad is used instead).
-    // We use the profile provider for the most accurate detection.
+    // On a television these arrows are dead weight - there is no pointer to
+    // click them and the D-pad scrolls the rail directly. DeviceProfile.isTv
+    // (leanback / Apple TV) is the only authority for that; the second,
+    // "fallback while the provider loads" check that used to sit here read
+    // MediaQuery's navigation mode, which no host in this app ever sets, so
+    // it answered false on the very televisions it was meant to catch.
     final profile = ref.watch(deviceProfileProvider).asData?.value;
     if (profile?.isTv == true) return false;
-
-    // Fallback heuristic if provider is loading
-    if (context.isTv) return false;
 
     // If explicitly set, use that value
     if (widget.showButtons != null) return widget.showButtons!;

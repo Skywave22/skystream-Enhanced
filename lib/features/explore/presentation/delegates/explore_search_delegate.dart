@@ -10,7 +10,6 @@ import '../../../../shared/widgets/multimedia_card.dart';
 
 import '../controllers/explore_search_controller.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
-import '../../../../core/providers/device_info_provider.dart';
 import '../../../../core/utils/responsive_breakpoints.dart';
 import '../../../../core/domain/entity/multimedia_item.dart';
 import '../../../../core/addons/models/addon_meta.dart' show kAddonItemSource;
@@ -462,9 +461,9 @@ class _SearchResultsGridState extends ConsumerState<_SearchResultsGrid> {
     }
 
     if (results.isEmpty) {
-      final profile = ref.watch(deviceProfileProvider).asData?.value;
-      final isTv = profile?.isTv == true || context.isTv;
-      final isWidescreen = isTv || context.isTabletOrLarger;
+      // Size question, asked of the size: a 960 dp television clears the
+      // tablet breakpoint like any other big window.
+      final isWidescreen = context.isTabletOrLarger;
       final imageWidth = isWidescreen ? 320.0 : 200.0;
       final nativeFont = Theme.of(context).textTheme.bodyLarge?.fontFamily;
 

@@ -60,11 +60,10 @@ class AppLocalizationsTr extends AppLocalizations {
   String get recordWatchHistory => 'İzleme Geçmişini Kaydet';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Tam Ekran';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'TV düzenine geçer';
 
   @override
   String get defaultHomeScreen => 'Varsayılan Ana Ekran';
@@ -428,6 +427,28 @@ class AppLocalizationsTr extends AppLocalizations {
   String get min => 'dk';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count saniye geri sar',
+      one: '1 saniye geri sar',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count saniye ileri sar',
+      one: '1 saniye ileri sar',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Dahili (VLC)';
 
   @override
@@ -748,6 +769,9 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get goBack => 'Geri Dön';
+
+  @override
+  String get restartApp => 'Uygulamayı Yeniden Başlat';
 
   @override
   String get resolving => 'Çözümleniyor...';
@@ -1612,6 +1636,30 @@ class AppLocalizationsTr extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Scraper\'larda aranıyor…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'Geçerli filtrelerle eşleşen bağlantı yok.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Bu başlığın TMDB kimliği yok. \'Search manually\' ile girin.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Etkin scraper yok. \'Nuvio Plugins\' içinden ekleyin.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Tüm scraper\'lar başarısız oldu. Bağlantınızı kontrol edin veya scraper\'ları güncelleyin.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Bağlantı bulunamadı. $total scraper\'dan $failed tanesi başarısız oldu.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Scraper\'larınızın hiçbirinde bu başlık yok.';
 }

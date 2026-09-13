@@ -45,6 +45,8 @@ class VlcPixelBufferSink final : public VlcFrameSink {
   const uint8_t* FrameBufferDataForTesting() const;
   size_t FrameBufferSizeForTesting() const;
   const uint8_t* TextureBufferDataForTesting() const;
+  const uint8_t* RetiredBufferDataForTesting() const;
+  size_t RetiredBufferSizeForTesting() const;
   uint64_t RenderGenerationForTesting() const;
   uint64_t TextureGenerationForTesting() const;
 #endif  // VLC_PLAYER_TESTING
@@ -61,6 +63,12 @@ class VlcPixelBufferSink final : public VlcFrameSink {
   std::vector<uint8_t> frame_buffer_;
   std::vector<uint8_t> render_buffer_;
   std::vector<uint8_t> texture_buffer_;
+  // The texture_buffer_ a format change replaced. CopyPixels hands its
+  // address to the embedder, which reads through it after the call has
+  // returned, so Resize must not free it - see Resize. One buffer, released
+  // by the next format change and by the destructor, so the cost is a single
+  // extra frame of RGBA for as long as a resolution lasts.
+  std::vector<uint8_t> retired_;
   uint32_t width_ = 0;
   uint32_t height_ = 0;
   uint32_t pitch_ = 0;

@@ -8,11 +8,29 @@ import 'http_defaults.dart';
 
 part 'dio_client_provider.g.dart';
 
+/// The connect budget the app advertises on every request.
+const Duration kDioConnectTimeout = Duration(seconds: 15);
+
+/// Upper bound on how long one connection may wait for a DoH answer before
+/// giving up and letting the system resolver handle it.
+///
+/// This sits *outside* dio's [kDioConnectTimeout]: dart:io applies the client's
+/// connection timeout to the socket only after the `connectionFactory` future
+/// resolves, so whatever we wait here is added to the advertised budget, not
+/// deducted from it. It must therefore stay a fraction of it — a blocked DoH
+/// endpoint used to double every request's worst case from 15 s to 30 s.
+///
+/// It is a backstop, not the primary bound: [DohService.kResolveTimeout] caps
+/// the lookup one second earlier, and the negative cache plus circuit breaker
+/// mean a blocked endpoint is paid for at most a handful of times, not once
+/// per request.
+const Duration kDohResolveGuard = Duration(seconds: 6);
+
 @riverpod
 Dio dioClient(Ref ref) {
   final dio = Dio(
     BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
+      connectTimeout: kDioConnectTimeout,
       receiveTimeout: const Duration(seconds: 15),
       // Default to a real browser UA so resolution presents the same
       // identity the player will use during playback. Per-request headers
@@ -62,7 +80,7 @@ Dio dioClient(Ref ref) {
 
         final ip = await DohService.instance
             .resolve(host)
-            .timeout(const Duration(seconds: 15), onTimeout: () => null);
+            .timeout(kDohResolveGuard, onTimeout: () => null);
         if (ip != null) {
           if (kDebugMode) {
             debugPrint(

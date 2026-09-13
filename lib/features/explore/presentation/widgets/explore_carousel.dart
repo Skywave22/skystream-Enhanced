@@ -5,10 +5,9 @@ import '../../../../core/router/app_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:visibility_detector/visibility_detector.dart';
+import '../../../../core/utils/image_utils.dart';
 import '../../../../core/utils/layout_constants.dart';
-import '../../../../core/utils/responsive_breakpoints.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/providers/device_info_provider.dart';
 
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../core/domain/entity/multimedia_item.dart';
@@ -207,11 +206,11 @@ class _ExploreCarouselState extends ConsumerState<ExploreCarousel>
 
     final size = MediaQuery.sizeOf(context);
     final heroHeight = size.height * 0.60;
+    // The wide hero layout is a size decision. A television reports 960 dp,
+    // which is already past this 900 dp breakpoint, so the device clause that
+    // used to be OR-ed in here could never change the answer for one.
     final isDesktop =
         size.width > LayoutConstants.exploreCarouselDesktopBreakpoint;
-
-    final profile = ref.watch(deviceProfileProvider).asData?.value;
-    final isTv = profile?.isTv ?? context.isTv;
 
     return VisibilityDetector(
       key: const Key('explore-carousel-visibility'),
@@ -318,7 +317,7 @@ class _ExploreCarouselState extends ConsumerState<ExploreCarousel>
                           height: heroHeight,
                           child: _buildCarouselStack(
                             heroHeight,
-                            isDesktop: isDesktop || isTv,
+                            isDesktop: isDesktop,
                           ),
                         ),
                       ),
@@ -341,7 +340,7 @@ class _ExploreCarouselState extends ConsumerState<ExploreCarousel>
                       height: heroHeight,
                       child: _buildCarouselStack(
                         heroHeight,
-                        isDesktop: isDesktop || isTv,
+                        isDesktop: isDesktop,
                       ),
                     ),
                   ),
@@ -557,13 +556,32 @@ class _ExploreCarouselState extends ConsumerState<ExploreCarousel>
             bottom: -bleed - parallaxOffset,
             left: 0,
             right: 0,
-            child: CachedNetworkImage(
-              imageUrl: imageUrl,
-              fit: BoxFit.cover,
-              placeholder: (context, url) =>
-                  Container(color: theme.colorScheme.surfaceContainerHighest),
-              errorWidget: (_, _, _) =>
-                  ThumbnailErrorPlaceholder(label: title, isBackdrop: true),
+            // The box is the slide plus its parallax bleed, and it is not the
+            // window: the wide layout pads the carousel, so only the
+            // constraints know how big this backdrop is actually painted.
+            // They are stable while a slide is up — parallax moves `top` and
+            // `bottom` by the same amount, so the height does not change —
+            // which matters because a decode bound that changed per frame
+            // would be a new image-cache key per frame.
+            child: LayoutBuilder(
+              builder: (context, constraints) => CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                // TV and desktop fetch `original` backdrops (tmdb_config.dart
+                // :78-80) — 1920x1080 at best, 3840x2160 for popular titles,
+                // i.e. 8.3-33 MB decoded each, seven of them cycling every
+                // 5 s against a 50 MB image cache. Bound to what is painted.
+                memCacheWidth: ImageUtils.coverDecodeWidth(
+                  context,
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
+                  sourceAspectRatio: ImageUtils.backdropAspectRatio,
+                ),
+                placeholder: (context, url) =>
+                    Container(color: theme.colorScheme.surfaceContainerHighest),
+                errorWidget: (_, _, _) =>
+                    ThumbnailErrorPlaceholder(label: title, isBackdrop: true),
+              ),
             ),
           ),
 

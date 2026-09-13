@@ -50,13 +50,63 @@ class NuvioProgress {
   bool get hasWork => totalCount > 0;
 }
 
+/// Bounded, self-pruning store of scraper answers.
+///
+/// A cache entry is one scraper's answer for one episode, and the key carries
+/// the scraper id, the title, the season, the episode and a hash of that
+/// scraper's settings. A session that browses a show for an hour mints a fresh
+/// key per episode per scraper and nothing ever removed the expired ones, so
+/// the map only grew - for the life of the process, holding every stream URL,
+/// title and header map it had ever seen. Entries past [ttl] go on the next
+/// write and the newest [maxEntries] survive, the same shape
+/// `LocalProxyService._playlists` uses.
+@visibleForTesting
+class NuvioResultCache {
+  NuvioResultCache({
+    this.maxEntries = 120,
+    this.ttl = NuvioStreamService.cacheTtl,
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
+
+  /// Roughly a dozen scrapers across ten episodes: enough that paging back to
+  /// an episode watched earlier in the session still hits, small enough that
+  /// the whole map is bounded by something the user can point at.
+  final int maxEntries;
+  final Duration ttl;
+  final DateTime Function() _clock;
+
+  final Map<String, _CacheEntry> _entries = {};
+
+  int get length => _entries.length;
+
+  void clear() => _entries.clear();
+
+  /// The fresh results for [key], or null. A hit is moved to the young end so
+  /// eviction drops what is genuinely least recently *used*, not merely
+  /// least recently written.
+  List<NuvioStreamResult>? lookup(String key) {
+    final entry = _entries.remove(key);
+    if (entry == null) return null;
+    if (_clock().difference(entry.createdAt) >= ttl) return null;
+    _entries[key] = entry;
+    return entry.results;
+  }
+
+  void store(String key, List<NuvioStreamResult> results) {
+    final now = _clock();
+    _entries.removeWhere((_, entry) => now.difference(entry.createdAt) >= ttl);
+    _entries.remove(key);
+    while (_entries.length >= maxEntries) {
+      _entries.remove(_entries.keys.first);
+    }
+    _entries[key] = _CacheEntry(results, now);
+  }
+}
+
 class _CacheEntry {
-  _CacheEntry(this.results) : createdAt = DateTime.now();
+  _CacheEntry(this.results, this.createdAt);
   final List<NuvioStreamResult> results;
   final DateTime createdAt;
-
-  bool get isFresh =>
-      DateTime.now().difference(createdAt) < NuvioStreamService.cacheTtl;
 }
 
 /// Runs every enabled Nuvio scraper for one title and streams results back as
@@ -76,7 +126,7 @@ class NuvioStreamService {
   /// Repeat visits to the same episode shouldn't re-run 60 scrapers.
   static const Duration cacheTtl = Duration(minutes: 10);
 
-  final Map<String, _CacheEntry> _cache = {};
+  final NuvioResultCache _cache = NuvioResultCache();
 
   void clearCache() => _cache.clear();
 
@@ -191,9 +241,9 @@ class NuvioStreamService {
         scraper.id,
         '${scraper.version}|${settings.isEmpty ? '' : jsonEncode(settings)}',
       );
-      final cached = _cache[key];
-      if (cached != null && cached.isFresh) {
-        publish(scraper.id, scraper.name, cached.results);
+      final cached = _cache.lookup(key);
+      if (cached != null) {
+        publish(scraper.id, scraper.name, cached);
         completed++;
         if (!updates.isClosed) updates.add(snapshot());
         return;
@@ -220,7 +270,7 @@ class NuvioStreamService {
           episode: episode,
           settings: settings,
         );
-        _cache[key] = _CacheEntry(results);
+        _cache.store(key, results);
         publish(scraper.id, scraper.name, results);
       } on NuvioRuntimeException catch (error) {
         statuses[scraper.id] = NuvioScraperStatus(

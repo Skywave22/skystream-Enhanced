@@ -4,6 +4,22 @@ import 'dart:io';
 export 'flutter_torrent_server_desktop.dart';
 
 class FlutterTorrentServer {
+  /// Header the embedded server accepts the per-launch token on.
+  static const String authTokenHeader =
+      FlutterTorrentServerPlatform.authTokenHeader;
+
+  /// Query parameter the embedded server accepts the per-launch token on.
+  static const String authTokenQueryParam =
+      FlutterTorrentServerPlatform.authTokenQueryParam;
+
+  /// Per-launch token for the running server, or null if it is not running.
+  ///
+  /// Anything that builds its own HTTP request against the server — listing
+  /// torrents, reading or writing settings, fetching a playlist — must send
+  /// this as [authTokenHeader], otherwise the server answers 401. Stream URLs
+  /// handed to a media engine do not need it.
+  String? get authToken => FlutterTorrentServerPlatform.instance.authToken;
+
   Future<int> start() async {
     final port = await FlutterTorrentServerPlatform.instance.start();
 

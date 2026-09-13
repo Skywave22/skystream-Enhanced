@@ -19,6 +19,7 @@ import 'features/extensions/providers/extensions_controller.dart';
 import 'features/extensions/widgets/extensions_sync_bridge.dart';
 import 'core/providers/update_provider.dart';
 import 'core/widgets/update_dialog.dart';
+import 'core/widgets/app_error_boundary.dart';
 import 'core/services/download_service.dart';
 import 'core/services/notification_service.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -30,19 +31,25 @@ import 'core/providers/device_info_provider.dart';
 import 'shared/widgets/loading_indicator.dart';
 import 'core/widgets/m3_toast_overlay.dart';
 import 'features/settings/presentation/general_settings_provider.dart';
-import 'features/settings/presentation/big_picture_provider.dart';
+import 'features/settings/presentation/full_screen_mode_provider.dart';
 import 'features/player/presentation/player_platform_service.dart'
     show immersiveRouteActive;
 
 /// The process's launch arguments, kept for the one consumer that needs them.
 ///
 /// `main` is the only place they exist, and the provider that reads them
-/// (`bigPictureModeProvider`) cannot be touched until a [ProviderScope] is
+/// (`fullScreenModeProvider`) cannot be touched until a [ProviderScope] is
 /// mounted - so they are parked here and applied from [_MyAppState.initState].
 /// Empty on mobile, where the platform never passes any.
 List<String> appLaunchArgs = const <String>[];
 
 void main(List<String> args) async {
+  // First statement in the process: a framework or async error raised while
+  // the rest of this function runs has nowhere else to go. Installs
+  // FlutterError.onError, PlatformDispatcher.onError and ErrorWidget.builder -
+  // see lib/core/widgets/app_error_boundary.dart.
+  installGlobalErrorHandlers();
+
   appLaunchArgs = args;
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -57,7 +64,9 @@ void main(List<String> args) async {
   // compile-time constant, so a normal build carries no trace of it.
   if (kPlayerRepaintRainbow) debugRepaintRainbowEnabled = true;
 
-  // Silence logs in release mode
+  // Silence the console in release mode. Diagnostics are not lost: the Talker
+  // ring buffer stays enabled in release (see app_logger.dart) so /logs and its
+  // export still have the run-up to a crash in them.
   if (kReleaseMode) {
     debugPrint = (String? message, {int? wrapWidth}) {};
   }
@@ -196,14 +205,17 @@ class _MyAppState extends ConsumerState<MyApp> {
   void initState() {
     super.initState();
     FocusManager.instance.addEarlyKeyEventHandler(_handleEarlyKeyEvent);
-    // `--big-picture` asks for the ten-foot layout on a desktop wired to a
-    // television. Applied here rather than in `main` because it writes through
-    // a provider, which needs the scope this widget sits inside.
-    ref.read(bigPictureModeProvider.notifier).initialize(appLaunchArgs);
+    // `--full-screen`, and the retired aliases beside it in
+    // [kFullScreenModeLaunchArgs], ask for the ten-foot layout on a desktop
+    // wired to a television. Applied here rather than in `main` because it
+    // writes through a provider, which needs the scope this widget sits
+    // inside.
+    ref.read(fullScreenModeProvider.notifier).initialize(appLaunchArgs);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(downloadServiceProvider).init();
-      _checkExtensionsUpdates();
+      unawaited(_loadInstalledExtensions());
       _checkAppUpdates();
+      unawaited(_checkExtensionsUpdates());
     });
   }
 
@@ -284,41 +296,92 @@ class _MyAppState extends ConsumerState<MyApp> {
     }
   }
 
-  Future<void> _checkExtensionsUpdates() async {
+  /// Reads the plugins the user already has on disk into
+  /// [ExtensionsController], on every launch, before anything asks for a
+  /// stream provider.
+  ///
+  /// Local disk only: no repository manifest is fetched here. Discovering
+  /// *newer* versions is [_checkExtensionsUpdates]'s job and it stays behind
+  /// its gates (nothing checked for six hours, not on a metered connection).
+  /// Loading what is already installed must not sit behind those gates. The
+  /// installed inventory is the only thing that ever populates
+  /// [ExtensionManager] - `ExtensionsSyncBridge` listens for it to change and
+  /// syncs it across - and with it empty `getAllProviders()` is empty, so
+  /// search finds nothing, the details screen offers no sources, and the home
+  /// screen's active-provider resolution never completes: it spins forever
+  /// waiting for a sync that cannot arrive. Skipping this because a repository
+  /// was last checked an hour ago, or because the phone is on cellular, would
+  /// strand exactly the users who already have plugins installed.
+  Future<void> _loadInstalledExtensions() async {
     try {
-      final controller = ref.read(extensionsControllerProvider.notifier);
-      await controller.ensureInitialized();
-      if (!mounted) return;
-
-      final updated = await controller.checkForUpdates();
-      if (updated.isNotEmpty && mounted) {
-        ref
-            .read(notificationServiceProvider)
-            .showExtension(
-              _buildUpdateMessage(updated),
-              title: 'Extensions Updated',
-              icon: Icons.extension_rounded,
-            );
-      }
+      await ref
+          .read(extensionsControllerProvider.notifier)
+          .loadInstalledPlugins();
     } catch (e) {
-      if (kDebugMode) debugPrint("Auto-update failed: $e");
+      if (kDebugMode) debugPrint('Installed extension load failed: $e');
     }
   }
 
-  /// Builds a human-readable update toast message that lists plugin names.
-  /// Shows up to 5 names; any remainder is shown as "-- N more".
-  /// Examples:
-  ///   "Updated: SuperStream"
-  ///   "Updated 3 extensions: SuperStream, AniStream, StreamFlix"
-  ///   "Updated 7 extensions: A, B, C, D, E -- 2 more"
-  static String _buildUpdateMessage(List<String> names) {
-    final count = names.length;
-    if (count == 1) return 'Updated: ${names.first}';
+  /// How long the extension update check waits after the first frame.
+  ///
+  /// It used to run *in* that first post-frame callback: one HTTP round trip
+  /// per repository, then a download and install of every outdated plugin,
+  /// then a QuickJS precompile - in the same seconds the home screen is
+  /// fetching and decoding posters. On a 2016-era Android TV stick that is the
+  /// first scroll of the session. Nothing downstream of this check is on
+  /// screen, so it waits until the launch is over rather than racing it.
+  static const Duration _extensionsCheckDelay = Duration(seconds: 15);
+
+  /// Refreshes the plugin repositories in the background and, if anything is
+  /// newer than what is installed, says so. Installs nothing - see
+  /// [ExtensionsController.checkForUpdates].
+  Future<void> _checkExtensionsUpdates() async {
+    await Future<void>.delayed(_extensionsCheckDelay);
+    if (!mounted) return;
+
+    try {
+      final pending = await ref
+          .read(extensionsControllerProvider.notifier)
+          .autoCheckForUpdates();
+      if (pending.isEmpty || !mounted) return;
+      _announceExtensionUpdates(pending);
+    } catch (e) {
+      if (kDebugMode) debugPrint("Extension update check failed: $e");
+    }
+  }
+
+  /// One toast, with the way to act on it attached.
+  ///
+  /// Reads its strings off the *router's* context: this State sits above
+  /// `MaterialApp`, so its own context has no `Localizations` ancestor. If the
+  /// navigator is not up yet there is no toast - the Extensions screen still
+  /// shows an update button per plugin, which is where the install happens
+  /// either way.
+  void _announceExtensionUpdates(List<String> names) {
+    final router = ref.read(appRouterProvider);
+    final navContext = router.routerDelegate.navigatorKey.currentContext;
+    if (navContext == null || !navContext.mounted) return;
+    final l10n = AppLocalizations.of(navContext);
+    if (l10n == null) return;
+
+    ref
+        .read(notificationServiceProvider)
+        .showToast(
+          title: l10n.updateAvailable,
+          message: _pluginNameList(names),
+          type: ToastType.extension,
+          icon: Icons.extension_rounded,
+          actionLabel: l10n.goToExtensions,
+          onAction: () => router.go(const ExtensionsRoute().location),
+        );
+  }
+
+  /// Plugin names, which are proper nouns and never translated, capped so a
+  /// user with twenty repositories does not get a wall of text.
+  static String _pluginNameList(List<String> names) {
     const maxShown = 5;
-    final shown = names.take(maxShown).join(', ');
-    final rest = count - maxShown;
-    final namesPart = rest > 0 ? '$shown -- $rest more' : shown;
-    return 'Updated $count extensions: $namesPart';
+    if (names.length <= maxShown) return names.join(', ');
+    return '${names.take(maxShown).join(', ')} +${names.length - maxShown}';
   }
 
   Future<void> _toggleFullscreen() async {
@@ -346,27 +409,6 @@ class _MyAppState extends ConsumerState<MyApp> {
     ref.listen<AsyncValue<DeviceProfile>>(deviceProfileProvider, (prev, next) {
       final value = next.value;
       if (value != null) TmdbConfig.setProfile(value);
-    });
-
-    // Reactive Listener: Keeps UpdateController alive and handles the UI side-effect
-    ref.listen<UpdateState>(updateControllerProvider, (previous, next) {
-      if (next is UpdateAvailable) {
-        final navContext = appRouter.routerDelegate.navigatorKey.currentContext;
-        if (navContext != null && navContext.mounted) {
-          if (kDebugMode) {
-            debugPrint(
-              '[Lifecycle] State update detected: UpdateAvailable. Showing dialog.',
-            );
-          }
-          UpdateDialog.show(navContext, next.release);
-        } else {
-          if (kDebugMode) {
-            debugPrint(
-              '[Lifecycle] Update available but navContext not ready/mounted.',
-            );
-          }
-        }
-      }
     });
 
     return DynamicColorBuilder(
@@ -432,7 +474,11 @@ class _MyAppState extends ConsumerState<MyApp> {
               }
             }
 
-            return M3ToastOverlay(child: result);
+            // Both of these stand down over the player, and both need the
+            // router to know it, so they sit together here - inside
+            // `MaterialApp.router`'s builder, i.e. around the Navigator that
+            // builds the player route.
+            return UpdatePromptHost(child: M3ToastOverlay(child: result));
           },
         );
 

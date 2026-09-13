@@ -60,11 +60,10 @@ class AppLocalizationsMr extends AppLocalizations {
   String get recordWatchHistory => 'पाहिलेला इतिहास जतन करा';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'पूर्ण स्क्रीन';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'टीव्ही लेआउटवर स्विच करते';
 
   @override
   String get defaultHomeScreen => 'डीफॉल्ट मुख्यपृष्ठ स्क्रीन';
@@ -423,6 +422,28 @@ class AppLocalizationsMr extends AppLocalizations {
   String get min => 'मिनिट';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count सेकंद मागे जा',
+      one: '1 सेकंद मागे जा',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count सेकंद पुढे जा',
+      one: '1 सेकंद पुढे जा',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'अंतर्गत प्लेअर (VLC)';
 
   @override
@@ -743,6 +764,9 @@ class AppLocalizationsMr extends AppLocalizations {
 
   @override
   String get goBack => 'परत जा';
+
+  @override
+  String get restartApp => 'ॲप रीस्टार्ट करा';
 
   @override
   String get resolving => 'सोडवत आहे...';
@@ -1604,6 +1628,30 @@ class AppLocalizationsMr extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'स्क्रॅपर शोधत आहे…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'सध्याच्या फिल्टरशी कोणतीही लिंक जुळत नाही.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'या शीर्षकाची TMDB ID नाही. \'Search manually\' वापरून टाका.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'कोणताही स्क्रॅपर सुरू नाही. \'Nuvio Plugins\' मध्ये एक जोडा.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'सर्व स्क्रॅपर अयशस्वी झाले. तुमचे कनेक्शन तपासा किंवा स्क्रॅपर अपडेट करा.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'कोणतीही लिंक सापडली नाही. $total पैकी $failed स्क्रॅपर अयशस्वी.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'तुमच्या कोणत्याही स्क्रॅपरकडे हे शीर्षक नाही.';
 }

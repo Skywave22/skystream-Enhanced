@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/layout_constants.dart';
 import '../../../core/utils/responsive_breakpoints.dart';
-import '../../../core/providers/device_info_provider.dart';
 import 'search_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import 'widgets/search_result_section.dart';
@@ -202,9 +201,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profile = ref.watch(deviceProfileProvider).asData?.value;
-    final isTv = profile?.isTv == true || context.isTv;
-    final isWidescreen = isTv || context.isTabletOrLarger;
+    // Size question, asked of the size: a 960 dp television clears the
+    // tablet breakpoint like any other big window.
+    final isWidescreen = context.isTabletOrLarger;
 
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -716,9 +715,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       );
     }
     final nativeFont = Theme.of(context).textTheme.bodyLarge?.fontFamily;
-    final profile = ref.watch(deviceProfileProvider).asData?.value;
-    final isTv = profile?.isTv == true || context.isTv;
-    final isWidescreen = isTv || context.isTabletOrLarger;
+    final isWidescreen = context.isTabletOrLarger;
     final imageWidth = isWidescreen ? 320.0 : 200.0;
 
     // No search results found: display No Results Found text and the image grouped vertically

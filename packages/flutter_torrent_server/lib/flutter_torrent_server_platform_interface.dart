@@ -23,6 +23,23 @@ abstract class FlutterTorrentServerPlatform extends PlatformInterface {
     _instance = instance;
   }
 
+  /// Header the embedded server accepts the per-launch token on.
+  static const String authTokenHeader = 'X-TorrServer-Token';
+
+  /// Query parameter the embedded server accepts the per-launch token on, for
+  /// callers that can only be handed a URL (an external media engine).
+  static const String authTokenQueryParam = 'token';
+
+  /// The per-launch token for the currently running server, or null when no
+  /// server has been started.
+  ///
+  /// The server binds loopback only and requires this token on every endpoint
+  /// that can enumerate or mutate the user's torrent library, so any caller
+  /// building its own request against the server must present it. Streaming
+  /// endpoints (/stream, /play) do not need it: they are handed to an external
+  /// media engine as a bare URL and are protected by the torrent's infohash.
+  String? get authToken => null;
+
   /// Starts the embedded Torrent Server.
   /// Returns the port number it is listening on, or -1 on error.
   Future<int> start() {

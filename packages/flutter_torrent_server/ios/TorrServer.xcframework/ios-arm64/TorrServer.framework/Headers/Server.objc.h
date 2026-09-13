@@ -13,7 +13,15 @@
 
 FOUNDATION_EXPORT void ServerAddTrackers(NSString* _Nullable trackers);
 
-FOUNDATION_EXPORT void ServerStart(NSString* _Nullable pathdb, NSString* _Nullable port, BOOL roSets, BOOL searchWA);
+/**
+ * Start brings up the embedded torrent server.
+
+authToken is the per-launch secret that privileged HTTP endpoints require.
+Callers that need to talk to those endpoints (the Flutter plugin) generate
+one and pass it in. Passing "" mints an unguessable token that nobody holds,
+which locks the privileged surface rather than opening it.
+ */
+FOUNDATION_EXPORT void ServerStart(NSString* _Nullable pathdb, NSString* _Nullable port, NSString* _Nullable authToken, BOOL roSets, BOOL searchWA);
 
 FOUNDATION_EXPORT void ServerStop(void);
 

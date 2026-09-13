@@ -1,9 +1,28 @@
 import Flutter
+import Security
 import UIKit
 import TorrServer // Import the generated framework
 
+private let authTokenHeader = "X-TorrServer-Token"
+
 public class FlutterTorrentServerPlugin: NSObject, FlutterPlugin {
   private var serverPort: Int = 0
+  private var authToken: String = ""
+
+  /// Per-launch secret for the embedded server's privileged endpoints.
+  ///
+  /// The server binds 127.0.0.1 only, so this is not about the network: other
+  /// apps on the device share loopback, and without a token any of them could
+  /// read the user's torrent list off this app's server.
+  private func newAuthToken() -> String {
+    var bytes = [UInt8](repeating: 0, count: 32)
+    if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) != errSecSuccess {
+      // Fail closed: an empty token is rejected by the server, which locks the
+      // privileged endpoints rather than opening them.
+      return ""
+    }
+    return bytes.map { String(format: "%02x", $0) }.joined()
+  }
   
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "flutter_torrent_server", binaryMessenger: registrar.messenger())
@@ -44,12 +63,14 @@ public class FlutterTorrentServerPlugin: NSObject, FlutterPlugin {
             let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!.path + "/torrent_tmp"
             do {
                 try FileManager.default.createDirectory(atPath: cacheDir, withIntermediateDirectories: true, attributes: nil)
-                // Call the Go binding: ServerStart(pathdb, port, roSets, searchWA)
-                ServerStart(cacheDir, "8090", false, false)
+                // Call the Go binding: ServerStart(pathdb, port, authToken, roSets, searchWA)
+                let token = self.newAuthToken()
+                ServerStart(cacheDir, "8090", token, false, false)
+                self.authToken = token
                 self.serverPort = 8090 // Keep consistent
-                
+
                 DispatchQueue.main.async {
-                    result(self.serverPort)
+                    result(["port": self.serverPort, "token": token])
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -58,7 +79,7 @@ public class FlutterTorrentServerPlugin: NSObject, FlutterPlugin {
             }
         } else {
             DispatchQueue.main.async {
-                result(self.serverPort)
+                result(["port": self.serverPort, "token": self.authToken])
             }
         }
     }
@@ -73,7 +94,8 @@ public class FlutterTorrentServerPlugin: NSObject, FlutterPlugin {
       var request = URLRequest(url: url)
       request.httpMethod = "POST"
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      
+      request.setValue(authToken, forHTTPHeaderField: authTokenHeader)
+
       let body: [String: Any] = ["action": "add", "link": link]
       request.httpBody = try? JSONSerialization.data(withJSONObject: body)
       
@@ -118,7 +140,8 @@ public class FlutterTorrentServerPlugin: NSObject, FlutterPlugin {
       var request = URLRequest(url: url)
       request.httpMethod = "POST"
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      
+      request.setValue(authToken, forHTTPHeaderField: authTokenHeader)
+
       let body: [String: Any] = ["action": "get", "hash": hash]
       request.httpBody = try? JSONSerialization.data(withJSONObject: body)
       

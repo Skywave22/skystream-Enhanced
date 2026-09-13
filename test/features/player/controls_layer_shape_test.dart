@@ -7,8 +7,10 @@ import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/features/player/presentation/vlc/ended_card.dart';
 import 'package:skystream/features/player/presentation/vlc/next_episode_countdown.dart';
 import 'package:skystream/features/player/presentation/vlc/vlc_player_controls.dart';
+import 'package:skystream/features/skip/data/skip_service.dart'
+    show SkipSegment, SkipType;
 import 'package:skystream/features/player/presentation/widgets/player_control_components.dart'
-    show PlayerCenterPlayButton;
+    show PlayerActionButton, PlayerCenterPlayButton;
 import 'package:skystream/features/settings/presentation/player_settings_provider.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 import 'package:vlc_player/vlc_player.dart';
@@ -74,6 +76,7 @@ Future<VlcPlayerController> _pumpControls(
   bool isTv = true,
   Size size = _tv,
   ValueNotifier<bool>? locked,
+  List<SkipSegment> skipSegments = const <SkipSegment>[],
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -96,6 +99,7 @@ Future<VlcPlayerController> _pumpControls(
         onBack: () {},
         onNextEpisode: () {},
         locked: locked,
+        skipSegments: skipSegments,
       ),
       isTv: isTv,
     ),
@@ -135,10 +139,25 @@ double _fractionOfViewport(RenderBox box, Size viewport) {
 }
 
 /// The body of the 40 % rule, run against whatever viewport was pumped.
-void _expectNoLargeEffectLayer(WidgetTester tester, Size viewport) {
-  final root = tester.renderObject(find.byType(VlcPlayerControls));
-  final layers = _effectLayers(root);
-  expect(layers, isNotEmpty, reason: 'the fade is expected to exist');
+///
+/// [root] is a parameter because the rule is about *the layers over the
+/// platform view*, not about one widget: the up-next card is a sibling of
+/// [VlcPlayerControls] in the player's Stack (vlc_player_screen.dart), never a
+/// descendant, so a walk rooted at the controls could never have seen it.
+/// [expectFade] comes off for the roots that legitimately have no fade of
+/// their own - the emptiness of the list is the point there.
+void _expectNoLargeEffectLayer(
+  WidgetTester tester,
+  Size viewport, {
+  Finder? root,
+  bool expectFade = true,
+}) {
+  final layers = _effectLayers(
+    tester.renderObject(root ?? find.byType(VlcPlayerControls)),
+  );
+  if (expectFade) {
+    expect(layers, isNotEmpty, reason: 'the fade is expected to exist');
+  }
 
   for (final layer in layers) {
     expect(
@@ -201,6 +220,51 @@ void main() {
         find.byType(PlayerCenterPlayButton),
         findsNothing,
         reason: 'locked withdraws the glyph, so this is the locked tree',
+      );
+      _expectNoLargeEffectLayer(tester, _phone);
+    });
+
+    // The skip chip got a container in the same pass that made volume common
+    // (see controls_focus_test.dart, 'the skip chip is a painted pill'). The
+    // obvious way to make a chip readable over a bright frame is a
+    // BackdropFilter, and that is precisely the shape this file forbids: the
+    // chip is mounted and unmounted on the position clock, several times an
+    // episode, so a blur there is an IOSurface torn down and rebuilt at every
+    // intro and every outro - over the platform view, on macOS and iOS. It is
+    // a DecoratedBox instead, which is paint in a layer that already exists.
+    testWidgets('nor around the skip chip, whose pill is paint', (
+      tester,
+    ) async {
+      await _pumpControls(
+        tester,
+        isTv: false,
+        size: _phone,
+        skipSegments: <SkipSegment>[
+          SkipSegment(startTime: 0, endTime: 60, type: SkipType.intro),
+        ],
+      );
+
+      expect(
+        find.byType(PlayerActionButton),
+        findsOneWidget,
+        reason: 'otherwise this is measuring a tree with no chip in it',
+      );
+
+      // Rooted at the controls, not at the chip: the container is an
+      // ANCESTOR of the chip, so a walk starting there would step straight
+      // past the very thing this is about. The rule is that the whole chrome
+      // has exactly one kind of effect layer - the two bar fades - and
+      // nothing that reads the surface back.
+      final layers = _effectLayers(
+        tester.renderObject(find.byType(VlcPlayerControls)),
+      );
+      expect(
+        layers.whereType<RenderAnimatedOpacity>().length,
+        layers.length,
+        reason:
+            'the only effect layers in the player chrome are its fades; a '
+            'filter or a bare opacity has appeared: '
+            '${layers.map((l) => '${l.runtimeType} ${l.paintBounds.size}').join(', ')}',
       );
       _expectNoLargeEffectLayer(tester, _phone);
     });
@@ -271,6 +335,77 @@ void main() {
             'if a fade is ever wanted here, fade the inner Column - not the '
             'backdrop: ${layers.map((l) => l.runtimeType).join(', ')}',
       );
+    });
+  });
+
+  group('NextEpisodeCountdown compositing', () {
+    /// The card is the one overlay this file could not see.
+    ///
+    /// `_expectNoLargeEffectLayer` walked the tree under [VlcPlayerControls],
+    /// and the card is mounted *beside* the controls rather than inside them
+    /// (vlc_player_screen.dart, `_unlessLocked(_nextEpisodeCard(...))`), so a
+    /// BackdropFilter dropped over the still tomorrow would have been caught
+    /// by nothing at all.
+    ///
+    /// The area rule alone cannot cover it, and that is measured rather than
+    /// assumed: the whole card is 300x304 dp on a 960x540 set, 17.6 % of the
+    /// viewport, so *nothing* inside it can reach 40 % and the cap would pass
+    /// a full-card blur. So the card is held to the stricter line the ended
+    /// card is held to - no effect layer at all - for a reason of its own:
+    /// this thing sits over the native video surface with a ring that repaints
+    /// on every vsync, and a blur there is a readback of that surface 60 times
+    /// a second, not once per counted down second.
+    testWidgets('the up-next card carries no effect layer at all', (
+      tester,
+    ) async {
+      // The real ten-foot canvas, so the fraction below is the product's.
+      const viewport = Size(960, 540);
+      tester.view.physicalSize = viewport;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        _host(
+          const NextEpisodeCountdown(
+            title: 'The Body',
+            posterUrl: 'https://example.com/still.jpg',
+            season: 5,
+            episode: 16,
+            rating: 9.7,
+            runtime: Duration(minutes: 44),
+            description:
+                'Buffy comes home to find her mother on the couch, and the '
+                'hour that follows is told almost entirely without music.',
+            countdown: Duration(seconds: 15),
+            isTv: true,
+            onPlayNext: _nothing,
+            onCancel: _nothing,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final card = find.byType(NextEpisodeCountdown);
+      final layers = _effectLayers(tester.renderObject(card));
+      expect(
+        layers,
+        isEmpty,
+        reason:
+            'the still is clipped, not filtered, and the badge over it is a '
+            'flat translucent fill rather than a blur: '
+            '${layers.map((l) => '${l.runtimeType} ${l.paintBounds.size}').join(', ')}',
+      );
+
+      // And the file's own 40 % rule, so the card is inside the same walk the
+      // bars are - it is the roof, the emptiness above is the floor.
+      _expectNoLargeEffectLayer(
+        tester,
+        viewport,
+        root: card,
+        expectFade: false,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
     });
   });
 

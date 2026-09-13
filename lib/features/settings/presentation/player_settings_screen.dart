@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/device_info_provider.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/utils/layout_constants.dart';
-import '../../../core/utils/responsive_breakpoints.dart';
 import '../../../core/utils/stream_quality_sorter.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 import 'player_settings_provider.dart';
@@ -22,18 +21,30 @@ class PlayerSettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final profile = ref.watch(deviceProfileProvider).asData?.value;
-    final isTv = profile?.isTv == true || context.isTv;
 
     final playerSettings =
         ref.watch(playerSettingsProvider).asData?.value ??
         const PlayerSettings();
 
+    // Whether this device has a touchscreen, which is the only thing the four
+    // gesture rows below depend on: a swipe, a drag and a double-tap are the
+    // one input that genuinely does not exist on a remote, a keyboard or a
+    // mouse, so they are the one control the app is allowed to hide.
+    //
+    // A hardware fact, therefore, and asked of hardware: the mobile operating
+    // systems, minus the leanback boxes and Apple TVs that run them without a
+    // touchscreen. `DeviceProfile.isTv` is the single authority for "this is a
+    // television"; the geometric guess in `ResponsiveContext` that used to be
+    // OR-ed in here called every landscape Android phone a television and took
+    // all four rows away while the gestures kept firing underneath them, so
+    // the viewer could no longer switch off a gesture that was still happening.
+    // Window shape must never reach this decision - the phone in landscape and
+    // the phone in portrait are the same phone.
     final platform = Theme.of(context).platform;
-    final isDesktopOS =
-        platform == TargetPlatform.windows ||
-        platform == TargetPlatform.macOS ||
-        platform == TargetPlatform.linux;
-    final isTouchDevice = !isTv && !isDesktopOS;
+    final isTouchDevice =
+        (platform == TargetPlatform.android ||
+            platform == TargetPlatform.iOS) &&
+        profile?.isTv != true;
 
     final content = Center(
       child: ConstrainedBox(

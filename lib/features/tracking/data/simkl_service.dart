@@ -124,6 +124,19 @@ class SimklService implements TrackingService {
     await _storage.delete(_kAccessTokenKey);
   }
 
+  /// Simkl's PIN-flow tokens do not expire and there is no refresh grant, so a
+  /// 401 means the user revoked this app or the token was invalidated
+  /// server-side. There is nothing to renew: drop the session so [isLoggedIn]
+  /// reports false and the account tile prompts for a reconnect instead of
+  /// reading "Connected" over a sync that will never work again.
+  Future<void> _handleUnauthorized(Object error) async {
+    if (error is! DioException) return;
+    if (error.response?.statusCode != 401) return;
+    talker.error('SimklService: token rejected (401), clearing the session');
+    _accessToken = null;
+    await _storage.delete(_kAccessTokenKey);
+  }
+
   @override
   Future<List<MultimediaItem>> search(String query) async {
     if (_accessToken == null) return [];
@@ -279,6 +292,7 @@ class SimklService implements TrackingService {
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
       talker.error('SimklService: Add to list $listType failed', e);
+      await _handleUnauthorized(e);
       return false;
     }
   }
@@ -335,6 +349,7 @@ class SimklService implements TrackingService {
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
       talker.error('SimklService: Mark watched failed', e);
+      await _handleUnauthorized(e);
       return false;
     }
   }

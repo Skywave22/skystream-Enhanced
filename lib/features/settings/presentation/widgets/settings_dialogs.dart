@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,7 +10,6 @@ import '../../../../core/services/external_player_service.dart';
 import '../../../../core/config/tmdb_config.dart';
 import '../../../../core/network/dio_client_provider.dart';
 import '../../../../core/network/doh_service.dart';
-import '../../../stream/data/stream_browser_provider.dart';
 import '../../../../core/storage/settings_repository.dart';
 import '../../../../core/services/download_service.dart';
 import '../../../../core/theme/theme_provider.dart';
@@ -17,7 +18,9 @@ import '../../../../shared/widgets/loading_indicator.dart';
 import '../player_settings_provider.dart';
 import '../../../../core/utils/stream_quality_sorter.dart';
 import '../general_settings_provider.dart';
+import '../../../../core/providers/device_info_provider.dart';
 import '../../../../core/providers/locale_provider.dart';
+import '../../../player/presentation/player_platform_service.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 import '../../../../core/services/notification_service.dart';
 import '../cache_provider.dart';
@@ -64,6 +67,50 @@ String getHomeScreenLabel(String route, AppLocalizations l10n) {
   }
 }
 
+/// Scrolls its child into view once, on the frame after the picker is laid
+/// out.
+///
+/// [ListTile.autofocus] gives the current value the focus but does not move a
+/// [Scrollable]. In a picker taller than its dialog — the language list is
+/// thirty-odd rows — that would focus the right row off screen and still open
+/// the list on row one, which is the bug this is here to close. A no-op when
+/// the list already fits, since there is then nothing to scroll.
+class _ScrollIntoView extends StatefulWidget {
+  const _ScrollIntoView({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_ScrollIntoView> createState() => _ScrollIntoViewState();
+}
+
+class _ScrollIntoViewState extends State<_ScrollIntoView> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || Scrollable.maybeOf(context) == null) return;
+      // Duration.zero jumps rather than animating: the picker should already
+      // be showing the current value on the first frame the viewer sees.
+      unawaited(
+        Scrollable.ensureVisible(
+          context,
+          alignment: 0.5,
+          duration: Duration.zero,
+        ),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// Wraps the one option row that matches the current value so it is scrolled
+/// into view. Pair with `autofocus: isCurrent` on the row itself.
+Widget _currentOption({required bool isCurrent, required Widget child}) =>
+    isCurrent ? _ScrollIntoView(child: child) : child;
+
 /// Shows a dialog to pick the default home screen.
 void showDefaultHomeScreenDialog(
   BuildContext context,
@@ -94,15 +141,20 @@ void showDefaultHomeScreenDialog(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: options.map((opt) {
-              return ListTile(
-                title: Text(opt['label']!),
-                leading: Radio<String>(value: opt['route']!),
-                onTap: () {
-                  ref
-                      .read(generalSettingsProvider.notifier)
-                      .setDefaultHomeScreen(opt['route']!);
-                  Navigator.pop<void>(context);
-                },
+              final bool isCurrent = opt['route'] == current;
+              return _currentOption(
+                isCurrent: isCurrent,
+                child: ListTile(
+                  autofocus: isCurrent,
+                  title: Text(opt['label']!),
+                  leading: Radio<String>(value: opt['route']!),
+                  onTap: () {
+                    ref
+                        .read(generalSettingsProvider.notifier)
+                        .setDefaultHomeScreen(opt['route']!);
+                    Navigator.pop<void>(context);
+                  },
+                ),
               );
             }).toList(),
           ),
@@ -151,15 +203,20 @@ void showTitlePositionDialog(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: options.map((opt) {
-              return ListTile(
-                title: Text(opt['label']!),
-                leading: Radio<String>(value: opt['value']!),
-                onTap: () {
-                  ref
-                      .read(generalSettingsProvider.notifier)
-                      .setTitlePosition(opt['value']!);
-                  Navigator.pop<void>(context);
-                },
+              final bool isCurrent = opt['value'] == current;
+              return _currentOption(
+                isCurrent: isCurrent,
+                child: ListTile(
+                  autofocus: isCurrent,
+                  title: Text(opt['label']!),
+                  leading: Radio<String>(value: opt['value']!),
+                  onTap: () {
+                    ref
+                        .read(generalSettingsProvider.notifier)
+                        .setTitlePosition(opt['value']!);
+                    Navigator.pop<void>(context);
+                  },
+                ),
               );
             }).toList(),
           ),
@@ -494,11 +551,21 @@ void showDownloadChunksDialog(
 }
 
 // Must be used inside a RadioGroup<ThemeMode> ancestor.
-Widget _buildThemeOption(String title, ThemeMode value, VoidCallback onSelect) {
-  return ListTile(
-    title: Text(title),
-    leading: Radio<ThemeMode>(value: value),
-    onTap: onSelect,
+Widget _buildThemeOption(
+  String title,
+  ThemeMode value,
+  ThemeMode current,
+  VoidCallback onSelect,
+) {
+  final bool isCurrent = value == current;
+  return _currentOption(
+    isCurrent: isCurrent,
+    child: ListTile(
+      autofocus: isCurrent,
+      title: Text(title),
+      leading: Radio<ThemeMode>(value: value),
+      onTap: onSelect,
+    ),
   );
 }
 
@@ -577,19 +644,26 @@ void showGestureDialog(
             mainAxisSize: MainAxisSize.min,
             children: PlayerGesture.values.map((g) {
               final String label = getGestureLabel(g, l10n);
-              return ListTile(
-                title: Text(label),
-                leading: Radio<PlayerGesture>(value: g),
-                onTap: () {
-                  if (isLeft) {
-                    ref.read(playerSettingsProvider.notifier).setLeftGesture(g);
-                  } else {
-                    ref
-                        .read(playerSettingsProvider.notifier)
-                        .setRightGesture(g);
-                  }
-                  Navigator.pop<void>(context);
-                },
+              final bool isCurrent = g == current;
+              return _currentOption(
+                isCurrent: isCurrent,
+                child: ListTile(
+                  autofocus: isCurrent,
+                  title: Text(label),
+                  leading: Radio<PlayerGesture>(value: g),
+                  onTap: () {
+                    if (isLeft) {
+                      ref
+                          .read(playerSettingsProvider.notifier)
+                          .setLeftGesture(g);
+                    } else {
+                      ref
+                          .read(playerSettingsProvider.notifier)
+                          .setRightGesture(g);
+                    }
+                    Navigator.pop<void>(context);
+                  },
+                ),
               );
             }).toList(),
           ),
@@ -620,15 +694,20 @@ void showDurationDialog(BuildContext context, WidgetRef ref, int current) {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: options.map((sec) {
-              return ListTile(
-                title: Text(formatSeekDuration(sec, l10n)),
-                leading: Radio<int>(value: sec),
-                onTap: () {
-                  ref
-                      .read(playerSettingsProvider.notifier)
-                      .setSeekDuration(sec);
-                  Navigator.pop<void>(context);
-                },
+              final bool isCurrent = sec == current;
+              return _currentOption(
+                isCurrent: isCurrent,
+                child: ListTile(
+                  autofocus: isCurrent,
+                  title: Text(formatSeekDuration(sec, l10n)),
+                  leading: Radio<int>(value: sec),
+                  onTap: () {
+                    ref
+                        .read(playerSettingsProvider.notifier)
+                        .setSeekDuration(sec);
+                    Navigator.pop<void>(context);
+                  },
+                ),
               );
             }).toList(),
           ),
@@ -662,15 +741,20 @@ void showResizeDialog(BuildContext context, WidgetRef ref, String current) {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: options.map((e) {
-              return ListTile(
-                title: Text(e['label']!),
-                leading: Radio<String>(value: e['value']!),
-                onTap: () {
-                  ref
-                      .read(playerSettingsProvider.notifier)
-                      .setDefaultResizeMode(e['value']!);
-                  Navigator.pop<void>(ctx);
-                },
+              final bool isCurrent = e['value'] == current;
+              return _currentOption(
+                isCurrent: isCurrent,
+                child: ListTile(
+                  autofocus: isCurrent,
+                  title: Text(e['label']!),
+                  leading: Radio<String>(value: e['value']!),
+                  onTap: () {
+                    ref
+                        .read(playerSettingsProvider.notifier)
+                        .setDefaultResizeMode(e['value']!);
+                    Navigator.pop<void>(ctx);
+                  },
+                ),
               );
             }).toList(),
           ),
@@ -702,15 +786,20 @@ void showReadaheadDialog(BuildContext context, WidgetRef ref, int current) {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: options.map((sec) {
-              return ListTile(
-                title: Text(formatReadahead(sec, l10n)),
-                leading: Radio<int>(value: sec),
-                onTap: () {
-                  ref
-                      .read(playerSettingsProvider.notifier)
-                      .setReadaheadSeconds(sec);
-                  Navigator.pop<void>(context);
-                },
+              final bool isCurrent = sec == current;
+              return _currentOption(
+                isCurrent: isCurrent,
+                child: ListTile(
+                  autofocus: isCurrent,
+                  title: Text(formatReadahead(sec, l10n)),
+                  leading: Radio<int>(value: sec),
+                  onTap: () {
+                    ref
+                        .read(playerSettingsProvider.notifier)
+                        .setReadaheadSeconds(sec);
+                    Navigator.pop<void>(context);
+                  },
+                ),
               );
             }).toList(),
           ),
@@ -812,30 +901,39 @@ void showDefaultPlayerDialog(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                title: Text(l10n.internalPlayer),
-                subtitle: Text(l10n.builtInPlayer),
-                leading: const Radio<String?>(value: null),
-                trailing: const Icon(Icons.play_circle_filled_rounded),
-                onTap: () {
-                  ref
-                      .read(playerSettingsProvider.notifier)
-                      .setPreferredPlayer(null);
-                  Navigator.pop<void>(context);
-                },
-              ),
-              const Divider(),
-              ...platformPlayers.map((player) {
-                return ListTile(
-                  title: Text(player.displayName),
-                  leading: Radio<String?>(value: player.id),
-                  trailing: Icon(player.icon),
+              _currentOption(
+                isCurrent: currentPlayerId == null,
+                child: ListTile(
+                  autofocus: currentPlayerId == null,
+                  title: Text(l10n.internalPlayer),
+                  subtitle: Text(l10n.builtInPlayer),
+                  leading: const Radio<String?>(value: null),
+                  trailing: const Icon(Icons.play_circle_filled_rounded),
                   onTap: () {
                     ref
                         .read(playerSettingsProvider.notifier)
-                        .setPreferredPlayer(player.id);
+                        .setPreferredPlayer(null);
                     Navigator.pop<void>(context);
                   },
+                ),
+              ),
+              const Divider(),
+              ...platformPlayers.map((player) {
+                final bool isCurrent = player.id == currentPlayerId;
+                return _currentOption(
+                  isCurrent: isCurrent,
+                  child: ListTile(
+                    autofocus: isCurrent,
+                    title: Text(player.displayName),
+                    leading: Radio<String?>(value: player.id),
+                    trailing: Icon(player.icon),
+                    onTap: () {
+                      ref
+                          .read(playerSettingsProvider.notifier)
+                          .setPreferredPlayer(player.id);
+                      Navigator.pop<void>(context);
+                    },
+                  ),
                 );
               }),
             ],
@@ -920,51 +1018,81 @@ class _DohProviderDialogState extends ConsumerState<_DohProviderDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                title: Text(l10n.cloudflare),
-                subtitle: const Text('1.1.1.1'),
-                leading: const Radio<DohProvider>(
-                  value: DohProvider.cloudflare,
+              _currentOption(
+                isCurrent: _currentProvider == DohProvider.cloudflare,
+                child: ListTile(
+                  autofocus: _currentProvider == DohProvider.cloudflare,
+                  title: Text(l10n.cloudflare),
+                  subtitle: const Text('1.1.1.1'),
+                  leading: const Radio<DohProvider>(
+                    value: DohProvider.cloudflare,
+                  ),
+                  onTap: () => _saveAndClose(DohProvider.cloudflare),
                 ),
-                onTap: () => _saveAndClose(DohProvider.cloudflare),
               ),
-              ListTile(
-                title: Text(l10n.google),
-                subtitle: const Text('8.8.8.8'),
-                leading: const Radio<DohProvider>(value: DohProvider.google),
-                onTap: () => _saveAndClose(DohProvider.google),
-              ),
-              ListTile(
-                title: Text(l10n.adguard),
-                subtitle: const Text('dns.adguard.com'),
-                leading: const Radio<DohProvider>(value: DohProvider.adguard),
-                onTap: () => _saveAndClose(DohProvider.adguard),
-              ),
-              ListTile(
-                title: Text(l10n.dnsWatch),
-                subtitle: const Text('resolver2.dns.watch'),
-                leading: const Radio<DohProvider>(value: DohProvider.dnsWatch),
-                onTap: () => _saveAndClose(DohProvider.dnsWatch),
-              ),
-              ListTile(
-                title: Text(l10n.quad9),
-                subtitle: const Text('9.9.9.9'),
-                leading: const Radio<DohProvider>(value: DohProvider.quad9),
-                onTap: () => _saveAndClose(DohProvider.quad9),
-              ),
-              ListTile(
-                title: Text(l10n.dnsSb),
-                subtitle: const Text('doh.dns.sb'),
-                leading: const Radio<DohProvider>(value: DohProvider.dnsSb),
-                onTap: () => _saveAndClose(DohProvider.dnsSb),
-              ),
-              ListTile(
-                title: Text(l10n.canadianShield),
-                subtitle: const Text('private.canadianshield.cira.ca'),
-                leading: const Radio<DohProvider>(
-                  value: DohProvider.canadianShield,
+              _currentOption(
+                isCurrent: _currentProvider == DohProvider.google,
+                child: ListTile(
+                  autofocus: _currentProvider == DohProvider.google,
+                  title: Text(l10n.google),
+                  subtitle: const Text('8.8.8.8'),
+                  leading: const Radio<DohProvider>(value: DohProvider.google),
+                  onTap: () => _saveAndClose(DohProvider.google),
                 ),
-                onTap: () => _saveAndClose(DohProvider.canadianShield),
+              ),
+              _currentOption(
+                isCurrent: _currentProvider == DohProvider.adguard,
+                child: ListTile(
+                  autofocus: _currentProvider == DohProvider.adguard,
+                  title: Text(l10n.adguard),
+                  subtitle: const Text('dns.adguard.com'),
+                  leading: const Radio<DohProvider>(value: DohProvider.adguard),
+                  onTap: () => _saveAndClose(DohProvider.adguard),
+                ),
+              ),
+              _currentOption(
+                isCurrent: _currentProvider == DohProvider.dnsWatch,
+                child: ListTile(
+                  autofocus: _currentProvider == DohProvider.dnsWatch,
+                  title: Text(l10n.dnsWatch),
+                  subtitle: const Text('resolver2.dns.watch'),
+                  leading: const Radio<DohProvider>(
+                    value: DohProvider.dnsWatch,
+                  ),
+                  onTap: () => _saveAndClose(DohProvider.dnsWatch),
+                ),
+              ),
+              _currentOption(
+                isCurrent: _currentProvider == DohProvider.quad9,
+                child: ListTile(
+                  autofocus: _currentProvider == DohProvider.quad9,
+                  title: Text(l10n.quad9),
+                  subtitle: const Text('9.9.9.9'),
+                  leading: const Radio<DohProvider>(value: DohProvider.quad9),
+                  onTap: () => _saveAndClose(DohProvider.quad9),
+                ),
+              ),
+              _currentOption(
+                isCurrent: _currentProvider == DohProvider.dnsSb,
+                child: ListTile(
+                  autofocus: _currentProvider == DohProvider.dnsSb,
+                  title: Text(l10n.dnsSb),
+                  subtitle: const Text('doh.dns.sb'),
+                  leading: const Radio<DohProvider>(value: DohProvider.dnsSb),
+                  onTap: () => _saveAndClose(DohProvider.dnsSb),
+                ),
+              ),
+              _currentOption(
+                isCurrent: _currentProvider == DohProvider.canadianShield,
+                child: ListTile(
+                  autofocus: _currentProvider == DohProvider.canadianShield,
+                  title: Text(l10n.canadianShield),
+                  subtitle: const Text('private.canadianshield.cira.ca'),
+                  leading: const Radio<DohProvider>(
+                    value: DohProvider.canadianShield,
+                  ),
+                  onTap: () => _saveAndClose(DohProvider.canadianShield),
+                ),
               ),
               ListTile(
                 title: Text(l10n.custom),
@@ -1043,19 +1171,24 @@ void showThemeDialog(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildThemeOption(l10n.system, ThemeMode.system, () {
-                ref
-                    .read(appThemeModeProvider.notifier)
-                    .setThemeMode(ThemeMode.system);
-                Navigator.pop<void>(context);
-              }),
-              _buildThemeOption(l10n.dark, ThemeMode.dark, () {
+              _buildThemeOption(
+                l10n.system,
+                ThemeMode.system,
+                currentTheme,
+                () {
+                  ref
+                      .read(appThemeModeProvider.notifier)
+                      .setThemeMode(ThemeMode.system);
+                  Navigator.pop<void>(context);
+                },
+              ),
+              _buildThemeOption(l10n.dark, ThemeMode.dark, currentTheme, () {
                 ref
                     .read(appThemeModeProvider.notifier)
                     .setThemeMode(ThemeMode.dark);
                 Navigator.pop<void>(context);
               }),
-              _buildThemeOption(l10n.light, ThemeMode.light, () {
+              _buildThemeOption(l10n.light, ThemeMode.light, currentTheme, () {
                 ref
                     .read(appThemeModeProvider.notifier)
                     .setThemeMode(ThemeMode.light);
@@ -1247,13 +1380,18 @@ void showLanguageDialog(
                 mainAxisSize: MainAxisSize.min,
                 children: options.map((opt) {
                   final locale = opt['locale'] as Locale;
-                  return ListTile(
-                    title: Text(opt['label'] as String),
-                    leading: Radio<Locale>(value: locale),
-                    onTap: () {
-                      ref.read(localeProvider.notifier).setLocale(locale);
-                      Navigator.pop<void>(context);
-                    },
+                  final bool isCurrent = locale == currentLocale;
+                  return _currentOption(
+                    isCurrent: isCurrent,
+                    child: ListTile(
+                      autofocus: isCurrent,
+                      title: Text(opt['label'] as String),
+                      leading: Radio<Locale>(value: locale),
+                      onTap: () {
+                        ref.read(localeProvider.notifier).setLocale(locale);
+                        Navigator.pop<void>(context);
+                      },
+                    ),
                   );
                 }).toList(),
               ),
@@ -1452,16 +1590,21 @@ void showQualityDialog(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: options.map((q) {
-                  return ListTile(
-                    title: Text(qualityPreferenceLabel(q, l10n)),
-                    subtitle: q == QualityPreference.any
-                        ? Text(l10n.keepSourcesOriginalOrder)
-                        : null,
-                    leading: Radio<QualityPreference>(value: q),
-                    onTap: () {
-                      onChanged(q);
-                      Navigator.pop<void>(ctx);
-                    },
+                  final bool isCurrent = q == current;
+                  return _currentOption(
+                    isCurrent: isCurrent,
+                    child: ListTile(
+                      autofocus: isCurrent,
+                      title: Text(qualityPreferenceLabel(q, l10n)),
+                      subtitle: q == QualityPreference.any
+                          ? Text(l10n.keepSourcesOriginalOrder)
+                          : null,
+                      leading: Radio<QualityPreference>(value: q),
+                      onTap: () {
+                        onChanged(q);
+                        Navigator.pop<void>(ctx);
+                      },
+                    ),
                   );
                 }).toList(),
               ),
@@ -1547,14 +1690,19 @@ void showQualityFilterModeDialog(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: options.map((opt) {
-                  return ListTile(
-                    title: Text(opt.label),
-                    subtitle: Text(opt.subtitle),
-                    leading: Radio<QualityFilterMode>(value: opt.mode),
-                    onTap: () {
-                      onChanged(opt.mode);
-                      Navigator.pop<void>(ctx);
-                    },
+                  final bool isCurrent = opt.mode == current;
+                  return _currentOption(
+                    isCurrent: isCurrent,
+                    child: ListTile(
+                      autofocus: isCurrent,
+                      title: Text(opt.label),
+                      subtitle: Text(opt.subtitle),
+                      leading: Radio<QualityFilterMode>(value: opt.mode),
+                      onTap: () {
+                        onChanged(opt.mode);
+                        Navigator.pop<void>(ctx);
+                      },
+                    ),
                   );
                 }).toList(),
               ),
@@ -1590,35 +1738,92 @@ void showQualityFilterModeDialog(
   );
 }
 
+/// One row of [showPlayerControlsDialog].
+typedef _ControlToggle = ({
+  IconData icon,
+  String label,
+  Future<void> Function(bool) setter,
+  bool initial,
+});
+
+/// Whether the player would actually build a picture-in-picture button on a
+/// device of this shape.
+///
+/// Deliberately the same predicate as `_pipAvailable` in
+/// `vlc_player_screen.dart`: only Android gives us an OS-level PiP window, and
+/// a television has nothing to shrink into. Everywhere else the screen passes
+/// a null `onEnterPip` and the button is never built, so the *setting* for it
+/// cannot change anything.
+bool playerCanShowPip(TargetPlatform platform, PlayerFormFactor form) =>
+    platform == TargetPlatform.android && form != PlayerFormFactor.tv;
+
+/// Whether the player would actually build a rotate button on a device of this
+/// shape.
+///
+/// Deliberately the same predicate as `_rotateAvailable` in
+/// `vlc_player_screen.dart`: only a handset or a tablet lets the app pin an
+/// orientation at all, and an iPad refuses even then because iPadOS keeps its
+/// own rotation lock. Elsewhere `onRotate` is null and the button never
+/// exists.
+bool playerCanShowRotate(TargetPlatform platform, PlayerFormFactor form) =>
+    form.pinsOrientation &&
+    !(platform == TargetPlatform.iOS && form == PlayerFormFactor.tablet);
+
 /// Shows a dialog to toggle the visibility of individual player control
 /// buttons. Changes apply live via the player settings notifier.
+///
+/// Only offers a switch for a button this device can actually draw. Two of the
+/// five are conditional on hardware: picture-in-picture exists only on an
+/// Android handset or tablet, and rotate only where the app is allowed to pin
+/// an orientation. Offering the other four platforms a switch that moves a
+/// stored boolean and changes nothing on screen is the screen lying about what
+/// it controls.
 void showPlayerControlsDialog(BuildContext context, WidgetRef ref) {
   final l10n = AppLocalizations.of(context)!;
   final notifier = ref.read(playerSettingsProvider.notifier);
   final settings =
       ref.read(playerSettingsProvider).asData?.value ?? const PlayerSettings();
 
-  final metadata = [
-    (icon: Icons.picture_in_picture_alt_rounded, label: l10n.showPip),
-    (icon: Icons.aspect_ratio_rounded, label: l10n.showResize),
-    (icon: Icons.screen_rotation_rounded, label: l10n.showRotate),
-    (icon: Icons.speed_rounded, label: l10n.showPlaybackSpeed),
-    (icon: Icons.playlist_play_rounded, label: l10n.showEpisodes),
+  final platform = Theme.of(context).platform;
+  final form = playerFormFactorOf(
+    ref.read(deviceProfileProvider).asData?.value,
+  );
+
+  final rows = <_ControlToggle>[
+    if (playerCanShowPip(platform, form))
+      (
+        icon: Icons.picture_in_picture_alt_rounded,
+        label: l10n.showPip,
+        setter: notifier.setShowPip,
+        initial: settings.showPip,
+      ),
+    (
+      icon: Icons.aspect_ratio_rounded,
+      label: l10n.showResize,
+      setter: notifier.setShowResize,
+      initial: settings.showResize,
+    ),
+    if (playerCanShowRotate(platform, form))
+      (
+        icon: Icons.screen_rotation_rounded,
+        label: l10n.showRotate,
+        setter: notifier.setShowRotate,
+        initial: settings.showRotate,
+      ),
+    (
+      icon: Icons.speed_rounded,
+      label: l10n.showPlaybackSpeed,
+      setter: notifier.setShowPlaybackSpeed,
+      initial: settings.showPlaybackSpeed,
+    ),
+    (
+      icon: Icons.playlist_play_rounded,
+      label: l10n.showEpisodes,
+      setter: notifier.setShowEpisodes,
+      initial: settings.showEpisodes,
+    ),
   ];
-  final setters = [
-    notifier.setShowPip,
-    notifier.setShowResize,
-    notifier.setShowRotate,
-    notifier.setShowPlaybackSpeed,
-    notifier.setShowEpisodes,
-  ];
-  final values = [
-    settings.showPip,
-    settings.showResize,
-    settings.showRotate,
-    settings.showPlaybackSpeed,
-    settings.showEpisodes,
-  ];
+  final values = rows.map((row) => row.initial).toList();
 
   showDialog<void>(
     context: context,
@@ -1631,13 +1836,13 @@ void showPlayerControlsDialog(BuildContext context, WidgetRef ref) {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                for (var i = 0; i < metadata.length; i++)
+                for (var i = 0; i < rows.length; i++)
                   SwitchListTile(
-                    secondary: Icon(metadata[i].icon),
-                    title: Text(metadata[i].label),
+                    secondary: Icon(rows[i].icon),
+                    title: Text(rows[i].label),
                     value: values[i],
                     onChanged: (val) {
-                      setters[i](val);
+                      rows[i].setter(val);
                       setState(() => values[i] = val);
                     },
                   ),
@@ -1772,8 +1977,7 @@ class _OpenSubtitlesAuthDialogState
                         _isObscure ? Icons.visibility_off : Icons.visibility,
                         size: 20,
                       ),
-                      onPressed: () =>
-                          setState(() => _isObscure = !_isObscure),
+                      onPressed: () => setState(() => _isObscure = !_isObscure),
                     ),
                   ),
                 ),
@@ -1940,10 +2144,7 @@ class _SubDlAuthDialogState extends ConsumerState<_SubDlAuthDialog> {
     });
     final result = await ref
         .read(playerSettingsProvider.notifier)
-        .verifySubDl(
-          _emailController.text.trim(),
-          _passController.text.trim(),
-        );
+        .verifySubDl(_emailController.text.trim(), _passController.text.trim());
     if (mounted) {
       setState(() {
         _isFetching = false;
@@ -2055,8 +2256,7 @@ class _SubDlAuthDialogState extends ConsumerState<_SubDlAuthDialog> {
                         _isObscure ? Icons.visibility_off : Icons.visibility,
                         size: 20,
                       ),
-                      onPressed: () =>
-                          setState(() => _isObscure = !_isObscure),
+                      onPressed: () => setState(() => _isObscure = !_isObscure),
                     ),
                   ),
                 ),
@@ -2436,15 +2636,20 @@ void showHdrModeDialog(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: HdrMode.values.map((m) {
-                  return ListTile(
-                    title: Text(hdrModeLabel(m)),
-                    subtitle: Text(hdrModeDescription(m)),
-                    isThreeLine: m != HdrMode.auto,
-                    leading: Radio<HdrMode>(value: m),
-                    onTap: () {
-                      ref.read(playerSettingsProvider.notifier).setHdrMode(m);
-                      Navigator.pop<void>(ctx);
-                    },
+                  final bool isCurrent = m == settings.hdrMode;
+                  return _currentOption(
+                    isCurrent: isCurrent,
+                    child: ListTile(
+                      autofocus: isCurrent,
+                      title: Text(hdrModeLabel(m)),
+                      subtitle: Text(hdrModeDescription(m)),
+                      isThreeLine: m != HdrMode.auto,
+                      leading: Radio<HdrMode>(value: m),
+                      onTap: () {
+                        ref.read(playerSettingsProvider.notifier).setHdrMode(m);
+                        Navigator.pop<void>(ctx);
+                      },
+                    ),
                   );
                 }).toList(),
               ),
@@ -2499,13 +2704,20 @@ void showToneMapDialog(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: ToneMapCurve.values.map((c) {
-              return ListTile(
-                title: Text(c.label),
-                leading: Radio<ToneMapCurve>(value: c),
-                onTap: () {
-                  ref.read(playerSettingsProvider.notifier).setToneMapCurve(c);
-                  Navigator.pop<void>(ctx);
-                },
+              final bool isCurrent = c == settings.toneMapCurve;
+              return _currentOption(
+                isCurrent: isCurrent,
+                child: ListTile(
+                  autofocus: isCurrent,
+                  title: Text(c.label),
+                  leading: Radio<ToneMapCurve>(value: c),
+                  onTap: () {
+                    ref
+                        .read(playerSettingsProvider.notifier)
+                        .setToneMapCurve(c);
+                    Navigator.pop<void>(ctx);
+                  },
+                ),
               );
             }).toList(),
           ),
@@ -2531,6 +2743,12 @@ void showTargetPeakDialog(
     4000: '4000 nits — mastering',
   };
 
+  // A stored peak that is not one of the presets falls back to the sentinel,
+  // so exactly one row is ever the current one.
+  final int current = presets.containsKey(settings.hdrTargetPeak)
+      ? settings.hdrTargetPeak
+      : 0;
+
   showDialog<void>(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -2538,9 +2756,7 @@ void showTargetPeakDialog(
       title: const Text('Display peak brightness'),
       content: SingleChildScrollView(
         child: RadioGroup<int>(
-          groupValue: presets.containsKey(settings.hdrTargetPeak)
-              ? settings.hdrTargetPeak
-              : 0,
+          groupValue: current,
           onChanged: (val) {
             if (val == null) return;
             ref.read(playerSettingsProvider.notifier).setHdrTargetPeak(val);
@@ -2549,15 +2765,20 @@ void showTargetPeakDialog(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: presets.entries.map((e) {
-              return ListTile(
-                title: Text(e.value),
-                leading: Radio<int>(value: e.key),
-                onTap: () {
-                  ref
-                      .read(playerSettingsProvider.notifier)
-                      .setHdrTargetPeak(e.key);
-                  Navigator.pop<void>(ctx);
-                },
+              final bool isCurrent = e.key == current;
+              return _currentOption(
+                isCurrent: isCurrent,
+                child: ListTile(
+                  autofocus: isCurrent,
+                  title: Text(e.value),
+                  leading: Radio<int>(value: e.key),
+                  onTap: () {
+                    ref
+                        .read(playerSettingsProvider.notifier)
+                        .setHdrTargetPeak(e.key);
+                    Navigator.pop<void>(ctx);
+                  },
+                ),
               );
             }).toList(),
           ),
@@ -2652,10 +2873,7 @@ void showMaxVolumeDialog(
 /// The key is validated against the live API before saving so a typo is
 /// caught here rather than surfacing as an empty grid later.
 void showTmdbApiKeyDialog(BuildContext context, WidgetRef ref) {
-  showDialog<void>(
-    context: context,
-    builder: (_) => const _TmdbApiKeyDialog(),
-  );
+  showDialog<void>(context: context, builder: (_) => const _TmdbApiKeyDialog());
 }
 
 class _TmdbApiKeyDialog extends ConsumerStatefulWidget {
@@ -2726,9 +2944,6 @@ class _TmdbApiKeyDialogState extends ConsumerState<_TmdbApiKeyDialog> {
     }
 
     await ref.read(generalSettingsProvider.notifier).setTmdbApiKey(key);
-
-    // Force the TMDB-backed screens to refetch with the new key.
-    ref.invalidate(streamBrowserProvider);
 
     if (mounted) Navigator.pop<void>(context);
   }

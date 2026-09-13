@@ -28,8 +28,13 @@ class StorageService {
   static const String kExtensionsBox = 'extension_data_box';
   static const String kDownloadMetadataBox = 'download_metadata_box';
 
+  /// Where [Hive.init] was pointed. Kept because `HiveInterface` does not
+  /// expose it and [_quarantineBox] needs the on-disk location.
+  String? _hiveDir;
+
   Future<void> init() async {
     final supportDir = await getApplicationSupportDirectory();
+    _hiveDir = supportDir.path;
     Hive.init(supportDir.path);
 
     _libraryBox = await _safeOpenBox(kLibraryBox);
@@ -41,49 +46,76 @@ class StorageService {
     await initHistory();
   }
 
+  /// Opens a box, and if it will not open, preserves whatever is on disk
+  /// rather than destroying it.
+  ///
+  /// The previous implementation retried with `crashRecovery: true` and, when
+  /// that failed, deleted the box. Two things were wrong with it and both cost
+  /// the user everything in that box:
+  ///
+  ///   * `crashRecovery` already defaults to `true`
+  ///     (hive-2.2.3/lib/src/hive_impl.dart:133), so the "recovery" attempt was
+  ///     byte-identical to the call that had just thrown. It could never
+  ///     succeed, `salvaged` was always empty, and the delete always ran.
+  ///   * the `catch` was bare, so a transient failure - a full disk, a
+  ///     permission error, a second desktop instance holding the lock - took
+  ///     the same destructive path as real corruption.
+  ///
+  /// So one unclean kill during a write, or one full disk, silently wiped the
+  /// library, the watch history, the settings or the plugin data with nothing
+  /// shown to the user.
+  ///
+  /// Now: a failure that is not corruption is rethrown, because deleting a
+  /// user's library because a disk was momentarily full is never the right
+  /// answer. Genuine corruption moves the file aside instead of unlinking it,
+  /// so the data still exists and can be recovered by hand or by a later
+  /// migration, and returns a fresh empty box so the app still starts.
+  /// Exposed so the recovery contract can be tested against the real method
+  /// rather than against a re-description of it. [dir] stands in for the
+  /// directory [init] would have recorded.
+  @visibleForTesting
+  Future<Box<dynamic>> debugSafeOpenBox(String boxName, {required String dir}) {
+    _hiveDir = dir;
+    return _safeOpenBox(boxName);
+  }
+
   Future<Box<dynamic>> _safeOpenBox(String boxName) async {
     try {
       return await Hive.openBox<dynamic>(boxName);
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint(
-          "Error opening Hive box '$boxName': $e. Attempting recovery before deleting...",
-        );
-      }
+    } on HiveError catch (error, stackTrace) {
+      // Hive raises HiveError for a corrupt or unreadable box. Anything else
+      // (FileSystemException and friends) is environmental and must not cost
+      // the user their data.
+      debugPrint("Hive box '$boxName' is corrupt: $error");
+      assert(() {
+        debugPrintStack(stackTrace: stackTrace, label: 'corrupt box $boxName');
+        return true;
+      }());
+      await _quarantineBox(boxName);
+      return Hive.openBox<dynamic>(boxName);
+    }
+  }
 
-      // Attempt to salvage any readable entries before wiping the box.
-      final Map<dynamic, dynamic> salvaged = {};
+  /// Renames a corrupt box's files out of the way instead of deleting them.
+  ///
+  /// Hive keeps `<name>.hive` and `<name>.lock` in the init directory. Moving
+  /// them to `<name>.hive.corrupt-<millis>` keeps the bytes on disk: a box that
+  /// merely lost its tail to an unclean shutdown is often largely readable, and
+  /// a deleted file never is. Best effort - if the rename fails the open below
+  /// will fail too and the error reaches the caller rather than being buried.
+  Future<void> _quarantineBox(String boxName) async {
+    final dir = _hiveDir;
+    if (dir == null) return;
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    for (final suffix in const ['.hive', '.lock']) {
+      final file = File('$dir${Platform.pathSeparator}$boxName$suffix');
       try {
-        final recoveryBox = await Hive.openBox<dynamic>(
-          boxName,
-          crashRecovery: true,
-        );
-        for (var i = 0; i < recoveryBox.length; i++) {
-          final key = recoveryBox.keyAt(i);
-          salvaged[key] = recoveryBox.get(key);
+        if (file.existsSync()) {
+          await file.rename('${file.path}.corrupt-$stamp');
         }
-        await recoveryBox.close();
-      } catch (_) {
-        // Box is unreadable even with crash recovery — salvaged stays empty.
+      } catch (error) {
+        debugPrint("Could not quarantine '${file.path}': $error");
       }
-
-      try {
-        await Hive.deleteBoxFromDisk(boxName);
-      } catch (_) {}
-
-      final fresh = await Hive.openBox<dynamic>(boxName);
-
-      // Re-insert recovered entries.
-      if (salvaged.isNotEmpty) {
-        await fresh.putAll(salvaged);
-        if (kDebugMode) {
-          debugPrint(
-            "Hive box '$boxName': recovered ${salvaged.length} entries after corruption.",
-          );
-        }
-      }
-
-      return fresh;
     }
   }
 
@@ -157,6 +189,22 @@ class StorageService {
 
   bool? getSidebarExpanded() {
     return _settingsBox.get('sidebar_expanded') as bool?;
+  }
+
+  // --- App update prompt ---
+
+  /// The release tag the user last dismissed the update dialog on.
+  ///
+  /// The dialog used to be re-offered on every single cold start until the
+  /// user actually updated, which is how a person learns to dismiss modals
+  /// without reading them. One "Later" now covers that release; the next one
+  /// published gets a fresh hearing because the tag no longer matches.
+  Future<void> setDeclinedUpdateTag(String tag) async {
+    await _settingsBox.put('declined_update_tag', tag);
+  }
+
+  String? getDeclinedUpdateTag() {
+    return _settingsBox.get('declined_update_tag') as String?;
   }
 
   Future<void> setDefaultHomeScreen(String path) async {
@@ -274,8 +322,16 @@ class StorageService {
     await _settingsBox.put('language', lang);
   }
 
-  String getLanguage() {
-    return _settingsBox.get('language', defaultValue: 'en') as String;
+  /// The UI language tag the user explicitly chose, or `null` when they have
+  /// never chosen one.
+  ///
+  /// This used to default to `'en'`, which collapsed "no preference recorded"
+  /// and "the user picked English" into the same value. The app could not
+  /// tell them apart, so it could never follow the device locale and 42 of
+  /// the 43 shipped translations were unreachable without a trip to Settings.
+  /// `null` now means "follow the device"; see `LocaleNotifier.build`.
+  String? getLanguage() {
+    return _settingsBox.get('language') as String?;
   }
 
   Future<void> setExploreLanguage(String lang) async {
@@ -610,6 +666,43 @@ class StorageService {
 
   static const String _kExtensionRepoUrls = 'extension_repo_urls';
 
+  /// Closes a box if we have one and then deletes it from disk. The delete is
+  /// deliberately NOT conditional on the close succeeding.
+  ///
+  /// [clearPreferences] is the only recovery the user has from the startup
+  /// error screen, and they reach that screen precisely because [init] threw
+  /// while opening a box. [init] assigns the four box fields in sequence, so
+  /// the field belonging to the box that failed is the one that was never
+  /// assigned - and these are bare `late` fields, so merely reading
+  /// `_libraryBox.isOpen` throws `LateInitializationError`. When the close and
+  /// the delete shared one `try`, that read aborted the block before
+  /// [Hive.deleteBoxFromDisk] ran, so the single box the user needed removed
+  /// was the single box the reset skipped and the next launch failed
+  /// identically, with no in-app way out.
+  ///
+  /// The delete does not need the field: an open that failed never registered
+  /// the box with Hive (hive-2.2.3/lib/src/hive_impl.dart:107), so
+  /// [Hive.deleteBoxFromDisk] takes the backend path and unlinks
+  /// `<name>.hive`, `<name>.hivec` and `<name>.lock` by name.
+  Future<void> _closeAndDeleteBox(
+    String name,
+    Box<dynamic> Function() box,
+  ) async {
+    try {
+      final opened = box();
+      if (opened.isOpen) await opened.close();
+    } catch (e) {
+      // An unassigned `late` field, or a box that will not close cleanly.
+      // Either way the delete below is still both possible and wanted.
+      if (kDebugMode) debugPrint("Could not close box '$name': $e");
+    }
+    try {
+      await Hive.deleteBoxFromDisk(name);
+    } catch (e) {
+      if (kDebugMode) debugPrint("Error deleting box '$name': $e");
+    }
+  }
+
   Future<void> clearPreferences({bool keepRepos = true}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -682,33 +775,13 @@ class StorageService {
       }
 
       // Delete Hive Boxes (Library, History, Settings)
-      try {
-        if (_libraryBox.isOpen) await _libraryBox.close();
-        await Hive.deleteBoxFromDisk(kLibraryBox);
-      } catch (e) {
-        if (kDebugMode) debugPrint('Error deleting library box: $e');
-      }
-      try {
-        if (_settingsBox.isOpen) await _settingsBox.close();
-        await Hive.deleteBoxFromDisk(kSettingsBox);
-      } catch (e) {
-        if (kDebugMode) debugPrint('Error deleting settings box: $e');
-      }
-      try {
-        if (_historyBox.isOpen) await _historyBox.close();
-        await Hive.deleteBoxFromDisk(kHistoryBox);
-      } catch (e) {
-        if (kDebugMode) debugPrint('Error deleting history box: $e');
-      }
+      await _closeAndDeleteBox(kLibraryBox, () => _libraryBox);
+      await _closeAndDeleteBox(kSettingsBox, () => _settingsBox);
+      await _closeAndDeleteBox(kHistoryBox, () => _historyBox);
 
       // Only delete extension data box if NOT keeping extensions
       if (!keepRepos) {
-        try {
-          if (_extensionsBox.isOpen) await _extensionsBox.close();
-          await Hive.deleteBoxFromDisk(kExtensionsBox);
-        } catch (e) {
-          if (kDebugMode) debugPrint('Error deleting extensions box: $e');
-        }
+        await _closeAndDeleteBox(kExtensionsBox, () => _extensionsBox);
       }
       // Clear Cache Manager (Images)
       try {

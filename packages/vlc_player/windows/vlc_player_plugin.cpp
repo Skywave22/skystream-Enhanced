@@ -268,7 +268,11 @@ EncodableMap MediaStats(const VlcMediaStats &stats) {
 
 }  // namespace
 
-class WindowsVlcPlayer {
+// Always owned by a std::shared_ptr - see the "create" handler. The
+// enable_shared_from_this is what lets the texture teardown outlive the
+// dispose thread that started it; see DisposeCore.
+class WindowsVlcPlayer
+    : public std::enable_shared_from_this<WindowsVlcPlayer> {
  public:
   WindowsVlcPlayer(int64_t view_id, flutter::BinaryMessenger *messenger,
                    flutter::TextureRegistrar *texture_registrar,
@@ -457,6 +461,24 @@ class WindowsVlcPlayer {
     event_channel_.SetStreamHandler(nullptr);
   }
 
+  // Tears the player down in the one order that cannot hand the compositor a
+  // freed buffer.
+  //
+  // Stopping libVLC first is safe while a frame is in flight:
+  // VlcPlayerCore::Dispose() detaches the video output and drops the media
+  // player but deliberately leaves the pixel sink mapped, so a
+  // CopyPixelBuffer racing this still reads live memory. It blocks - the stop
+  // joins libVLC's own threads - which is exactly why it must run here, on a
+  // dispose thread, and never inside a lock the raster thread takes.
+  //
+  // Freeing the core before unregistering the texture, which is what this
+  // used to do, is the use-after-free: ExternalTexturePixelBuffer::
+  // CopyPixelBuffer calls us for a pointer and then glTexImage2Ds it *after*
+  // we have returned, so the buffer has to stay mapped past the callback.
+  // UnregisterTexture's completion callback is the only signal for that - the
+  // Windows registrar runs it on the raster thread, on the far side of the
+  // task that erases the texture from its map, so no populate can be in
+  // flight or start once it fires.
   void DisposeCore() {
     if (disposed_.exchange(true)) {
       return;
@@ -469,12 +491,34 @@ class WindowsVlcPlayer {
 
     if (core_ != nullptr) {
       core_->Dispose();
-      core_.reset();
+    }
+
+    // The callback holds the player up: the dispose thread drops the last
+    // other reference the moment this returns. weak_from_this() is empty only
+    // when this is running from ~WindowsVlcPlayer during engine teardown,
+    // where the registrar is going away with us and there is no raster thread
+    // left to race.
+    const std::shared_ptr<WindowsVlcPlayer> self = weak_from_this().lock();
+    if (texture_id_ != -1 && self != nullptr) {
+      const int64_t texture_id = texture_id_;
+      texture_id_ = -1;
+      texture_registrar_->UnregisterTexture(
+          texture_id, [self] { self->ReleaseTextureMemory(); });
+      return;
     }
     if (texture_id_ != -1) {
       texture_registrar_->UnregisterTexture(texture_id_);
       texture_id_ = -1;
     }
+    ReleaseTextureMemory();
+  }
+
+  // Runs on the raster thread, from the unregister completion callback. Both
+  // frees are cheap - core_->Dispose() above already did the blocking part -
+  // so this cannot stall a frame.
+  void ReleaseTextureMemory() {
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    core_.reset();
     texture_.reset();
   }
 
@@ -488,6 +532,18 @@ class WindowsVlcPlayer {
 
   const FlutterDesktopPixelBuffer *CopyPixelBuffer(size_t width,
                                                    size_t height) {
+    // The raster thread reads core_ here while a dispose may be running on
+    // another thread, so the read has to be ordered against the reset that
+    // ends the player's life; without this it was a plain data race on a
+    // unique_ptr followed by a dereference of what it used to point at.
+    //
+    // frame_mutex_ is a leaf: it is held only for the pointer read and the
+    // buffer rotation, never across libVLC's stop and never while any other
+    // lock is taken. libVLC's own callback thread takes only the sink's
+    // internal mutex, below this one and never above it, so the two cannot
+    // deadlock - and a raster thread waiting here waits on a rotation, never
+    // on VLC.
+    std::lock_guard<std::mutex> lock(frame_mutex_);
     if (core_ == nullptr) {
       return nullptr;
     }
@@ -500,6 +556,13 @@ class WindowsVlcPlayer {
     pixel_buffer_.buffer = buffer;
     pixel_buffer_.width = pixel_width;
     pixel_buffer_.height = pixel_height;
+    // No release callback: the engine uploads this pointer and would invoke
+    // the callback in the same breath, a few statements later in
+    // ExternalTexturePixelBuffer::CopyPixelBuffer, so it carries no
+    // information we do not already have. What the buffer needs is to outlive
+    // that upload, and the two things that could pull it out from under the
+    // engine - a mid-session Resize and this player's teardown - are handled
+    // where they happen, in VlcPixelBufferSink::Resize and in DisposeCore.
     pixel_buffer_.release_callback = nullptr;
     pixel_buffer_.release_context = nullptr;
     return &pixel_buffer_;
@@ -592,6 +655,11 @@ class WindowsVlcPlayer {
   std::atomic<bool> disposed_{false};
   std::atomic<bool> flutter_detached_{false};
   std::mutex lifecycle_mutex_;
+  // Orders the raster thread's use of core_ against the teardown that frees
+  // it. Distinct from lifecycle_mutex_ on purpose: that one is held across
+  // libVLC's stop, and a raster thread waiting on it would stall the whole
+  // window for as long as VLC takes to shut down.
+  std::mutex frame_mutex_;
   std::atomic<bool> polling_{false};
   std::thread polling_thread_;
 

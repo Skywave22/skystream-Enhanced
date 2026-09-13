@@ -463,6 +463,11 @@ class _PlayerPanelState extends State<PlayerPanel> {
   /// words run out of room. This is still one focus stop per tab and still no
   /// [Scrollable], so directional traversal walks the rows natively and the
   /// remote never has to scroll a strip it cannot see the end of.
+  ///
+  /// What the [Wrap] took away, and [PlayerPanelMetrics.tabMinWidth] gives
+  /// back, is the floor the five [Expanded]s used to provide for free: a tab
+  /// is as wide as its word, and `Files` at the touch ramp's 13 sp is 37 dp of
+  /// Roboto - half a thumb - with the next tab 4 dp away.
   Widget _header(
     AppLocalizations l10n,
     List<PlayerPanelTab> tabs,
@@ -678,37 +683,47 @@ class _PanelTabButtonState extends State<_PanelTabButton> {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: widget.onPressed,
-            child: AnimatedContainer(
-              duration: HotstarPlayerStyle.fastMotionDuration,
-              padding: EdgeInsets.symmetric(
-                horizontal: metrics.tabHorizontalPadding,
-                vertical: metrics.tabVerticalPadding,
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                color: _focused
-                    ? HotstarPlayerStyle.focus
-                    : (_hovered ? const Color(0xFF151A22) : Colors.transparent),
-                border: Border(
-                  bottom: BorderSide(
-                    color: active
-                        ? HotstarPlayerStyle.accent
-                        : Colors.transparent,
-                    width: 2,
+            // A floor on the width, because a Wrap gives a tab exactly the
+            // width of its word: `Files` is 37 dp of Roboto at the touch
+            // ramp's 13 sp, and three of those 4 dp apart is a mis-tap, not a
+            // tab strip. The height was already one target; this is the other
+            // axis. The label stays centred in whatever the floor gives it.
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: metrics.tabMinWidth),
+              child: AnimatedContainer(
+                duration: HotstarPlayerStyle.fastMotionDuration,
+                padding: EdgeInsets.symmetric(
+                  horizontal: metrics.tabHorizontalPadding,
+                  vertical: metrics.tabVerticalPadding,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  color: _focused
+                      ? HotstarPlayerStyle.focus
+                      : (_hovered
+                            ? const Color(0xFF151A22)
+                            : Colors.transparent),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: active
+                          ? HotstarPlayerStyle.accent
+                          : Colors.transparent,
+                      width: 2,
+                    ),
                   ),
                 ),
-              ),
-              child: Text(
-                widget.label,
-                maxLines: 1,
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: active
-                      ? HotstarPlayerStyle.primaryText
-                      : metrics.secondaryText,
-                  fontSize: metrics.tabLabelSize,
-                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: active
+                        ? HotstarPlayerStyle.primaryText
+                        : metrics.secondaryText,
+                    fontSize: metrics.tabLabelSize,
+                    fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  ),
                 ),
               ),
             ),

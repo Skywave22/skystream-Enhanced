@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and below (android:fullBackupContent). Keep in step with
+     data_extraction_rules.xml, which does the same job on Android 12+.
+
+     Everything else in the app's data directory is still backed up: the Hive
+     boxes carry the user's library, watch history, installed plugin list and
+     settings, and losing those on a device transfer would be a real
+     regression. What is excluded here is the flutter_secure_storage pair, and
+     it is excluded for two reasons that point the same way:
+
+       * FlutterSecureStorage.xml holds the ciphertext of the account
+         credentials — OpenSubtitles and SubDL passwords, and the OAuth tokens
+         for Trakt/Simkl/MAL/AniList. It has no business in a Drive backup.
+       * FlutterSecureKeyStorage.xml holds the AES key *wrapped by an Android
+         Keystore key*, and Keystore material never leaves the device. Restored
+         onto a new handset the ciphertext is undecryptable, every read throws
+         BadPaddingException, SecureTokenStorage.read swallows it and returns
+         null, and the user arrives silently signed out with no explanation.
+         Not restoring it at all reaches the same end state honestly. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+</full-backup-content>

@@ -60,11 +60,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get recordWatchHistory => '记录观看历史';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => '全屏';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => '切换为电视布局';
 
   @override
   String get defaultHomeScreen => '默认启动页';
@@ -418,6 +417,26 @@ class AppLocalizationsZh extends AppLocalizations {
   String get min => '分';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '快退$count秒',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '快进$count秒',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => '内置播放器 (VLC)';
 
   @override
@@ -724,6 +743,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get goBack => '返回';
+
+  @override
+  String get restartApp => '重启应用';
 
   @override
   String get resolving => '解析中...';
@@ -1568,8 +1590,27 @@ class AppLocalizationsZh extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => '正在搜索刮削器…';
+
+  @override
+  String get sourcesEmptyFiltered => '没有链接符合当前筛选条件。';
+
+  @override
+  String get sourcesEmptyNoTmdbId => '此片没有 TMDB ID。请用 \'Search manually\' 输入。';
+
+  @override
+  String get sourcesEmptyNoScrapers => '未启用任何刮削器。请在 \'Nuvio Plugins\' 中添加。';
+
+  @override
+  String get sourcesEmptyAllFailed => '所有刮削器都失败了。请检查网络连接或更新刮削器。';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return '未找到链接。$total 个刮削器中有 $failed 个失败。';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound => '你的刮削器都没有此片。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -1626,6 +1667,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get recordWatchHistory => '記錄觀看紀錄';
+
+  @override
+  String get fullScreenMode => '全螢幕';
+
+  @override
+  String get fullScreenModeSubtitle => '切換為電視版面配置';
 
   @override
   String get defaultHomeScreen => '預設啟動畫面';
@@ -1979,6 +2026,26 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get min => '分';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '倒轉$count秒',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '快轉$count秒',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => '內建播放器 (VLC)';
 
   @override
@@ -2285,6 +2352,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get goBack => '返回';
+
+  @override
+  String get restartApp => '重新啟動應用程式';
 
   @override
   String get resolving => '解析中...';
@@ -2844,4 +2914,27 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get showEpisodes => 'Episodes button';
+
+  @override
+  String get sourcesSearching => '正在搜尋抓取器…';
+
+  @override
+  String get sourcesEmptyFiltered => '沒有連結符合目前的篩選條件。';
+
+  @override
+  String get sourcesEmptyNoTmdbId => '此片沒有 TMDB ID。請用 \'Search manually\' 輸入。';
+
+  @override
+  String get sourcesEmptyNoScrapers => '未啟用任何抓取器。請在 \'Nuvio Plugins\' 中新增。';
+
+  @override
+  String get sourcesEmptyAllFailed => '所有抓取器都失敗了。請檢查網路連線或更新抓取器。';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return '找不到連結。$total 個抓取器中有 $failed 個失敗。';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound => '你的抓取器都沒有此片。';
 }

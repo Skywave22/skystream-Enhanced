@@ -60,11 +60,10 @@ class AppLocalizationsTe extends AppLocalizations {
   String get recordWatchHistory => 'చూసిన చరిత్రను రికార్డ్ చేయండి';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'పూర్తి స్క్రీన్';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'టీవీ లేఅవుట్‌కు మారుతుంది';
 
   @override
   String get defaultHomeScreen => 'డిఫాల్ట్ హోమ్ స్క్రీన్';
@@ -429,6 +428,28 @@ class AppLocalizationsTe extends AppLocalizations {
   String get min => 'నిమిషం';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count సెకన్లు వెనక్కి',
+      one: '1 సెకను వెనక్కి',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count సెకన్లు ముందుకు',
+      one: '1 సెకను ముందుకు',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'అంతర్గత ప్లేయర్ (VLC)';
 
   @override
@@ -750,6 +771,9 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get goBack => 'వెనక్కి';
+
+  @override
+  String get restartApp => 'యాప్‌ను పునఃప్రారంభించండి';
 
   @override
   String get resolving => 'పరిష్కరిస్తున్నాము...';
@@ -1615,6 +1639,29 @@ class AppLocalizationsTe extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'స్క్రేపర్‌లలో వెతుకుతోంది…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'ప్రస్తుత ఫిల్టర్‌లకు ఏ లింక్ సరిపోలడం లేదు.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'ఈ శీర్షికకు TMDB ID లేదు. \'Search manually\' ద్వారా నమోదు చేయండి.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'ఏ స్క్రేపర్ ప్రారంభించబడలేదు. \'Nuvio Plugins\'లో ఒకటి జోడించండి.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'అన్ని స్క్రేపర్‌లు విఫలమయ్యాయి. మీ కనెక్షన్ తనిఖీ చేయండి లేదా స్క్రేపర్‌లను నవీకరించండి.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'లింక్‌లు కనబడలేదు. $totalలో $failed స్క్రేపర్‌లు విఫలమయ్యాయి.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound => 'మీ ఏ స్క్రేపర్‌లోనూ ఈ శీర్షిక లేదు.';
 }

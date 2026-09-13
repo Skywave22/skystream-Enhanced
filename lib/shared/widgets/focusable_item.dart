@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'cards_wrapper.dart';
+
 class FocusableItem extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
@@ -46,8 +48,8 @@ class _FocusableItemState extends State<FocusableItem>
   }
 
   void _updateState() {
-    // In D-pad/keyboard mode the border+glow is the focus indicator; skip scale
-    // to prevent edge items from overflowing the viewport.
+    // In D-pad/keyboard mode the ring+tint+glow is the focus indicator; skip
+    // scale to prevent edge items from overflowing the viewport.
     final isDpad =
         FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
     final shouldScale = _isHovered || (_isFocused && !isDpad);
@@ -131,20 +133,28 @@ class _FocusableItemState extends State<FocusableItem>
         onLongPress: widget.onLongPress,
         child: ScaleTransition(
           scale: _scaleAnim,
-          child: Container(
-            decoration: _isFocused
-                ? BoxDecoration(
-                    border: Border.all(
-                      color:
-                          widget.focusColor ??
-                          Theme.of(context).colorScheme.primary,
-                      width: 3,
-                    ),
-                    borderRadius:
-                        widget.borderRadius ?? BorderRadius.circular(12),
-                  )
-                : null,
-            child: widget.child,
+          child: Builder(
+            builder: (context) {
+              // Same affordance CardsWrapper draws, so a focused item looks
+              // identical wherever it is used.
+              final borderRadius =
+                  widget.borderRadius ?? BorderRadius.circular(12);
+              final accent =
+                  widget.focusColor ?? Theme.of(context).colorScheme.primary;
+              return Container(
+                decoration: CardFocusAffordance.glow(
+                  borderRadius: borderRadius,
+                  accent: accent,
+                  focused: _isFocused,
+                ),
+                foregroundDecoration: CardFocusAffordance.ring(
+                  borderRadius: borderRadius,
+                  accent: accent,
+                  focused: _isFocused,
+                ),
+                child: widget.child,
+              );
+            },
           ),
         ),
       ),

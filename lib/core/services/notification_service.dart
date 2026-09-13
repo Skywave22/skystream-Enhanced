@@ -103,6 +103,12 @@ class NotificationService extends ChangeNotifier {
     String id, {
     Duration remaining = const Duration(milliseconds: 1500),
   }) {
+    // A hover can end because the card was disposed rather than because the
+    // pointer left - the layer stands down whole when the player opens - and
+    // by then the toast may already be gone. Re-arming for an id that is no
+    // longer in the queue strands a timer in the map that nothing will ever
+    // cancel.
+    if (!_toasts.any((t) => t.id == id)) return;
     _dismissTimers[id]?.cancel();
     _dismissTimers[id] = Timer(remaining, () {
       dismissToast(id);

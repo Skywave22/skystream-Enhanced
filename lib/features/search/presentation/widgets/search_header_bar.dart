@@ -32,15 +32,38 @@ class _WaveformEqualizerState extends State<WaveformEqualizer>
     _anim1 = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
-    )..repeat(reverse: true);
+    );
     _anim2 = AnimationController(
       duration: const Duration(milliseconds: 550),
       vsync: this,
-    )..repeat(reverse: true);
+    );
     _anim3 = AnimationController(
       duration: const Duration(milliseconds: 480),
       vsync: this,
-    )..repeat(reverse: true);
+    );
+  }
+
+  /// Honour the OS 'Remove animations' / 'Reduce motion' switch.
+  ///
+  /// A `repeat()` that never ends is precisely the motion that setting exists
+  /// to stop - and unlike an implicit animation, which the framework shortens
+  /// to 1% of its duration on its own, a looping controller keeps requesting
+  /// frames forever whatever the user asked for. Read through [MediaQuery] so
+  /// that toggling the setting takes effect without a restart.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final motionOff = MediaQuery.disableAnimationsOf(context);
+    for (final anim in [_anim1, _anim2, _anim3]) {
+      if (motionOff) {
+        anim.stop();
+        // Held at full height rather than collapsed: the equalizer is the
+        // 'this is live' indicator, so it still has to read as switched on.
+        anim.value = 1;
+      } else if (!anim.isAnimating) {
+        anim.repeat(reverse: true);
+      }
+    }
   }
 
   @override
@@ -132,25 +155,11 @@ class SearchScopeSwitcher extends StatefulWidget {
   State<SearchScopeSwitcher> createState() => _SearchScopeSwitcherState();
 }
 
-class _SearchScopeSwitcherState extends State<SearchScopeSwitcher>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
-
+// A fourth looping controller used to live here, pulsing at 1 Hz for the life
+// of the search screen. Nothing was ever built from its value: it drove no
+// widget, so it was pure vsync with no pixels behind it. Deleted rather than
+// guarded.
+class _SearchScopeSwitcherState extends State<SearchScopeSwitcher> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -227,15 +236,24 @@ class _SearchScopeSwitcherState extends State<SearchScopeSwitcher>
                             ),
                           ),
                           const SizedBox(width: 6),
-                          Text(
-                            'Movies & Shows',
-                            style: TextStyle(
-                              fontFamily: nativeFont,
-                              fontSize: 13.0,
-                              fontWeight: FontWeight.w400,
-                              color: !isLive
-                                  ? theme.colorScheme.onPrimary
-                                  : unselectedTextColor,
+                          // The pill is a fixed 310 dp wide, so each half has
+                          // ~150 dp for its label. At the larger text scales
+                          // an unconstrained Text simply overflows the Row;
+                          // Flexible lets it use what there is and ellipsise
+                          // the rest.
+                          Flexible(
+                            child: Text(
+                              'Movies & Shows',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: nativeFont,
+                                fontSize: 13.0,
+                                fontWeight: FontWeight.w400,
+                                color: !isLive
+                                    ? theme.colorScheme.onPrimary
+                                    : unselectedTextColor,
+                              ),
                             ),
                           ),
                         ],
@@ -266,15 +284,19 @@ class _SearchScopeSwitcherState extends State<SearchScopeSwitcher>
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            'Live TV',
-                            style: TextStyle(
-                              fontFamily: nativeFont,
-                              fontSize: 13.0,
-                              fontWeight: FontWeight.w400,
-                              color: isLive
-                                  ? theme.colorScheme.onPrimary
-                                  : unselectedTextColor,
+                          Flexible(
+                            child: Text(
+                              'Live TV',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: nativeFont,
+                                fontSize: 13.0,
+                                fontWeight: FontWeight.w400,
+                                color: isLive
+                                    ? theme.colorScheme.onPrimary
+                                    : unselectedTextColor,
+                              ),
                             ),
                           ),
                         ],

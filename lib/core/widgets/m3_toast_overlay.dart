@@ -1,8 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/core/router/app_router.dart';
 import 'package:skystream/core/services/notification_service.dart';
 
@@ -32,31 +30,17 @@ class M3ToastOverlay extends ConsumerStatefulWidget {
 }
 
 class _M3ToastOverlayState extends ConsumerState<M3ToastOverlay> {
-  /// Whether the route on top of the root Navigator is the player.
-  ///
-  /// [kPlayerRoutePath] is a top-level route, so it is built *under* this
-  /// overlay - `MaterialApp.router`'s builder wraps the router's Navigator,
-  /// and that is where [M3ToastOverlay] is mounted. Every entry point pushes
-  /// it (`PlayerRoute(...).push(context)`), and go_router deliberately leaves
-  /// `RouteMatchList.uri` on the location that did the pushing, so the pushed
-  /// location has to be read off the top match's state rather than off the
-  /// match list.
-  static bool _onPlayer(GoRouter router) {
-    // `state` reads `currentConfiguration.last`, which throws on the empty
-    // match list the delegate starts life with.
-    if (router.routerDelegate.currentConfiguration.isEmpty) return false;
-    return router.state.uri.path == kPlayerRoutePath;
-  }
-
   @override
   Widget build(BuildContext context) {
     final notificationService = ref.watch(notificationServiceProvider);
     final router = ref.watch(appRouterProvider);
-    final profile = ref.watch(deviceProfileProvider).asData?.value;
-    final isDesktopOrTv =
-        (profile?.isDesktopOS ?? false) ||
-        (profile?.isTv ?? false) ||
-        MediaQuery.sizeOf(context).width >= 720;
+    // Corner-anchored toasts are a size decision: under 720 dp there is no
+    // corner worth aiming at, over it there is - on a desktop window, a
+    // tablet or a television alike. The two device clauses that used to be
+    // OR-ed in here could only ever disagree with the width in the one case
+    // where the width was already right: a desktop window dragged narrow,
+    // which got a corner treatment in a window with no room for one.
+    final isWideLayout = MediaQuery.sizeOf(context).width >= 720;
 
     return Stack(
       fit: StackFit.expand,
@@ -77,7 +61,14 @@ class _M3ToastOverlayState extends ConsumerState<M3ToastOverlay> {
               // toast would swallow the tap aimed at the control underneath.
               // So the global layer stands down for the duration; queued
               // toasts still expire on their own timers.
-              if (_onPlayer(router)) return const SizedBox.shrink();
+              //
+              // The player route is top-level, so it is built *under* this
+              // overlay - `MaterialApp.router`'s builder wraps the router's
+              // Navigator. `playerRouteIsOnTop` lives beside
+              // `kPlayerRoutePath` in app_router.dart because the update
+              // prompt has to ask the same question and two copies of the
+              // answer would drift.
+              if (playerRouteIsOnTop(router)) return const SizedBox.shrink();
 
               return ListenableBuilder(
                 listenable: notificationService,
@@ -91,14 +82,14 @@ class _M3ToastOverlayState extends ConsumerState<M3ToastOverlay> {
                     ignoring: false,
                     child: SafeArea(
                       child: Align(
-                        alignment: isDesktopOrTv
+                        alignment: isWideLayout
                             ? Alignment.bottomRight
                             : Alignment.bottomCenter,
                         child: Padding(
                           padding: EdgeInsets.only(
-                            left: isDesktopOrTv ? 24 : 16,
-                            right: isDesktopOrTv ? 24 : 16,
-                            bottom: isDesktopOrTv ? 24 : 16,
+                            left: isWideLayout ? 24 : 16,
+                            right: isWideLayout ? 24 : 16,
+                            bottom: isWideLayout ? 24 : 16,
                           ),
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(
@@ -107,7 +98,7 @@ class _M3ToastOverlayState extends ConsumerState<M3ToastOverlay> {
                             ),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: isDesktopOrTv
+                              crossAxisAlignment: isWideLayout
                                   ? CrossAxisAlignment.end
                                   : CrossAxisAlignment.center,
                               children: [
@@ -161,6 +152,31 @@ class _M3ToastCard extends StatefulWidget {
 
 class _M3ToastCardState extends State<_M3ToastCard>
     with TickerProviderStateMixin {
+  /// What a screen reader gets from this card, and the only thing it will
+  /// ever get: the card takes itself away after 3-4 s, so nobody can find it
+  /// by exploration - it has to speak when it arrives. That is what a live
+  /// region is for, and it is what the framework tells you to use here:
+  /// `SemanticsService.announce` is deprecated in this SDK
+  /// (semantics_service.dart:51) and Android deprecated the announcement
+  /// event it maps to, because it clears TalkBack's speech queue mid-sentence.
+  /// A live region is polite - it waits its turn - so a run of toasts reads as
+  /// a queue rather than as an interruption of whatever the user is doing.
+  ///
+  /// The two [Text]s below are excluded so this node carries one label instead
+  /// of spawning children the region itself cannot speak; '\n' is the join the
+  /// framework itself uses when it merges labels.
+  String get _announcement {
+    final String? title = widget.item.title;
+    return title == null || title.isEmpty
+        ? widget.item.message
+        : '$title\n${widget.item.message}';
+  }
+
+  /// Whether a mouse is inside the card, i.e. whether the dismiss timer is
+  /// paused on our account. Which, not whether it was ever entered: an enter
+  /// with no matching exit is exactly the leak [dispose] closes.
+  bool _hovered = false;
+
   late final AnimationController _entranceController;
   late final AnimationController _iconBounceController;
   late final Animation<double> _scaleAnimation;
@@ -231,8 +247,31 @@ class _M3ToastCardState extends State<_M3ToastCard>
     }
   }
 
+  void _hoverStart() {
+    if (_hovered) return;
+    _hovered = true;
+    widget.onHoverStart();
+  }
+
+  void _hoverEnd() {
+    if (!_hovered) return;
+    _hovered = false;
+    widget.onHoverEnd();
+  }
+
   @override
   void dispose() {
+    // Flutter does not deliver [MouseRegion.onExit] when the region is
+    // unmounted with the pointer still inside it (widgets/basic.dart: exit
+    // "is __not__ triggered by ... this widget, which is being hovered by a
+    // pointer, has disappeared"), and the documented mitigation is to call it
+    // from dispose - the same reason _HoverChromeHoldState does
+    // (vlc_player_controls.dart:2298). Without this, a card hovered as the
+    // viewer opens the player - where the whole layer stands down - never
+    // resumes its dismiss timer, so the toast is still in the queue when they
+    // come back, permanently, with a live InkWell over the page eating the
+    // clicks aimed beneath it.
+    _hoverEnd();
     _entranceController.dispose();
     _iconBounceController.dispose();
     super.dispose();
@@ -282,8 +321,8 @@ class _M3ToastCardState extends State<_M3ToastCard>
         : theme.colorScheme.outlineVariant.withValues(alpha: 0.40);
 
     return MouseRegion(
-      onEnter: (_) => widget.onHoverStart(),
-      onExit: (_) => widget.onHoverEnd(),
+      onEnter: (_) => _hoverStart(),
+      onExit: (_) => _hoverEnd(),
       child: SlideTransition(
         position: _slideAnimation,
         child: ScaleTransition(
@@ -339,57 +378,65 @@ class _M3ToastCardState extends State<_M3ToastCard>
 
                             // Content (Title + Body / Subtitle)
                             Flexible(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (widget.item.title != null &&
-                                      widget.item.title!.isNotEmpty) ...[
-                                    Text(
-                                      widget.item.title!,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFFE6E1E5)
-                                            : theme.colorScheme.onSurface,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                        height: 1.2,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      widget.item.message,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFFCAC4D0)
-                                            : theme
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w400,
-                                        height: 1.2,
-                                      ),
-                                    ),
-                                  ] else ...[
-                                    Text(
-                                      widget.item.message,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFFE6E1E5)
-                                            : theme.colorScheme.onSurface,
-                                        fontSize: 13.5,
-                                        fontWeight: FontWeight.w500,
-                                        height: 1.25,
-                                      ),
-                                    ),
-                                  ],
-                                ],
+                              child: Semantics(
+                                container: true,
+                                liveRegion: true,
+                                label: _announcement,
+                                child: ExcludeSemantics(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      if (widget.item.title != null &&
+                                          widget.item.title!.isNotEmpty) ...[
+                                        Text(
+                                          widget.item.title!,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? const Color(0xFFE6E1E5)
+                                                : theme.colorScheme.onSurface,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                            height: 1.2,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          widget.item.message,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? const Color(0xFFCAC4D0)
+                                                : theme
+                                                      .colorScheme
+                                                      .onSurfaceVariant,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w400,
+                                            height: 1.2,
+                                          ),
+                                        ),
+                                      ] else ...[
+                                        Text(
+                                          widget.item.message,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? const Color(0xFFE6E1E5)
+                                                : theme.colorScheme.onSurface,
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.w500,
+                                            height: 1.25,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
 

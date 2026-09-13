@@ -284,6 +284,11 @@ void main() {
       // the likeliest time for it to be up at all: Episodes is where a viewer
       // browses ahead. The next episode is now resolving, and for a torrent
       // that takes minutes.
+      // A minute from the end and then end of media. The near-end
+      // position is load-bearing: an ending with no numbers behind it is
+      // a truncated stream, and the screen fails such a source over
+      // rather than advancing on it.
+      await sendEvent(tester, snapshot(position: 1199000, duration: 1200000));
       await sendEvent(tester, snapshot(state: 'ended'));
       await settle(tester);
 
@@ -357,6 +362,11 @@ void main() {
         // The episode ends under the open panel and the next one resolves.
         // Two candidates, both instantly healthy, so every chip on screen
         // from here is one this episode's own probe put there.
+        // A minute from the end and then end of media. The near-end
+        // position is load-bearing: an ending with no numbers behind it is
+        // a truncated stream, and the screen fails such a source over
+        // rather than advancing on it.
+        await sendEvent(tester, snapshot(position: 1199000, duration: 1200000));
         await sendEvent(tester, snapshot(state: 'ended'));
         downloads().gate.complete();
         await settle(tester);
@@ -407,6 +417,11 @@ void main() {
         final l10n = await english();
 
         await openFromBar(tester, l10n.sources);
+        // A minute from the end and then end of media. The near-end
+        // position is load-bearing: an ending with no numbers behind it is
+        // a truncated stream, and the screen fails such a source over
+        // rather than advancing on it.
+        await sendEvent(tester, snapshot(position: 1199000, duration: 1200000));
         await sendEvent(tester, snapshot(state: 'ended'));
         downloads().gate.complete();
         await settle(tester);

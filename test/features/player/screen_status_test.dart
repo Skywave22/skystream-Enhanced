@@ -113,6 +113,11 @@ void main() {
       final downloads = await pumpShow(tester);
       final l10n = await english();
 
+      // A minute from the end and then end of media. The near-end position
+      // is load-bearing: an ending with no numbers behind it is a truncated
+      // stream, and the screen fails such a source over rather than
+      // advancing on it.
+      await sendEvent(tester, snapshot(position: 1199000, duration: 1200000));
       await sendEvent(tester, snapshot(state: 'ended'));
 
       expect(

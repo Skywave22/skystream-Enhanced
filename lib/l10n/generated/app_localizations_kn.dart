@@ -60,11 +60,11 @@ class AppLocalizationsKn extends AppLocalizations {
   String get recordWatchHistory => 'ವೀಕ್ಷಣೆಯ ಇತಿಹಾಸವನ್ನು ದಾಖಲಿಸಿ';
 
   @override
-  String get bigPictureMode => 'ಬಿಗ್ ಪಿಕ್ಚರ್ ಮೋಡ್';
+  String get fullScreenMode => 'ಪೂರ್ಣ ಪರದೆ ಮೋಡ್';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'ಟಿವಿಗೆ ಸಂಪರ್ಕಿಸಿದ ಕಂಪ್ಯೂಟರ್‌ಗಾಗಿ, ಟಿವಿಯ ದೊಡ್ಡ ವಿನ್ಯಾಸದೊಂದಿಗೆ ಪೂರ್ಣ ಪರದೆ';
+  String get fullScreenModeSubtitle =>
+      'ಟಿವಿಗೆ ಸಂಪರ್ಕಿಸಿದ ಕಂಪ್ಯೂಟರ್‌ಗಾಗಿ, ಪೂರ್ಣ ಪರದೆಯೊಂದಿಗೆ ಟಿವಿಯ ದೊಡ್ಡ ವಿನ್ಯಾಸವೂ ಬರುತ್ತದೆ. ಆಫ್ ಇದ್ದಾಗ ಆ್ಯಪ್ ವಿಂಡೋದಲ್ಲಿಯೇ ಇರುತ್ತದೆ.';
 
   @override
   String get defaultHomeScreen => 'ಡೀಫಾಲ್ಟ್ ಮುಖಪುಟ';
@@ -430,6 +430,28 @@ class AppLocalizationsKn extends AppLocalizations {
   String get min => 'ನಿಮಿಷ';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ಸೆಕೆಂಡ್ ಹಿಂದಕ್ಕೆ ಹೋಗಿ',
+      one: '1 ಸೆಕೆಂಡ್ ಹಿಂದಕ್ಕೆ ಹೋಗಿ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ಸೆಕೆಂಡ್ ಮುಂದಕ್ಕೆ ಹೋಗಿ',
+      one: '1 ಸೆಕೆಂಡ್ ಮುಂದಕ್ಕೆ ಹೋಗಿ',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'ಆಂತರಿಕ (VLC)';
 
   @override
@@ -753,6 +775,9 @@ class AppLocalizationsKn extends AppLocalizations {
 
   @override
   String get goBack => 'ಹಿಂದೆ ಹೋಗಿ';
+
+  @override
+  String get restartApp => 'ಆ್ಯಪ್ ಮರುಪ್ರಾರಂಭಿಸಿ';
 
   @override
   String get resolving => 'ಪರಿಹರಿಸಲಾಗುತ್ತಿದೆ...';
@@ -1619,6 +1644,30 @@ class AppLocalizationsKn extends AppLocalizations {
       'ಈ ಸಂಚಿಕೆಗೆ ಯಾವುದೇ ಉಪಶೀರ್ಷಿಕೆ ಸಿಗಲಿಲ್ಲ. ಇವು ಇಡೀ ಸೀಸನ್‌ನವು, ಆದ್ದರಿಂದ ಫೈಲ್ ಹೆಸರಿನಲ್ಲಿ ಸಂಚಿಕೆ ಸಂಖ್ಯೆಯನ್ನು ಪರಿಶೀಲಿಸಿ.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'ಯಾವುದೇ ಉಪಶೀರ್ಷಿಕೆ ಖಾತೆ ಸೆಟ್ ಆಗಿಲ್ಲ. ಆನ್‌ಲೈನ್ ಹುಡುಕಲು ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ OpenSubtitles, SubDL ಅಥವಾ SubSource ಕೀಲಿ ಸೇರಿಸಿ.';
+  String get sourcesSearching => 'ಸ್ಕ್ರೇಪರ್‌ಗಳಲ್ಲಿ ಹುಡುಕಲಾಗುತ್ತಿದೆ…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'ಪ್ರಸ್ತುತ ಫಿಲ್ಟರ್‌ಗಳಿಗೆ ಯಾವ ಲಿಂಕ್ ಕೂಡ ಹೊಂದಿಕೆಯಾಗಿಲ್ಲ.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'ಈ ಶೀರ್ಷಿಕೆಗೆ TMDB ID ಇಲ್ಲ. \'Search manually\' ಮೂಲಕ ನಮೂದಿಸಿ.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'ಯಾವುದೇ ಸ್ಕ್ರೇಪರ್ ಸಕ್ರಿಯವಾಗಿಲ್ಲ. \'Nuvio Plugins\' ನಲ್ಲಿ ಒಂದನ್ನು ಸೇರಿಸಿ.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'ಎಲ್ಲಾ ಸ್ಕ್ರೇಪರ್‌ಗಳು ವಿಫಲವಾದವು. ನಿಮ್ಮ ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಅಥವಾ ಸ್ಕ್ರೇಪರ್ ನವೀಕರಿಸಿ.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'ಯಾವುದೇ ಲಿಂಕ್ ಸಿಗಲಿಲ್ಲ. $total ರಲ್ಲಿ $failed ಸ್ಕ್ರೇಪರ್ ವಿಫಲವಾದವು.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'ನಿಮ್ಮ ಯಾವುದೇ ಸ್ಕ್ರೇಪರ್‌ನಲ್ಲಿ ಈ ಶೀರ್ಷಿಕೆ ಇಲ್ಲ.';
 }

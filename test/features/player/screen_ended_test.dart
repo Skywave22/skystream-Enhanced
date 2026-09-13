@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/domain/entity/multimedia_item.dart';
 import 'package:skystream/core/services/download_service.dart';
+import 'package:skystream/core/storage/history_repository.dart';
 import 'package:skystream/features/player/presentation/vlc/ended_card.dart';
 import 'package:skystream/features/player/presentation/vlc/next_episode_countdown.dart';
 import 'package:skystream/features/player/presentation/vlc/panel/player_panel.dart'
     show PlayerPanel;
+import 'package:skystream/features/player/presentation/vlc/resume_hint.dart';
 import 'package:skystream/features/player/presentation/vlc/vlc_player_controls.dart';
+import 'package:skystream/features/player/presentation/widgets/player_control_components.dart'
+    show PlayerActionButton;
 import 'package:skystream/features/player/presentation/vlc/vlc_player_screen.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
@@ -58,6 +62,29 @@ void main() {
     posterUrl: '',
     contentType: MultimediaContentType.series,
     episodes: [firstEpisode, lastEpisode],
+    provider: 'Remote',
+  );
+
+  /// A season list scraped without episode names, which is how plenty of
+  /// plugins hand one back: the numbers are there and the names are not.
+  final unnamed = Episode(
+    name: '',
+    url: 'https://example.com/u7.mp4',
+    season: 2,
+    episode: 7,
+  );
+  final unnamedNext = Episode(
+    name: '',
+    url: 'https://example.com/u8.mp4',
+    season: 2,
+    episode: 8,
+  );
+  final scraped = MultimediaItem(
+    title: 'Long Series',
+    url: 'https://example.com/long',
+    posterUrl: '',
+    contentType: MultimediaContentType.series,
+    episodes: [unnamed, unnamedNext],
     provider: 'Remote',
   );
 
@@ -459,6 +486,91 @@ void main() {
     );
 
     testWidgets(
+      'names an unnamed episode by its number, never by the series',
+      variant: texturePlatform,
+      (tester) async {
+        // The card says "You've finished <title>". With no episode name to
+        // print, that title used to fall back to the series - so declining
+        // the advance on episode seven of sixty claimed the whole series was
+        // over. The numbers are always there when the name is not.
+        GatedDownloads? downloads;
+        await pumpPlayer(
+          tester,
+          item: scraped,
+          episode: unnamed,
+          videoUrl: unnamed.url,
+          overrides: [
+            downloadServiceProvider.overrideWith(
+              (ref) => downloads = GatedDownloads(ref),
+            ),
+          ],
+        );
+        await sendFirstFrame(tester);
+        final l10n = await english();
+
+        await sendEvent(tester, snapshot(position: 1190000, duration: 1200000));
+        await tester.pump();
+        await tester.tap(find.text(l10n.cancel));
+        await tester.pump();
+
+        await playToTheEnd(tester);
+
+        expect(find.byKey(endedCardKey), findsOneWidget);
+        expect(downloads, isNull, reason: 'the refusal held');
+        expect(
+          find.text(l10n.playerFinished(l10n.playerSeasonEpisode(2, 7))),
+          findsOneWidget,
+          reason:
+              'S2 E7 is what the episode panel calls this entry, and it is '
+              'the truth: that episode finished',
+        );
+        expect(
+          find.text(l10n.playerFinished(scraped.title)),
+          findsNothing,
+          reason:
+              '"you have finished Long Series" after episode seven of sixty '
+              'is the exact lie the named-episode branch exists to prevent',
+        );
+
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    testWidgets(
+      'Start Over does not carry the refusal into the re-watch',
+      variant: texturePlatform,
+      (tester) async {
+        // The refusal was made about the previous viewing. Left set, the
+        // whole re-watch runs with the auto-advance silently off - no up-next
+        // card in the last fifteen seconds - and ends on this same card
+        // again, which is not what Start Over offers.
+        await declineTheAdvance(tester);
+        final l10n = await english();
+        await playToTheEnd(tester);
+        expect(find.byKey(endedCardKey), findsOneWidget);
+
+        await tester.tap(find.text(l10n.startOver));
+        await settle(tester);
+        expect(find.textContaining(l10n.sourceAttempt(1, 1)), findsOneWidget);
+
+        // The re-watch reaches its own last fifteen seconds.
+        await sendFirstFrame(tester);
+        await sendEvent(tester, snapshot(position: 1190000, duration: 1200000));
+        await tester.pump();
+
+        expect(
+          find.byType(NextEpisodeCountdown),
+          findsOneWidget,
+          reason:
+              'a fresh session, so the auto-advance is on: the refusal '
+              'belonged to the run that ended on the card',
+        );
+
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    testWidgets(
       'never has both cards on screen at once',
       variant: texturePlatform,
       (tester) async {
@@ -474,6 +586,123 @@ void main() {
               'inside the controls branch the ended card unmounts - and this '
               'is the one path that could reach both',
         );
+
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  });
+
+  /// The screen owns two overlays that sit outside the controls: the up-next
+  /// card and the resume hint. Both are live tap targets, and the lock has to
+  /// take them with the rest of the chrome - the controls already withhold the
+  /// three they own the same way.
+  group('a locked screen', () {
+    /// Locks through the padlock, the way a viewer does - the same helper
+    /// screen_back_test.dart uses, for the same reason: the gesture absorber's
+    /// double-tap recogniser holds the arena open, so the press lands ~300 ms
+    /// after the finger leaves.
+    Future<void> lock(WidgetTester tester) async {
+      final l10n = await english();
+      expect(
+        find.byTooltip(l10n.lock),
+        findsOneWidget,
+        reason: 'the padlock is phone and tablet only, and this is a phone',
+      );
+      await tester.tap(find.byTooltip(l10n.lock));
+      await settle(tester);
+    }
+
+    Future<void> unlock(WidgetTester tester) async {
+      final l10n = await english();
+      await tester.tap(find.widgetWithText(PlayerActionButton, l10n.unlock));
+      await settle(tester);
+    }
+
+    testWidgets(
+      'keeps the up-next card off, and gives it back on unlock',
+      variant: texturePlatform,
+      (tester) async {
+        // The worst fifteen seconds the lock has: a 300 dp card with two live
+        // buttons, bottom-right, at the end of every episode of every binge.
+        // A pocket press on Play now jumps the episode and loses the
+        // position; one on Cancel ends the episode outright and takes the
+        // lock off with it.
+        GatedDownloads? downloads;
+        await pumpPlayer(
+          tester,
+          item: show,
+          episode: firstEpisode,
+          videoUrl: firstEpisode.url,
+          isTv: false,
+          overrides: [
+            downloadServiceProvider.overrideWith(
+              (ref) => downloads = GatedDownloads(ref),
+            ),
+          ],
+        );
+        await sendFirstFrame(tester);
+        final l10n = await english();
+        await lock(tester);
+
+        // Inside the fifteen-second lead-in, so the offer is made.
+        await sendEvent(tester, snapshot(position: 1190000, duration: 1200000));
+        await tester.pump();
+
+        expect(
+          find.byType(NextEpisodeCountdown),
+          findsNothing,
+          reason:
+              'withheld, not merely ignored - the rule the controls follow '
+              'for the three targets they own. A drawn button that does '
+              'nothing reads as a broken player',
+        );
+        expect(find.text(l10n.playNow), findsNothing);
+        expect(find.text(l10n.cancel), findsNothing);
+        expect(
+          downloads,
+          isNull,
+          reason: 'and nothing behind it decided an advance either',
+        );
+
+        await unlock(tester);
+
+        expect(
+          find.byType(NextEpisodeCountdown),
+          findsOneWidget,
+          reason:
+              'the offer stands; it is the surface that was withheld, and it '
+              'comes back off the same notifier the chip writes',
+        );
+
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    testWidgets(
+      'keeps the resume hint off, and gives it back on unlock',
+      variant: texturePlatform,
+      (tester) async {
+        // The other screen-level overlay, and its Start Over button throws
+        // away the position the viewer resumed at.
+        await pumpPlayer(
+          tester,
+          isTv: false,
+          overrides: [
+            historyRepositoryProvider.overrideWithValue(_ResumeAtHalfway()),
+          ],
+        );
+        await sendFirstFrame(tester);
+        expect(
+          find.byType(ResumeHint),
+          findsOneWidget,
+          reason: 'ten minutes into a twenty-minute film were on disk',
+        );
+
+        await lock(tester);
+        expect(find.byType(ResumeHint), findsNothing);
+
+        await unlock(tester);
+        expect(find.byType(ResumeHint), findsOneWidget);
 
         await tester.pumpWidget(const SizedBox());
       },
@@ -503,6 +732,46 @@ void main() {
               'lie the viewer would act on',
         );
         expect(find.byKey(openingOverlayKey), findsOneWidget);
+        expect(find.text(l10n.playerReasonStreamEndedEarly), findsOneWidget);
+
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    testWidgets(
+      'a source whose duration was never reported is not carded either',
+      variant: texturePlatform,
+      (tester) async {
+        await pumpPlayer(tester, item: film, videoUrl: film.url);
+        await sendFirstFrame(tester);
+        final l10n = await english();
+
+        // Ten minutes of a container libVLC never learned the length of - an
+        // HLS manifest with no EXT-X-ENDLIST on a non-live item, an unindexed
+        // MKV over HTTP, a torrent whose header never completed - and then
+        // the socket drops. Every snapshot carries `duration: 0`, so no
+        // progress sample is ever written: this is the case where the screen
+        // cannot tell an ending from a truncation, and "cannot tell" is a
+        // failure.
+        await sendEvent(tester, snapshot(position: 300000, duration: 0));
+        await sendEvent(tester, snapshot(position: 600000, duration: 0));
+        await sendEvent(tester, snapshot(state: 'ended'));
+        await settle(tester);
+
+        expect(
+          find.byKey(endedCardKey),
+          findsNothing,
+          reason:
+              'a missing sample is not evidence of an ending. Carded, this '
+              'tells a viewer whose stream dropped ten minutes in that the '
+              'film finished',
+        );
+        expect(find.text(l10n.playerFinished(film.title)), findsNothing);
+        expect(
+          find.byKey(openingOverlayKey),
+          findsOneWidget,
+          reason: 'the failover ladder is trying the source again instead',
+        );
         expect(find.text(l10n.playerReasonStreamEndedEarly), findsOneWidget);
 
         await tester.pumpWidget(const SizedBox());
@@ -540,4 +809,15 @@ void main() {
       },
     );
   });
+}
+
+/// Ten minutes into a twenty-minute film, on disk, so the screen resolves a
+/// resume point and raises the hint on the first frame. [NoHistory] answers
+/// zero to both, which is why no other screen test has ever seen the hint.
+class _ResumeAtHalfway extends NoHistory {
+  @override
+  int getPosition(String url) => 600000;
+
+  @override
+  int getDuration(String url) => 1200000;
 }

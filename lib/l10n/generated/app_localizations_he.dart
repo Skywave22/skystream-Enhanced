@@ -60,11 +60,10 @@ class AppLocalizationsHe extends AppLocalizations {
   String get recordWatchHistory => 'תעד היסטוריית צפייה';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'מסך מלא';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'מעבר לתצוגת הטלוויזיה';
 
   @override
   String get defaultHomeScreen => 'מסך הבית המחדל';
@@ -420,6 +419,30 @@ class AppLocalizationsHe extends AppLocalizations {
   String get min => 'דק\'';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'אחורה $count שניות',
+      two: 'אחורה שתי שניות',
+      one: 'אחורה שנייה אחת',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'קדימה $count שניות',
+      two: 'קדימה שתי שניות',
+      one: 'קדימה שנייה אחת',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'נגן פנימי (VLC)';
 
   @override
@@ -733,6 +756,9 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get goBack => 'חזור';
+
+  @override
+  String get restartApp => 'הפעלה מחדש של האפליקציה';
 
   @override
   String get resolving => 'מפענח קישורים...';
@@ -1588,6 +1614,29 @@ class AppLocalizationsHe extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'מחפש בסקרייפרים…';
+
+  @override
+  String get sourcesEmptyFiltered => 'אין קישורים שתואמים למסננים.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'אין מזהה TMDB לכותר הזה. הזן אותו דרך \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'אין סקרייפרים פעילים. הוסף אחד ב-\'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'כל הסקרייפרים נכשלו. בדוק את החיבור או עדכן את הסקרייפרים.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'לא נמצאו קישורים. $failed מתוך $total סקרייפרים נכשלו.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'לאף אחד מהסקרייפרים שלך אין את הכותר הזה.';
 }

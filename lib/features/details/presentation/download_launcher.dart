@@ -8,6 +8,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/extensions/extension_manager.dart';
 import '../../../core/extensions/base_provider.dart';
+import '../../../core/logger/app_logger.dart';
 import '../../../core/services/download_service.dart';
 import '../../../core/router/app_router.dart';
 import '../../../shared/widgets/loading_dialog.dart';
@@ -24,6 +25,11 @@ DownloadLauncher downloadLauncher(Ref ref) {
 }
 
 class DownloadLauncher {
+  // TODO(l10n): 'Download Error' has no ARB key yet. It was already hardcoded
+  // at both toast sites in this file; hoisting it keeps the third one from
+  // adding a fourth copy of an untranslated literal.
+  static const String _downloadErrorTitle = 'Download Error';
+
   final Ref _ref;
 
   DownloadLauncher(this._ref);
@@ -81,7 +87,7 @@ class DownloadLauncher {
           .read(notificationServiceProvider)
           .showError(
             l10n.errorPrefix(e.toString()),
-            title: 'Download Error',
+            title: _downloadErrorTitle,
             icon: Icons.error_outline_rounded,
           );
     }
@@ -132,7 +138,7 @@ class DownloadLauncher {
                       subtitle: host.isNotEmpty ? Text(host) : null,
                       onTap: () {
                         Navigator.pop(ctx);
-                        _verifyAndDownload(context, stream, item, resolveUrl);
+                        verifyAndDownload(context, stream, item, resolveUrl);
                       },
                     );
                   },
@@ -146,7 +152,13 @@ class DownloadLauncher {
     );
   }
 
-  Future<void> _verifyAndDownload(
+  /// Verifies the source, then shows the confirmation dialog whose
+  /// "Download Now" button starts the download.
+  ///
+  /// Reachable from a test so the confirm button's failure path can be driven
+  /// end to end; production only calls it from the source picker.
+  @visibleForTesting
+  Future<void> verifyAndDownload(
     BuildContext context,
     StreamResult stream,
     MultimediaItem item,
@@ -252,60 +264,13 @@ class DownloadLauncher {
               ElevatedButton(
                 onPressed: () async {
                   Navigator.pop(ctx);
-
-                  // Finalize path and filename
-                  final episodeData = item.episodes?.firstWhereOrNull(
-                    (e) => e.url == resolveUrl,
-                  );
-                  final saveDir = await downloadService.getDownloadPath(
-                    item,
-                    episode: episodeData,
-                  );
-
-                  final extension = _getFileExtension(
-                    stream.url,
-                    metadata.mimeType,
-                  );
-                  String filename;
-                  if (episodeData != null &&
-                      item.contentType != MultimediaContentType.movie) {
-                    final sanitizedEpName = episodeData.name
-                        .replaceAll(RegExp(r'[^\w\s-]'), '')
-                        .trim();
-                    filename =
-                        "S${episodeData.season}-E${episodeData.episode} $sanitizedEpName$extension";
-                  } else {
-                    final sanitizedTitle = item.title
-                        .replaceAll(RegExp(r'[^\w\s-]'), '')
-                        .trim();
-                    filename = "$sanitizedTitle$extension";
-                  }
-
-                  if (kDebugMode) {
-                    debugPrint(
-                      '[DownloadLauncher] Final Path: $saveDir/$filename',
-                    );
-                  }
-
-                  final started = await downloadService.startDownload(
-                    url: stream.url,
-                    filename: filename,
-                    directory: saveDir,
+                  await _startConfirmedDownload(
+                    l10n: l10n,
+                    stream: stream,
                     item: item,
-                    episode: episodeData,
-                    trackingUrl: resolveUrl,
-                    headers: stream.headers,
+                    resolveUrl: resolveUrl,
+                    metadata: metadata,
                   );
-
-                  if (!started) {
-                    _ref
-                        .read(notificationServiceProvider)
-                        .showError(
-                          'Failed to start download. Check storage permissions.',
-                          title: 'Download Error',
-                          icon: Icons.folder_off_rounded,
-                        );
-                  }
                 },
                 child: Text(l10n.downloadNow),
               ),
@@ -313,6 +278,86 @@ class DownloadLauncher {
           ),
         ),
       );
+    }
+  }
+
+  /// Runs the actual start after the confirm dialog has already popped.
+  ///
+  /// Everything in here has to report its own failure. The dialog is gone by
+  /// the time this runs, so an escaping exception leaves the user staring at
+  /// the details screen with no progress row, no toast and no way to tell that
+  /// anything went wrong - `startDownload` throws a FileSystemException on
+  /// every Android 11+ device where All-files-access was declined.
+  Future<void> _startConfirmedDownload({
+    required AppLocalizations l10n,
+    required StreamResult stream,
+    required MultimediaItem item,
+    required String resolveUrl,
+    required DownloadMetadata metadata,
+  }) async {
+    final downloadService = _ref.read(downloadServiceProvider);
+    try {
+      // Finalize path and filename
+      final episodeData = item.episodes?.firstWhereOrNull(
+        (e) => e.url == resolveUrl,
+      );
+      final saveDir = await downloadService.getDownloadPath(
+        item,
+        episode: episodeData,
+      );
+
+      final extension = _getFileExtension(stream.url, metadata.mimeType);
+      String filename;
+      if (episodeData != null &&
+          item.contentType != MultimediaContentType.movie) {
+        final sanitizedEpName = episodeData.name
+            .replaceAll(RegExp(r'[^\w\s-]'), '')
+            .trim();
+        filename =
+            "S${episodeData.season}-E${episodeData.episode} $sanitizedEpName$extension";
+      } else {
+        final sanitizedTitle = item.title
+            .replaceAll(RegExp(r'[^\w\s-]'), '')
+            .trim();
+        filename = "$sanitizedTitle$extension";
+      }
+
+      if (kDebugMode) {
+        debugPrint('[DownloadLauncher] Final Path: $saveDir/$filename');
+      }
+
+      final started = await downloadService.startDownload(
+        url: stream.url,
+        filename: filename,
+        directory: saveDir,
+        item: item,
+        episode: episodeData,
+        trackingUrl: resolveUrl,
+        headers: stream.headers,
+      );
+
+      if (!started) {
+        _ref
+            .read(notificationServiceProvider)
+            .showError(
+              'Failed to start download. Check storage permissions.',
+              title: _downloadErrorTitle,
+              icon: Icons.folder_off_rounded,
+            );
+      }
+    } catch (error, stackTrace) {
+      talker.error(
+        'DownloadLauncher: "Download Now" failed for "${item.title}"',
+        error,
+        stackTrace,
+      );
+      _ref
+          .read(notificationServiceProvider)
+          .showError(
+            l10n.errorPrefix(error.toString()),
+            title: _downloadErrorTitle,
+            icon: Icons.error_outline_rounded,
+          );
     }
   }
 

@@ -543,7 +543,9 @@ class RecommendationsCarousel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLarge = context.isDesktop || context.isTv;
+    // A size branch: the 900 dp desktop breakpoint, which a 960 dp
+    // television clears on its own.
+    final isLarge = context.isDesktop;
     final cardWidth = isLarge ? 180.0 : 110.0;
     final listHeight = isLarge ? 310.0 : 180.0;
 

@@ -7,7 +7,7 @@ import '../../../core/theme/theme_provider.dart';
 
 import 'widgets/settings_widgets.dart';
 import 'widgets/settings_dialogs.dart';
-import 'big_picture_provider.dart';
+import 'full_screen_mode_provider.dart';
 import 'general_settings_provider.dart';
 import 'app_version_provider.dart';
 
@@ -94,7 +94,7 @@ class SettingsScreen extends ConsumerWidget {
     ThemeMode themeMode,
     GeneralSettings generalSettings,
   ) {
-    final bigPictureEnabled = ref.watch(bigPictureModeProvider);
+    final fullScreenModeEnabled = ref.watch(fullScreenModeProvider);
     return SettingsGroup(
       title: l10n.general,
       children: [
@@ -149,22 +149,22 @@ class SettingsScreen extends ConsumerWidget {
             generalSettings.titlePosition,
           ),
         ),
-        // Big Picture only appears where it means something: it exists to turn
-        // a windowed computer into the ten-foot UI, and a phone, a tablet and
-        // an Android TV are already the shape they are going to be.
-        if (_supportsBigPicture(context))
+        // Only shown where it means something. A phone, a tablet and a
+        // television are already the size they are going to be; only a
+        // desktop has a window that can change.
+        if (_supportsFullScreenMode(context))
           SettingsTile(
             icon: Icons.tv_rounded,
-            title: l10n.bigPictureMode,
-            subtitle: l10n.bigPictureModeSubtitle,
+            title: l10n.fullScreenMode,
+            subtitle: l10n.fullScreenModeSubtitle,
             trailing: Switch(
-              value: bigPictureEnabled,
+              value: fullScreenModeEnabled,
               onChanged: (val) =>
-                  ref.read(bigPictureModeProvider.notifier).setEnabled(val),
+                  ref.read(fullScreenModeProvider.notifier).setEnabled(val),
             ),
             onTap: () => ref
-                .read(bigPictureModeProvider.notifier)
-                .setEnabled(!bigPictureEnabled),
+                .read(fullScreenModeProvider.notifier)
+                .setEnabled(!fullScreenModeEnabled),
           ),
         SettingsTile(
           icon: Icons.play_circle_outline_rounded,
@@ -292,13 +292,15 @@ String _formatBytes(int bytes) {
   return '$value ${units[unitIndex]}';
 }
 
-/// Whether Big Picture is offered at all.
+/// Whether the full screen / windowed choice is offered at all.
 ///
 /// It needs a window to make full screen and a form factor worth overriding,
-/// which is the three desktops and nowhere else. Read through
-/// [ThemeData.platform] rather than dart:io so a test can state which device
-/// it is pretending to be.
-bool _supportsBigPicture(BuildContext context) {
+/// which is the three desktops and nowhere else. A phone, a tablet and an
+/// Android TV never see the row, so its subtitle never has to hedge about
+/// devices that have no window to speak of. Read through [ThemeData.platform]
+/// rather than dart:io so a test can state which device it is pretending to
+/// be.
+bool _supportsFullScreenMode(BuildContext context) {
   if (kIsWeb) return false;
   return switch (Theme.of(context).platform) {
     TargetPlatform.windows ||

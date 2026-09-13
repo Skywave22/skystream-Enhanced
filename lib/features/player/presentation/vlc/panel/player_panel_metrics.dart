@@ -49,9 +49,12 @@ class PlayerPanelMetrics {
     required this.badgeSize,
     required this.subheaderSize,
     required this.emptySize,
+    required this.bannerTextSize,
+    required this.bannerIconSize,
     required this.tabLabelSize,
     required this.tabVerticalPadding,
     required this.tabHorizontalPadding,
+    required this.tabMinWidth,
     required this.closeButtonPadding,
     required this.stepperValueWidth,
     required this.stepperValueSize,
@@ -115,11 +118,43 @@ class PlayerPanelMetrics {
   final double subheaderSize;
   final double emptySize;
 
+  /// The Sources tab's fallback banner - the sentence that says why sources
+  /// below the viewer's quality preference are in the list. Its own rung
+  /// rather than [rowDetailSize] because the phone's 11 sp is a number that
+  /// predates this file and moving it would make the touch ramp a redesign.
+  final double bannerTextSize;
+
+  /// The banner's leading glyph. Smaller than [iconSize]: it sits beside one
+  /// run of prose, not in a row's leading slot.
+  final double bannerIconSize;
+
   // --- Tab strip ---
 
   final double tabLabelSize;
   final double tabVerticalPadding;
   final double tabHorizontalPadding;
+
+  /// Floor on a tab's width, because the strip is a [Wrap] of
+  /// intrinsically-sized tabs: `Files` in English is 37 dp of Roboto at 13 sp
+  /// plus 8 dp of padding, and a 37 dp target between two neighbours 4 dp away
+  /// is a mis-tap. The vertical padding already makes a tab 41 dp tall; this
+  /// is the same guarantee across.
+  ///
+  /// THE ONE TOUCH FIELD THAT IS NOT A PRE-EXISTING LITERAL. The strip used to
+  /// be five [Expanded]s, which gave every tab an equal ~68 dp share of the
+  /// header whatever its word was; the [Wrap] that stopped `Subtitles` being
+  /// ellipsised on a television let every tab shrink to its word instead. This
+  /// puts the floor back rather than leaving the phone paying for a TV fix.
+  ///
+  /// WHY IT IS 48 ON BOTH RAMPS, where every other rung goes up for the sofa.
+  /// 48 dp is a thumb, and a remote does not aim: on a television the width of
+  /// a tab decides how much focus ring the viewer sees, not whether they can
+  /// hit it, and the narrowest TV tab today is already 51 dp. Measured, a
+  /// 64 dp TV rung buys nothing in English or Hindi and pushes the Kannada
+  /// strip from one run to two - 57 dp to 116 dp of a 540 dp screen, taken out
+  /// of the list below it. So the floor is the touch floor, on both.
+  final double tabMinWidth;
+
   final double closeButtonPadding;
 
   // --- Stepper ---
@@ -146,8 +181,10 @@ class PlayerPanelMetrics {
   /// at all, which is most of what makes a badge a badge.
   final Color divider;
 
-  /// Every number as it was hard-coded before this file existed. Changing one
-  /// of these is a phone/tablet/desktop redesign, not a TV fix.
+  /// Every number as it was hard-coded before this file existed - with the one
+  /// documented exception of [tabMinWidth], which restores a floor the ramp's
+  /// own [Wrap] removed. Changing any of the others is a phone/tablet/desktop
+  /// redesign, not a TV fix.
   static const PlayerPanelMetrics touch = PlayerPanelMetrics(
     drawerMinWidth: 360,
     drawerMaxWidth: 480,
@@ -161,9 +198,12 @@ class PlayerPanelMetrics {
     badgeSize: 10,
     subheaderSize: 11,
     emptySize: 13,
+    bannerTextSize: 11,
+    bannerIconSize: 16,
     tabLabelSize: 13,
     tabVerticalPadding: 10,
     tabHorizontalPadding: 4,
+    tabMinWidth: 48,
     closeButtonPadding: 8,
     stepperValueWidth: 62,
     stepperValueSize: 13,
@@ -188,9 +228,12 @@ class PlayerPanelMetrics {
     badgeSize: 13,
     subheaderSize: 14,
     emptySize: 16,
+    bannerTextSize: 14,
+    bannerIconSize: 20,
     tabLabelSize: 16,
     tabVerticalPadding: 16,
     tabHorizontalPadding: 8,
+    tabMinWidth: 48,
     closeButtonPadding: 12,
     stepperValueWidth: 76,
     stepperValueSize: 16,

@@ -60,11 +60,10 @@ class AppLocalizationsVi extends AppLocalizations {
   String get recordWatchHistory => 'Lưu lịch sử xem';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Toàn màn hình';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Chuyển sang bố cục TV';
 
   @override
   String get defaultHomeScreen => 'Màn hình chính mặc định';
@@ -421,6 +420,26 @@ class AppLocalizationsVi extends AppLocalizations {
   String get min => 'phút';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Tua lùi $count giây',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Tua tới $count giây',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Trình phát nội bộ (VLC)';
 
   @override
@@ -736,6 +755,9 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get goBack => 'Quay lại';
+
+  @override
+  String get restartApp => 'Khởi động lại ứng dụng';
 
   @override
   String get resolving => 'Đang giải quyết...';
@@ -1593,6 +1615,29 @@ class AppLocalizationsVi extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Đang tìm trong các scraper…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Không có liên kết nào khớp với bộ lọc.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Tựa đề này không có ID TMDB. Nhập bằng \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Chưa bật scraper nào. Thêm một cái trong \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Tất cả scraper đều thất bại. Kiểm tra kết nối hoặc cập nhật scraper.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Không tìm thấy liên kết. $failed/$total scraper thất bại.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Không scraper nào của bạn có tựa đề này.';
 }

@@ -125,6 +125,20 @@ class AniListService implements TrackingService {
     await _storage.delete(_kAccessTokenKey);
   }
 
+  /// AniList issues implicit-grant tokens: no refresh token exists, so a 401
+  /// (or the GraphQL `Invalid token` error it sometimes returns as a 400)
+  /// cannot be renewed. Drop the session so [isLoggedIn] reports false and the
+  /// account tile prompts for a reconnect instead of reading "Connected" over
+  /// a sync that is silently dead.
+  Future<void> _handleUnauthorized(Object error) async {
+    if (error is! DioException) return;
+    final status = error.response?.statusCode;
+    if (status != 401 && status != 403) return;
+    talker.error('AniListService: token rejected ($status), clearing session');
+    _accessToken = null;
+    await _storage.delete(_kAccessTokenKey);
+  }
+
   @override
   Future<List<MultimediaItem>> search(String query) async {
     if (_accessToken == null) return [];
@@ -191,6 +205,7 @@ class AniListService implements TrackingService {
       return response.statusCode == 200;
     } catch (e) {
       talker.error('AniListService: SaveMediaListEntry failed', e);
+      await _handleUnauthorized(e);
       return false;
     }
   }

@@ -14,11 +14,20 @@
 /// player is the top route, and comes straight back when it is popped. The
 /// player has its own transient layer (`TransientOverlay`) for its own
 /// messages, so nothing is lost.
+///
+/// The second contract, further down: *where* the card lands is a question
+/// about the window, not about the machine. It used to be
+/// `isDesktopOS || isTv || width >= 720`, and the two device clauses could
+/// only ever disagree with the width in one direction - a desktop window
+/// dragged under 720 dp still got the corner treatment, in a window with no
+/// corner to spare. A television never needed a clause: it is 960 dp wide.
 library;
 
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -58,8 +67,12 @@ void main() {
   /// The production shape in miniature: a shell branch for the pages, the
   /// player as a *top-level* route beside it, and the toast layer wrapped
   /// around the router by `MaterialApp.router`'s builder.
-  Future<GoRouter> pump(WidgetTester tester) async {
-    tester.view.physicalSize = _phone;
+  Future<GoRouter> pump(
+    WidgetTester tester, {
+    Size window = _phone,
+    DeviceProfile profile = const DeviceProfile(),
+  }) async {
+    tester.view.physicalSize = window;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
@@ -92,9 +105,7 @@ void main() {
         overrides: [
           appRouterProvider.overrideWithValue(router),
           notificationServiceProvider.overrideWithValue(service),
-          deviceProfileProvider.overrideWithValue(
-            const AsyncValue.data(DeviceProfile()),
-          ),
+          deviceProfileProvider.overrideWithValue(AsyncValue.data(profile)),
         ],
         child: MaterialApp.router(
           routerConfig: router,
@@ -175,6 +186,187 @@ void main() {
     expect(find.text('Download complete'), findsOneWidget);
 
     await drain(tester);
+  });
+
+  group('a toast has to speak, because it cannot be found', () {
+    /// Every status the app has - "Login failed", "No sources found",
+    /// "Download complete" - arrives as one of these cards and takes itself
+    /// away 3-4 s later. There is no window in which a screen-reader user
+    /// could find it by exploration, so if the card does not announce itself
+    /// the whole feedback channel is silent for them (WCAG 2.1 4.1.3).
+    testWidgets('the card is a live region carrying the whole message', (
+      tester,
+    ) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      await pump(tester);
+
+      service.showError('Check your password', title: 'Login failed');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        tester.getSemantics(find.text('Check your password')),
+        isSemantics(
+          // Title and body in one node, joined the way the framework joins
+          // merged labels, so the reader speaks the card and not a fragment.
+          label: 'Login failed\nCheck your password',
+          isLiveRegion: true,
+        ),
+      );
+
+      await drain(tester);
+      semantics.dispose();
+    });
+
+    testWidgets('a toast with no title announces its message', (tester) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      await pump(tester);
+      await toast(tester);
+
+      expect(
+        tester.getSemantics(find.text('Download complete')),
+        isSemantics(label: 'Download complete', isLiveRegion: true),
+      );
+
+      await drain(tester);
+      semantics.dispose();
+    });
+
+    /// The card must be one region, not three. A live region per [Text] would
+    /// speak the title, then the title and body again, on every toast - and
+    /// the audit's other half is about not turning ordinary use into chatter.
+    testWidgets('one region per card, whatever is in it', (tester) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      await pump(tester);
+
+      service.showToast(title: 'Plugin updated', message: 'Nuvio 1.4.0');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      final List<SemanticsNode> regions = <SemanticsNode>[];
+      void visit(SemanticsNode node) {
+        if (node.getSemanticsData().flagsCollection.isLiveRegion) {
+          regions.add(node);
+        }
+        node.visitChildren((SemanticsNode child) {
+          visit(child);
+          return true;
+        });
+      }
+
+      visit(tester.getSemantics(find.byType(M3ToastOverlay)));
+      expect(regions, hasLength(1));
+
+      await drain(tester);
+      semantics.dispose();
+    });
+  });
+
+  group('a hovered card that is taken away', () {
+    /// Parks a mouse in the middle of the card, which pauses its dismiss
+    /// timer. Flutter delivers no `onExit` when a hovered region is unmounted
+    /// (widgets/basic.dart, [MouseRegion.onExit]), so whatever the card does
+    /// on the way out is the only thing that can un-pause it.
+    Future<TestGesture> hoverCard(WidgetTester tester) async {
+      final TestGesture mouse = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      await mouse.addPointer(
+        location: tester.getRect(find.byType(InkWell)).center,
+      );
+      await tester.pump();
+      return mouse;
+    }
+
+    testWidgets('still expires after the player takes the layer down', (
+      tester,
+    ) async {
+      final router = await pump(tester);
+      await toast(tester);
+      final mouse = await hoverCard(tester);
+
+      await tester.pump(const Duration(seconds: 10));
+      expect(service.toasts, hasLength(1), reason: 'hover holds it open');
+
+      // The layer stands down whole on the player route, so the card is
+      // unmounted with the pointer still inside it.
+      unawaited(router.push(kPlayerRoutePath));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 10));
+      expect(
+        service.toasts,
+        isEmpty,
+        reason: 'a paused timer nothing can resume is a permanent toast',
+      );
+
+      // Which is what the viewer would meet on the way back: a card that
+      // never leaves, over a page whose clicks it eats.
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Download complete'), findsNothing);
+
+      await mouse.removePointer();
+      await tester.pump();
+    });
+
+    testWidgets('does not strand a timer when it was dismissed first', (
+      tester,
+    ) async {
+      await pump(tester);
+      await toast(tester);
+      final mouse = await hoverCard(tester);
+
+      // Ending the hover from dispose runs for ordinary dismissal too, by
+      // which point the toast is already out of the queue. Re-arming there
+      // would leave a timer in the map for an id nothing will ever dismiss
+      // again - which is what the binding's pending-timer check below fails
+      // on.
+      service.dismissToast(service.toasts.single.id);
+      await tester.pump();
+      expect(service.toasts, isEmpty);
+
+      await mouse.removePointer();
+      await tester.pump();
+    });
+  });
+
+  group('the corner is a size decision', () {
+    /// Just under the 720 dp threshold, in every device costume the old
+    /// expression could have worn.
+    const Size narrow = Size(700, 800);
+
+    for (final (String name, DeviceProfile profile)
+        in const <(String, DeviceProfile)>[
+          ('a desktop window dragged narrow', DeviceProfile(isDesktopOS: true)),
+          (
+            'a television that somehow reported 700 dp',
+            DeviceProfile(isTv: true),
+          ),
+          ('a phone', DeviceProfile()),
+        ]) {
+      testWidgets('$name gets a centred toast at 700 dp', (tester) async {
+        await pump(tester, window: narrow, profile: profile);
+        await toast(tester);
+
+        final card = tester.getRect(find.byType(InkWell));
+        expect(card.center.dx, 350, reason: 'centred in a 700 dp window');
+        expect(card.right, lessThan(700 - 24), reason: 'not corner-anchored');
+
+        await drain(tester);
+      });
+    }
+
+    testWidgets('past 720 dp the toast takes the corner, whatever the device '
+        'is', (tester) async {
+      await pump(tester, window: const Size(800, 800));
+      await toast(tester);
+
+      // Align.bottomRight inside the layer's 24 dp padding.
+      final card = tester.getRect(find.byType(InkWell));
+      expect(card.right, 800 - 24);
+
+      await drain(tester);
+    });
   });
 
   test(

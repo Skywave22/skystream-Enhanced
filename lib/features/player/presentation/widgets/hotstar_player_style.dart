@@ -16,10 +16,19 @@ class HotstarPlayerStyle {
   static const Color accentAlt = Color(0xFFDD3EFF);
   static const Color primaryText = Color(0xF2FFFFFF);
   static const Color secondaryText = Color(0xA6FFFFFF);
-  static const Color mutedText = Color(0x73FFFFFF);
+  /// The smallest type in the chrome (panel secondary lines, torrent stats,
+  /// the countdown's caption). Alpha 0x73 measured 4.43:1 against the black
+  /// under the scrim, which misses WCAG AA for body text; 0x75 is the first
+  /// step that clears it (4.56:1, and higher again over the panel fills).
+  static const Color mutedText = Color(0x75FFFFFF);
   static const Color divider = Color(0x1FFFFFFF);
   static const Color track = Color(0x55FFFFFF);
-  static const Color trackInactive = Color(0x35FFFFFF);
+
+  /// Unfilled part of a progress track - the next-episode ring and the
+  /// torrent progress bar. It is what tells a viewer how much is *left*, so
+  /// it is a UI component under WCAG 1.4.11 and owes 3:1, not the 1.71:1 the
+  /// old 0x35 measured. 0x5C is the first step that clears it (3.14:1).
+  static const Color trackInactive = Color(0x5CFFFFFF);
   static const Color focus = Color(0x660A84FF);
   static const Color liveRed = Color(0xFFE53935);
 

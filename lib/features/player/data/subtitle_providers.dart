@@ -6,7 +6,19 @@ class OpenSubtitlesProvider extends SubtitleProvider {
   final Dio _dio;
   final String? _apiKey;
   static const String baseUrl = "https://api.opensubtitles.com/api/v1";
-  static const String _defaultApiKey = "uyBLgFD17MgrYmA0gSXoKllMJBelOYj2";
+  /// Build-time fallback key, supplied by the build rather than the source.
+  ///
+  /// Pass via: flutter build --dart-define=OPENSUBTITLES_API_KEY=your_key
+  ///
+  /// This used to be a literal in this file. A key committed to a public
+  /// repository is a published key: it is in the history, in every fork and in
+  /// every clone, and rotating it is the only remedy. The user's own key from
+  /// Settings still takes precedence over this, exactly as before; when neither
+  /// is set the provider is simply skipped, which the search flow already
+  /// handles because SubDL behaves the same way without a key.
+  static const String _defaultApiKey = String.fromEnvironment(
+    'OPENSUBTITLES_API_KEY',
+  );
   static const String _userAgent = "SkyStream v2.2.1";
 
   // Auth state
@@ -139,6 +151,12 @@ class OpenSubtitlesProvider extends SubtitleProvider {
     String? language,
     CancelToken? cancelToken,
   }) async {
+    // No key, no request. The key now comes from the build or the viewer's
+    // own Settings entry rather than from a literal in this file, so a build
+    // with neither must degrade the way SubDL already does - return nothing
+    // and let the other providers answer - rather than send an empty Api-Key
+    // header and surface the 401 as "search failed".
+    if (_effectiveApiKey.isEmpty) return const <OnlineSubtitle>[];
     if (kDebugMode) {
       final keyType = (_apiKey != null && _apiKey!.isNotEmpty)
           ? "User"

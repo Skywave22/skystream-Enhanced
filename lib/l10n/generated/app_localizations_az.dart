@@ -60,11 +60,10 @@ class AppLocalizationsAz extends AppLocalizations {
   String get recordWatchHistory => 'Baxış tarixçəsini yaz';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Tam ekran';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'TV görünüşünə keçir';
 
   @override
   String get defaultHomeScreen => 'Standart əsas ekran';
@@ -426,6 +425,28 @@ class AppLocalizationsAz extends AppLocalizations {
   String get min => 'dəq';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count saniyə geri sar',
+      one: '1 saniyə geri sar',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count saniyə irəli sar',
+      one: '1 saniyə irəli sar',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Daxili (VLC)';
 
   @override
@@ -748,6 +769,9 @@ class AppLocalizationsAz extends AppLocalizations {
 
   @override
   String get goBack => 'Geri qayıt';
+
+  @override
+  String get restartApp => 'Tətbiqi yenidən başlat';
 
   @override
   String get resolving => 'Həll edilir...';
@@ -1613,6 +1637,29 @@ class AppLocalizationsAz extends AppLocalizations {
       'Bu epizod üçün altyazı yoxdur. Bunlar bütün mövsümə aiddir, ona görə fayl adındakı epizod nömrəsini yoxla.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'Heç bir altyazı hesabı qurulmayıb. Onlayn axtarış üçün Parametrlərdə OpenSubtitles, SubDL və ya SubSource açarı əlavə et.';
+  String get sourcesSearching => 'Skreperlər axtarılır…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Cari filtrlərə uyğun keçid yoxdur.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Bu başlıq üçün TMDB ID yoxdur. Daxil etmək üçün \'Search manually\' istifadə edin.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Aktiv skreper yoxdur. \'Nuvio Plugins\' bölməsində əlavə edin.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Bütün skreperlər uğursuz oldu. Bağlantınızı yoxlayın və ya skreperləri yeniləyin.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Keçid tapılmadı. $total skreperdən $failed uğursuz oldu.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Skreperlərinizin heç birində bu başlıq yoxdur.';
 }

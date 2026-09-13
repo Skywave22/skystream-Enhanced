@@ -33,11 +33,28 @@ class ProxyOptions {
 }
 
 class LocalProxyService {
-  static final LocalProxyService _instance = LocalProxyService._internal();
+  /// Constructs a proxy. Production uses the [instance] singleton; the
+  /// constructor is public so a test can stand up its own isolated proxy —
+  /// its own port, its own connection pool — instead of mutating the shared
+  /// one (audit W14: no seam is why the pooling and TLS defects went
+  /// unnoticed for so long).
+  ///
+  /// [httpClientFactory] builds the pooled upstream clients; the default is
+  /// the real `HttpClient`. [bindAddress] is the interface the local server
+  /// listens on and must stay loopback in production — [_isAllowedOrigin]
+  /// rejects every non-loopback peer regardless.
+  LocalProxyService({
+    HttpClient Function()? httpClientFactory,
+    InternetAddress? bindAddress,
+  }) : _httpClientFactory = httpClientFactory ?? HttpClient.new,
+       _bindAddress = bindAddress ?? InternetAddress.loopbackIPv4;
+
+  static final LocalProxyService _instance = LocalProxyService();
 
   static LocalProxyService get instance => _instance;
 
-  LocalProxyService._internal();
+  final HttpClient Function() _httpClientFactory;
+  final InternetAddress _bindAddress;
 
   HttpServer? _server;
   int _serverPort = 0;
@@ -45,12 +62,68 @@ class LocalProxyService {
 
   static const int _maxPlaylists = 50;
 
+  /// Bound the upstream so a stuck CDN can't freeze the player UI
+  /// indefinitely (audit B4). These cover the long tail of slow but
+  /// eventually-responsive providers without hanging on truly dead hosts.
+  static const Duration _upstreamConnectionTimeout = Duration(seconds: 10);
+
+  /// Long enough that consecutive HLS segments (typically 6 s apart) find the
+  /// pooled connection still open, so the second segment costs no handshake.
+  static const Duration _upstreamIdleTimeout = Duration(seconds: 30);
+
+  /// Pooled upstream clients, one per `autoUncompress` mode.
+  ///
+  /// Dart pools keep-alive connections **per HttpClient instance**, so a
+  /// client built per request can never reuse a socket: a two-hour HLS film at
+  /// six-second segments meant ~1200 cold TCP+TLS handshakes, which on mobile
+  /// data is latency the user sees as stalling (audit W14). These two live for
+  /// the life of the service and are closed by [shutdown].
+  ///
+  /// Two of them rather than one because `autoUncompress` is a client-level
+  /// flag that has to differ by content type — see [_clientFor] — and mutating
+  /// it per request on a shared client would race between the parallel
+  /// segment fetches VLC issues.
+  HttpClient? _rawClient;
+  HttpClient? _uncompressingClient;
+
   int get port => _serverPort;
+
+  /// Returns the pooled upstream client for this content type, building it on
+  /// first use.
+  ///
+  /// [autoUncompress] true: gzip-encoded playlists and manifests arrive as
+  /// UTF-8 text we can parse and rewrite.
+  ///
+  /// [autoUncompress] false: for binary video (MKV, MP4, TS) Dart must never
+  /// inject "Accept-Encoding: gzip" on the outgoing request. CDNs treat gzip +
+  /// Range as incompatible and return 200 (full file) instead of 206
+  /// (partial), which breaks seeking.
+  ///
+  /// Note what is deliberately *absent*: no `badCertificateCallback`. It used
+  /// to be `(cert, host, port) => true`, which accepted any certificate on the
+  /// path that also replays the plugin's session cookies upstream — an on-path
+  /// attacker on café Wi-Fi could harvest those cookies and substitute the
+  /// video, with playback simply working (audit W14). Dart's default rejects a
+  /// chain or hostname that does not validate, and that is now the behaviour.
+  HttpClient _clientFor({required bool autoUncompress}) {
+    final existing = autoUncompress ? _uncompressingClient : _rawClient;
+    if (existing != null) return existing;
+    final client = _httpClientFactory()
+      ..connectionTimeout = _upstreamConnectionTimeout
+      ..idleTimeout = _upstreamIdleTimeout
+      ..autoUncompress = autoUncompress;
+    if (autoUncompress) {
+      _uncompressingClient = client;
+    } else {
+      _rawClient = client;
+    }
+    return client;
+  }
 
   Future<void> startServer() async {
     if (_server != null) return;
     try {
-      _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      _server = await HttpServer.bind(_bindAddress, 0);
       _serverPort = _server!.port;
       if (kDebugMode) {
         debugPrint("LocalProxyService: Started on port $_serverPort");
@@ -73,6 +146,18 @@ class LocalProxyService {
     _server = null;
     _serverPort = 0;
     _playlists.clear();
+    // Release the pooled keep-alive sockets too, otherwise they sit open for
+    // the full idle timeout after the proxy is meant to be gone.
+    final clients = [_rawClient, _uncompressingClient];
+    _rawClient = null;
+    _uncompressingClient = null;
+    for (final client in clients) {
+      try {
+        client?.close(force: true);
+      } catch (e) {
+        if (kDebugMode) debugPrint("LocalProxyService: client close error: $e");
+      }
+    }
     if (server != null) {
       try {
         await server.close(force: true);
@@ -221,7 +306,12 @@ class LocalProxyService {
         : (jsonDecode(utf8.decode(base64Url.decode(q['h']!))) as Map)
               .map((k, v) => MapEntry(k.toString(), v.toString()));
 
-    final client = HttpClient();
+    // Pooled: a ClearKey stream fetches an init segment plus one media
+    // segment every few seconds off the same origin, and the manifest is
+    // re-fetched on every `minimumUpdatePeriod`. Those all reuse one
+    // connection now. The handler stays stateless per request — the client is
+    // shared, the cipher and parser state is not.
+    final client = _clientFor(autoUncompress: true);
     try {
       final upstream = await _fetchBytes(client, target, headers);
       if (kDebugMode) {
@@ -285,9 +375,9 @@ class LocalProxyService {
         request.response.statusCode = HttpStatus.internalServerError;
         await request.response.close();
       } catch (_) {}
-    } finally {
-      client.close();
     }
+    // No client.close() here any more: the client outlives the request so the
+    // next segment reuses its connection. It is closed in [shutdown].
   }
 
   /// Relabels an init segment so VLC sees a plaintext track.
@@ -483,23 +573,10 @@ class LocalProxyService {
     // Check if this is an M3U8 request to handle Range headers and rewriting
     final isRequestM3u8 = targetUrl.toLowerCase().contains(".m3u8");
 
-    final client = HttpClient();
-    // Bound the upstream so a stuck CDN can't freeze the player UI
-    // indefinitely (audit B4). Connection: 10 s, idle: 30 s. These cover
-    // the long tail of slow but eventually-responsive providers without
-    // hanging on truly dead hosts.
-    client.connectionTimeout = const Duration(seconds: 10);
-    client.idleTimeout = const Duration(seconds: 30);
-    // For M3U8: autoUncompress=true so gzip-encoded playlists arrive as UTF-8
-    // text we can parse and rewrite. Content-Length is stripped for M3U8
-    // responses (body is rewritten, size changes).
-    //
-    // For binary video (MKV, MP4, TS): autoUncompress=false so Dart never
-    // injects "Accept-Encoding: gzip" on the outgoing request. CDNs treat
-    // gzip + Range as incompatible and return 200 (full file) instead of 206
-    // (partial), which breaks seeking.
-    client.autoUncompress = isRequestM3u8;
-    client.badCertificateCallback = (cert, host, port) => true;
+    // Pooled, long-lived, and TLS-validating — see [_clientFor]. Content-Length
+    // is stripped for M3U8 responses further down (the body is rewritten, so
+    // its size changes).
+    final client = _clientFor(autoUncompress: isRequestM3u8);
 
     try {
       final req = await client.getUrl(Uri.parse(targetUrl));

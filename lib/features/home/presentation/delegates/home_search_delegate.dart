@@ -7,7 +7,6 @@ import '../../../../core/utils/image_fallbacks.dart';
 import '../../../search/presentation/search_provider.dart';
 import 'package:skystream/shared/widgets/multimedia_card.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
-import '../../../../core/providers/device_info_provider.dart';
 import '../../../../core/utils/responsive_breakpoints.dart';
 
 class HomeSearchDelegate extends SearchDelegate<void> {
@@ -248,9 +247,9 @@ class _HomeSearchResultsState extends ConsumerState<_HomeSearchResults> {
     }
 
     if (result == null || result!.results.isEmpty) {
-      final profile = ref.watch(deviceProfileProvider).asData?.value;
-      final isTv = profile?.isTv == true || context.isTv;
-      final isWidescreen = isTv || context.isTabletOrLarger;
+      // Size question, asked of the size: a 960 dp television clears the
+      // tablet breakpoint like any other big window.
+      final isWidescreen = context.isTabletOrLarger;
       final imageWidth = isWidescreen ? 320.0 : 200.0;
       final nativeFont = Theme.of(context).textTheme.bodyLarge?.fontFamily;
 

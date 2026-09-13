@@ -60,11 +60,10 @@ class AppLocalizationsBe extends AppLocalizations {
   String get recordWatchHistory => 'Запісваць гісторыю праглядаў';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'На ўвесь экран';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Пераключае на тэлевізійны інтэрфейс';
 
   @override
   String get defaultHomeScreen => 'Галоўны экран па змаўчанні';
@@ -422,6 +421,32 @@ class AppLocalizationsBe extends AppLocalizations {
   String get min => 'мін';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Назад на $count секунды',
+      many: 'Назад на $count секунд',
+      few: 'Назад на $count секунды',
+      one: 'Назад на $count секунду',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Наперад на $count секунды',
+      many: 'Наперад на $count секунд',
+      few: 'Наперад на $count секунды',
+      one: 'Наперад на $count секунду',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Унутраны (VLC)';
 
   @override
@@ -743,6 +768,9 @@ class AppLocalizationsBe extends AppLocalizations {
 
   @override
   String get goBack => 'Назад';
+
+  @override
+  String get restartApp => 'Перазапусціць праграму';
 
   @override
   String get resolving => 'Пошук спасылак...';
@@ -1614,6 +1642,30 @@ class AppLocalizationsBe extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Пошук у скрэйперах…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'Няма спасылак, якія адпавядаюць фільтрам.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Няма TMDB ID для гэтай назвы. Увядзіце яго праз \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Няма ўключаных скрэйпераў. Дадайце ў \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Усе скрэйперы не спрацавалі. Праверце злучэнне або абнавіце скрэйперы.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Спасылак не знойдзена. Не спрацавалі $failed з $total скрэйпераў.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Ні ў аднаго з вашых скрэйпераў няма гэтай назвы.';
 }

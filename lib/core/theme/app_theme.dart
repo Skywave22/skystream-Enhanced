@@ -1,7 +1,36 @@
+import 'package:flutter/foundation.dart'
+    show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 class AppTheme {
+  /// The bundled application type family.
+  ///
+  /// The whole ramp used to come from the google_fonts package, which
+  /// downloads the .ttf from fonts.gstatic.com on first launch: with no
+  /// network the app rendered in a fallback face, and every first launch
+  /// reached out to a third-party server before the user had done anything.
+  /// The six weights the app uses are now declared in pubspec.yaml under
+  /// `fonts:`.
+  static const String fontFamily = 'Outfit';
+
+  /// Fonts that ship as bundle assets are not registered with Flutter's
+  /// licence registry the way a package's LICENSE file is, so the SIL Open
+  /// Font License text that travels with Outfit is registered here. The
+  /// package it replaced did the equivalent at runtime; the in-app licence
+  /// page keeps showing the entry without it.
+  static bool _fontLicenceRegistered = false;
+
+  static void _registerFontLicence() {
+    if (_fontLicenceRegistered) return;
+    _fontLicenceRegistered = true;
+    LicenseRegistry.addLicense(() async* {
+      yield LicenseEntryWithLineBreaks(const <String>[
+        fontFamily,
+      ], await rootBundle.loadString('assets/fonts/OFL.txt'));
+    });
+  }
+
   // Premium Colors
   static const Color background = Color(0xFF0F0F13); // Deep dark blue-grey
   static const Color surface = Color(0xFF18181F);
@@ -35,6 +64,7 @@ class AppTheme {
   }
 
   static ThemeData createDarkTheme(ColorScheme? dynamicScheme) {
+    _registerFontLicence();
     var colorScheme =
         dynamicScheme ??
         ColorScheme.fromSeed(
@@ -49,6 +79,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+      fontFamily: fontFamily,
       scaffoldBackgroundColor: const Color(
         0xFF000000,
       ), // Pure Black Background for Screens
@@ -57,7 +88,7 @@ class AppTheme {
         backgroundColor: Color(0xFF18181F),
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
-          fontFamily: 'Outfit',
+          fontFamily: fontFamily,
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: Color(0xFFF9FAFB),
@@ -83,55 +114,71 @@ class AppTheme {
       colorScheme: colorScheme,
 
       // Typography
-      textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme)
+      textTheme: ThemeData.dark().textTheme
+          .apply(fontFamily: fontFamily)
           .copyWith(
-            displayLarge: GoogleFonts.outfit(
+            displayLarge: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 32,
               fontWeight: FontWeight.bold,
-              color: const Color(0xFFF9FAFB),
+              color: Color(0xFFF9FAFB),
             ),
-            displayMedium: GoogleFonts.outfit(
+            displayMedium: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 28,
               fontWeight: FontWeight.bold,
-              color: const Color(0xFFF9FAFB),
+              color: Color(0xFFF9FAFB),
             ),
-            displaySmall: GoogleFonts.outfit(
+            displaySmall: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: const Color(0xFFF9FAFB),
+              color: Color(0xFFF9FAFB),
             ),
-            headlineMedium: GoogleFonts.outfit(
+            headlineMedium: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 24,
               fontWeight: FontWeight.w600,
-              color: const Color(0xFFF9FAFB),
+              color: Color(0xFFF9FAFB),
             ),
-            titleLarge: GoogleFonts.outfit(
+            titleLarge: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 20,
               fontWeight: FontWeight.w600,
-              color: const Color(0xFFF9FAFB),
+              color: Color(0xFFF9FAFB),
             ),
-            titleMedium: GoogleFonts.outfit(
+            titleMedium: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: const Color(0xFFF9FAFB),
+              color: Color(0xFFF9FAFB),
             ),
-            bodyLarge: GoogleFonts.outfit(
+            bodyLarge: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 16,
-              color: const Color(0xFFE5E7EB),
+              color: Color(0xFFE5E7EB),
             ),
-            bodyMedium: GoogleFonts.outfit(
+            bodyMedium: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 14,
-              color: const Color(0xFF9CA3AF),
+              color: Color(0xFF9CA3AF),
             ),
-            bodySmall: GoogleFonts.outfit(
+            // WCAG AA (4.5:1) for 12 sp body text, which is the settings
+            // subtitle stating the current value of every setting. The old
+            // 0xFF6B7280 measured 4.34:1 on the pure-black scaffold and only
+            // 3.65:1 on the 0xFF18181F dialog and bottom sheet; this is the
+            // same slate lifted 15% and clears both (5.51:1 and 4.63:1).
+            bodySmall: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 12,
-              color: const Color(0xFF6B7280),
+              color: Color(0xFF7B8393),
             ),
-            labelLarge: GoogleFonts.outfit(
+            labelLarge: const TextStyle(
+              fontFamily: fontFamily,
               fontSize: 14,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.1,
-              color: const Color(0xFFF9FAFB),
+              color: Color(0xFFF9FAFB),
             ),
           ),
 
@@ -209,6 +256,7 @@ class AppTheme {
   }
 
   static ThemeData createLightTheme(ColorScheme? dynamicScheme) {
+    _registerFontLicence();
     const colorScheme = ColorScheme.light(
       primary: lightCoral,
       onPrimary: Colors.white,
@@ -239,6 +287,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
+      fontFamily: fontFamily,
       scaffoldBackgroundColor: colorScheme.surface,
 
       // Dialog Theme
@@ -246,7 +295,7 @@ class AppTheme {
         backgroundColor: colorScheme.surface,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
-          fontFamily: 'Outfit',
+          fontFamily: fontFamily,
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: colorScheme.onSurface,
@@ -272,34 +321,45 @@ class AppTheme {
       colorScheme: colorScheme,
 
       // Typography
-      textTheme: GoogleFonts.outfitTextTheme(ThemeData.light().textTheme)
+      textTheme: ThemeData.light().textTheme
+          .apply(fontFamily: fontFamily)
           .copyWith(
-            displayLarge: GoogleFonts.outfit(
+            displayLarge: TextStyle(
+              fontFamily: fontFamily,
               fontSize: 32,
               fontWeight: FontWeight.bold,
               color: colorScheme.onSurface,
             ),
-            headlineMedium: GoogleFonts.outfit(
+            headlineMedium: TextStyle(
+              fontFamily: fontFamily,
               fontSize: 24,
               fontWeight: FontWeight.w600,
               color: colorScheme.onSurface,
             ),
-            titleLarge: GoogleFonts.outfit(
+            titleLarge: TextStyle(
+              fontFamily: fontFamily,
               fontSize: 20,
               fontWeight: FontWeight.w600,
               color: colorScheme.onSurface,
             ),
-            bodyLarge: GoogleFonts.outfit(
+            bodyLarge: TextStyle(
+              fontFamily: fontFamily,
               fontSize: 16,
               color: colorScheme.onSurface,
             ),
-            bodyMedium: GoogleFonts.outfit(
+            bodyMedium: TextStyle(
+              fontFamily: fontFamily,
               fontSize: 14,
               color: colorScheme.onSurfaceVariant,
             ),
-            bodySmall: GoogleFonts.outfit(
+            // Full-strength onSurfaceVariant, not 80% of it: the alpha
+            // blended 0xFF5C5C5C down to 0xFF7B7A79 on the 0xFFF5F1EC
+            // scaffold, which is 3.81:1 and fails WCAG AA. Undimmed it is
+            // 5.95:1 on the scaffold and 4.80:1 on the darkest container.
+            bodySmall: TextStyle(
+              fontFamily: fontFamily,
               fontSize: 12,
-              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+              color: colorScheme.onSurfaceVariant,
             ),
           ),
 
@@ -314,7 +374,7 @@ class AppTheme {
           color: colorScheme.onSurface,
           fontSize: 20,
           fontWeight: FontWeight.w600,
-          fontFamily: 'Outfit',
+          fontFamily: fontFamily,
         ),
       ),
 

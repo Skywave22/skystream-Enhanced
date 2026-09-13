@@ -13,6 +13,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/features/player/data/subtitle_providers.dart';
 
+/// The provider no longer carries a baked-in key (it was a literal in a public
+/// repo), so a test that wants to see the wire format has to supply one.
+const String _kTestKey = 'test-api-key';
+
 /// Answers every request from [respond] and records what was asked.
 class _StubAdapter implements HttpClientAdapter {
   _StubAdapter(this.respond);
@@ -59,6 +63,24 @@ Map<String, Object?> _osResult(String release) => {
 };
 
 void main() {
+
+  group('OpenSubtitles without a key', () {
+    // The key used to be a literal in the source of a public repository. It is
+    // now a --dart-define, so a build that supplies neither it nor a viewer key
+    // must return nothing rather than firing a request with an empty Api-Key
+    // header and reporting the 401 as a search failure.
+    test('returns nothing instead of searching', () async {
+      final dio = Dio();
+      var called = false;
+      dio.httpClientAdapter = _RecordingAdapter(() => called = true);
+      final provider = OpenSubtitlesProvider(dio);
+
+      final results = await provider.search(query: 'The Matrix');
+
+      expect(results, isEmpty);
+      expect(called, isFalse, reason: 'no key means no request at all');
+    });
+  });
   group('OpenSubtitles', () {
     test(
       'sends imdb_id without tt plus season_number/episode_number',
@@ -68,7 +90,7 @@ void main() {
             'data': [_osResult('Show.S02E05.720p')],
           },
         );
-        final results = await OpenSubtitlesProvider(dio).search(
+        final results = await OpenSubtitlesProvider(dio, apiKey: _kTestKey).search(
           query: 'The Show',
           imdbId: 'tt0903747',
           tmdbId: 1396,
@@ -93,7 +115,7 @@ void main() {
 
     test('tmdb_id when there is no imdb id; query only when neither', () async {
       final (dio, adapter) = _dio((_) => {'data': <Object>[]});
-      final provider = OpenSubtitlesProvider(dio);
+      final provider = OpenSubtitlesProvider(dio, apiKey: _kTestKey);
 
       await provider.search(query: 'The Show', tmdbId: 1396);
       expect(adapter.requests.last.uri.queryParameters['tmdb_id'], '1396');
@@ -112,7 +134,7 @@ void main() {
 
     test('no season/episode -> no season_number/episode_number', () async {
       final (dio, adapter) = _dio((_) => {'data': <Object>[]});
-      await OpenSubtitlesProvider(dio).search(query: 'Film', imdbId: 'tt1');
+      await OpenSubtitlesProvider(dio, apiKey: _kTestKey).search(query: 'Film', imdbId: 'tt1');
       final q = adapter.requests.single.uri.queryParameters;
       expect(q, isNot(contains('season_number')));
       expect(q, isNot(contains('episode_number')));
@@ -401,4 +423,21 @@ void main() {
       expect(results.map((s) => s.id), ['1', '2']);
     });
   });
+}
+
+/// Fails the test if any request is actually dispatched.
+class _RecordingAdapter implements HttpClientAdapter {
+  _RecordingAdapter(this.onCall);
+  final void Function() onCall;
+  @override
+  void close({bool force = false}) {}
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    onCall();
+    return ResponseBody.fromString('{}', 200);
+  }
 }

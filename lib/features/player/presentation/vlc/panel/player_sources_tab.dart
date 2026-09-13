@@ -15,8 +15,8 @@ import 'package:flutter/material.dart';
 import '../../../../../core/domain/entity/multimedia_item.dart';
 import '../../../../../l10n/generated/app_localizations.dart';
 import '../../../domain/stream_resolver.dart';
-import '../../widgets/hotstar_player_style.dart';
 import 'player_panel_labels.dart';
+import 'player_panel_metrics.dart';
 import 'player_panel_row.dart';
 
 class PlayerSourcesTab extends StatelessWidget {
@@ -109,7 +109,14 @@ class PlayerSourcesTab extends StatelessWidget {
   (String?, Color?) _probeState(AppLocalizations l10n, ProbeOutcome? outcome) {
     return switch (outcome) {
       null => (null, null),
-      ProbeOutcome.trying => (l10n.trying, HotstarPlayerStyle.mutedText),
+      // No colour: the chip falls through to the ramp's own badge treatment
+      // (`metrics.secondaryText` on `metrics.divider`), so on a television it
+      // is as legible as the two beside it. A colour here would have to be a
+      // literal, and a literal is what left this one chip at the phone's 45 %
+      // white on a set that crushes it - "still looking" reading as "nothing
+      // there". Green and red stay: those two say something the word does
+      // not.
+      ProbeOutcome.trying => (l10n.trying, null),
       ProbeOutcome.healthy => (
         l10n.playerSourceReachable,
         const Color(0xFF4CAF50),
@@ -130,6 +137,11 @@ class _FallbackBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The banner is prose, and it sits directly above the row a remote lands
+    // on, so it is the first thing a viewer's eye goes to on the tab they read
+    // longest. It was the one panel descendant still drawn from literals -
+    // 11 sp is 22 physical pixels on a 1080p set at dp 2.0.
+    final metrics = PlayerPanelMetrics.of(context);
     return Container(
       margin: const EdgeInsets.fromLTRB(10, 10, 10, 4),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -141,18 +153,18 @@ class _FallbackBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
+          Icon(
             Icons.filter_alt_off_rounded,
-            size: 16,
-            color: Color(0xFFFFC107),
+            size: metrics.bannerIconSize,
+            color: const Color(0xFFFFC107),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
-                color: Color(0xFFFFE082),
-                fontSize: 11,
+              style: TextStyle(
+                color: const Color(0xFFFFE082),
+                fontSize: metrics.bannerTextSize,
                 height: 1.35,
                 fontWeight: FontWeight.w600,
               ),

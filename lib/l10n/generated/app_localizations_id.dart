@@ -60,11 +60,10 @@ class AppLocalizationsId extends AppLocalizations {
   String get recordWatchHistory => 'Rekam Riwayat Tontonan';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Layar Penuh';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Beralih ke tata letak TV';
 
   @override
   String get defaultHomeScreen => 'Layar Utama Default';
@@ -425,6 +424,26 @@ class AppLocalizationsId extends AppLocalizations {
   String get min => 'mnt';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Mundur $count detik',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Maju $count detik',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Internal (VLC)';
 
   @override
@@ -745,6 +764,9 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get goBack => 'Kembali';
+
+  @override
+  String get restartApp => 'Mulai Ulang Aplikasi';
 
   @override
   String get resolving => 'Mengurai...';
@@ -1611,6 +1633,30 @@ class AppLocalizationsId extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Mencari di scraper…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'Tidak ada tautan yang cocok dengan filter.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Judul ini tidak punya ID TMDB. Masukkan lewat \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Tidak ada scraper aktif. Tambahkan di \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Semua scraper gagal. Periksa koneksi Anda atau perbarui scraper.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Tautan tidak ditemukan. $failed dari $total scraper gagal.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Tidak ada scraper Anda yang punya judul ini.';
 }

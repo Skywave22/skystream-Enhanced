@@ -60,11 +60,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get recordWatchHistory => '視聴履歴を記録する';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => '全画面';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'テレビ向けレイアウトに切り替え';
 
   @override
   String get defaultHomeScreen => 'デフォルトのホーム画面';
@@ -419,6 +418,26 @@ class AppLocalizationsJa extends AppLocalizations {
   String get min => '分';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count秒戻る',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count秒進む',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => '内部プレイヤー (VLC)';
 
   @override
@@ -728,6 +747,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get goBack => '戻る';
+
+  @override
+  String get restartApp => 'アプリを再起動';
 
   @override
   String get resolving => '解決中...';
@@ -1581,6 +1603,28 @@ class AppLocalizationsJa extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'スクレイパーを検索中…';
+
+  @override
+  String get sourcesEmptyFiltered => '現在のフィルターに一致するリンクはありません。';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'このタイトルにTMDB IDがありません。\'Search manually\' で入力してください。';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      '有効なスクレイパーがありません。\'Nuvio Plugins\' で追加してください。';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'すべてのスクレイパーが失敗しました。接続を確認するか、スクレイパーを更新してください。';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'リンクが見つかりません。$total 件中 $failed 件のスクレイパーが失敗しました。';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound => 'どのスクレイパーにもこのタイトルはありません。';
 }

@@ -46,6 +46,13 @@ void main() {
     url: 'https://example.com/e2.mp4',
     season: 1,
     episode: 2,
+    // A still, because the card is at its tallest with one and its height is
+    // what the two clearance tests below are about - without one the card is
+    // 38 dp shorter and would clear the top bar even with the clearance
+    // deleted. It never resolves here (the binding answers every request with
+    // a 400), so what renders is the card's own placeholder in a box that is
+    // already laid out.
+    posterUrl: 'https://example.com/e2.jpg',
     // Carried so the ten-foot geometry test can ask whether the card kept the
     // description, which is the first thing the phone layout drops.
     description: 'Buffy comes home to find her mother on the couch.',
@@ -159,8 +166,9 @@ void main() {
         final downloads = await pumpToCredits(tester);
         final l10n = await english();
 
-        // Right off Play now, the card's other control.
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        // Down off Play now, the card's other control: the two actions are
+        // stacked so each of them can hold a label the row clipped.
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
         await tester.pump();
         expect(
           FocusManager.instance.primaryFocus?.debugLabel,
@@ -302,10 +310,13 @@ void main() {
       );
       expect(
         card.width,
-        460,
+        300,
         reason:
             'a 1080p TV reports 960x540 dp, whose shortestSide is under '
-            'the 600 phone threshold - the TV must not take the phone card',
+            'the 600 phone threshold - the TV must not take the phone card. '
+            '300 rather than the old 460 because the width is now derived '
+            'from the longest action label, which is Kannada at 227.5 dp: '
+            'see next_episode_countdown.dart, _kTvWidth',
       );
 
       final bar = tester.getRect(find.byType(PlayerBottomBar));
@@ -323,6 +334,82 @@ void main() {
 
       // The description is the first thing the phone card drops.
       expect(find.textContaining('on the couch'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    }, variant: texturePlatform);
+
+    /// The other end of the same band, and the reason the card is held to
+    /// 304 dp: it shares its columns with the running title.
+    ///
+    /// `PlayerTopBar` puts the title in an `Expanded` with `maxLines: 1` and
+    /// an ellipsis, so a real series title fills to the overscan inset at
+    /// x = 912 - which is the card's right edge. Measured before the fix: the
+    /// card was Rect.fromLTRB(640, 47, 912, 396) against a title of
+    /// (138, 34, 912, 65), so the still ate the lower 18 dp of the title of
+    /// the thing that was playing.
+    testWidgets('and clears the running title above it', (tester) async {
+      await pumpToCredits(tester);
+
+      final card = tester.getRect(
+        find
+            .descendant(
+              of: find.byType(NextEpisodeCountdown),
+              matching: find.byType(FocusTraversalGroup),
+            )
+            .first,
+      );
+      final topBar = tester.getRect(find.byType(PlayerTopBar));
+      // The slot, not the glyphs: this fixture's series is called "Show", so
+      // its paragraph is 89 dp wide, while the Expanded it sits in runs the
+      // full 138..912 that a real title ellipsises into. Measuring the slot is
+      // what makes this an overlap test rather than an accident of a short
+      // string.
+      final titleSlot = tester.getRect(
+        find
+            .ancestor(of: find.text('Show'), matching: find.byType(Expanded))
+            .first,
+      );
+
+      expect(
+        titleSlot.right,
+        card.right,
+        reason: 'the two really do share their columns, both ending on 912',
+      );
+      expect(
+        card.overlaps(titleSlot),
+        isFalse,
+        reason: 'the card may not cover the title of what is playing',
+      );
+      expect(
+        card.overlaps(tester.getRect(find.text('Show'))),
+        isFalse,
+        reason: 'nor the glyphs that are actually painted today',
+      );
+      expect(
+        card.overlaps(topBar),
+        isFalse,
+        reason:
+            'and clears the whole band rather than threading the title, so '
+            'it does not have to know whether there is a subtitle above it',
+      );
+      expect(
+        card.top,
+        greaterThanOrEqualTo(topBar.bottom),
+        reason: 'measured: the bar is 0..92 and the card starts at 92',
+      );
+      expect(
+        card,
+        const Rect.fromLTRB(612, 92, 912, 396),
+        reason:
+            'the whole ten-foot geometry in one line, through the real '
+            'screen: 300 x 304 between a 92 dp top bar and a bottom bar that '
+            'starts at 403',
+      );
+      // The clearance is a constant the card holds unconditionally, not a
+      // reaction to the bars being up - the card can be raised with the chrome
+      // hidden, and one that resized when the viewer tapped would be worse
+      // than one that overlapped. next_episode_countdown_test hosts this card
+      // with no chrome in the tree at all and measures the same 92.
 
       await tester.pumpWidget(const SizedBox());
     }, variant: texturePlatform);

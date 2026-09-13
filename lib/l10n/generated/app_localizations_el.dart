@@ -60,11 +60,10 @@ class AppLocalizationsEl extends AppLocalizations {
   String get recordWatchHistory => 'Καταγραφή ιστορικού προβολών';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Πλήρης οθόνη';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Μεταβαίνει στη διάταξη τηλεόρασης';
 
   @override
   String get defaultHomeScreen => 'Προεπιλεγμένη αρχική οθόνη';
@@ -428,6 +427,28 @@ class AppLocalizationsEl extends AppLocalizations {
   String get min => 'λεπτά';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Πίσω $count δευτερόλεπτα',
+      one: 'Πίσω 1 δευτερόλεπτο',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Μπροστά $count δευτερόλεπτα',
+      one: 'Μπροστά 1 δευτερόλεπτο',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Εσωτερικό (VLC)';
 
   @override
@@ -748,6 +769,9 @@ class AppLocalizationsEl extends AppLocalizations {
 
   @override
   String get goBack => 'Επιστροφή';
+
+  @override
+  String get restartApp => 'Επανεκκίνηση εφαρμογής';
 
   @override
   String get resolving => 'Επίλυση...';
@@ -1619,6 +1643,30 @@ class AppLocalizationsEl extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Αναζήτηση στα scrapers…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'Κανένας σύνδεσμος δεν ταιριάζει με τα φίλτρα.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Δεν υπάρχει TMDB ID για αυτόν τον τίτλο. Δώστε το με \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Κανένα ενεργό scraper. Προσθέστε ένα στο \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Όλα τα scrapers απέτυχαν. Ελέγξτε τη σύνδεσή σας ή ενημερώστε τα.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Δεν βρέθηκαν σύνδεσμοι. Απέτυχαν $failed από $total scrapers.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Κανένα από τα scrapers σας δεν έχει αυτόν τον τίτλο.';
 }

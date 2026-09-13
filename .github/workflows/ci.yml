@@ -1,6 +1,22 @@
 # Fast pre-merge gate. The release/preview workflows are workflow_dispatch-only,
 # so before this existed nothing at all ran on a pull request and the vendored
 # native plugin was first compiled during a manual release build.
+#
+# WHAT GATES A MERGE, AND WHY IT IS SPLIT THIS WAY
+#   Every pull request:  analyze, test, custom_lint, the two vendored Dart
+#     packages, the Go torrent server, and a debug build of Android and Linux.
+#     All of that is 1x-billed ubuntu and finishes inside ~20 minutes.
+#   Pull requests that touch anything a native toolchain compiles or links
+#     (packages/**, android/**, ios/**, macos/**, windows/**, linux/**,
+#     pubspec.*, this file): also Windows, macOS and iOS. That is the set that
+#     covers the vendored vlc_player C++/Kotlin/Swift, which is the code most
+#     likely to break on one platform only.
+#   Push to master, the nightly schedule, and manual dispatch: all five
+#     shipping platforms unconditionally, so a break that no path filter could
+#     predict - a transitive pub bump, an Xcode or NDK image roll, a CocoaPods
+#     release - is caught within a day rather than at the next release build.
+# macOS runners bill at 10x and are the slowest; they are the only thing kept
+# off the common path. Android and Linux are 1x and run on everything.
 
 name: CI
 
@@ -8,6 +24,10 @@ on:
   pull_request:
   push:
     branches: [master]
+  schedule:
+    # 06:00 UTC daily, on master. Runs the full five-platform matrix.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -120,24 +140,38 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
+      # `flutter analyze` does not load analyzer plugins, so the riverpod_lint
+      # rule set that analysis_options.yaml wires in as a `custom_lint` plugin
+      # only ever ran in an IDE. This is the command that actually executes it
+      # (all 15 riverpod_lint 3.1.0 rules are on by default); it takes seconds.
+      - name: Custom Lint
+        run: dart run custom_lint
+
       - name: Test
         run: flutter test
 
-      # vlc_player is a path dependency, so it needs its own package_config.
-      # The root analysis_options excludes packages/**, so the fork is only
-      # ever analysed here. It has no build_runner step of its own - nothing
-      # under packages/vlc_player is generated.
-      - name: Analyze & Test vlc_player
-        working-directory: packages/vlc_player
-        run: |
-          flutter pub get
-          flutter analyze
-          flutter test
-
-  linux-native:
-    name: Linux Native Build
+  # The two vendored Dart packages, in parallel with the app suite rather than
+  # appended to it. Both are path dependencies, so each needs its own
+  # package_config; the root analysis_options excludes packages/**, so this job
+  # is the only place either is analysed. Neither has generated code, so
+  # neither needs a build_runner step.
+  #
+  # packages/flutter_js_ng is deliberately NOT here, and that is a known gap:
+  # it ships no analysis_options.yaml of its own, so the analyzer walks up to
+  # the root file and applies strict-casts/strict-inference/strict-raw-types to
+  # a vendored upstream fork - 131 issues, 72 of them errors, none of which
+  # stop it compiling. Its one test file is an on-device FFI test that fails on
+  # a host machine (it asserts an int and gets a JSValue pointer back). Give it
+  # a two-line analysis_options.yaml of its own and it can join this matrix.
+  # Its native side is compiled by every leg of the build matrix below.
+  packages:
+    name: Package ${{ matrix.package }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [vlc_player, flutter_torrent_server]
     steps:
       - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
@@ -146,6 +180,144 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
+      - name: Cache Pub Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock', 'packages/*/pubspec.yaml') }}
+          restore-keys: ${{ runner.os }}-pub-
+
+      - name: Analyze & Test
+        working-directory: packages/${{ matrix.package }}
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+  # The Go source the TorrServer binaries and the Android .aar are built from.
+  # Nothing else in this workflow compiles it, and `go test` is seconds.
+  torrent-server-go:
+    name: TorrServer (Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/flutter_torrent_server/go_src
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: packages/flutter_torrent_server/go_src/go.mod
+          cache-dependency-path: packages/flutter_torrent_server/go_src/go.sum
+
+      # go_src vendors its dependencies, so both commands run offline.
+      - name: Build
+        run: go build ./...
+
+      # `go test` runs a subset of `go vet` first. One check is dropped: the
+      # vendored upstream web/api/utils/link.go:52 calls fmt.Errorf with
+      # arguments and no format directives, which fails the `printf` analyser
+      # and has done since the initial commit. Every other default vet check is
+      # kept, so a newly introduced vet failure still turns this job red.
+      - name: Test
+        run: go test -vet=atomic,bool,buildtags,errorsas,ifaceassert,nilfunc,stringintconv,tests ./...
+
+  # Decides how wide the build matrix below is. See the header comment.
+  changes:
+    name: Pick Build Matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The diff needs the PR base commit, which a depth-1 checkout does
+          # not have. blob:none keeps the trees `--name-only` walks without
+          # fetching file contents, so this stays fast on a repo carrying
+          # ~200 MB of prebuilt binaries.
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Pick Build Matrix
+        id: pick
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          ANDROID='{"name":"Android","os":"ubuntu-latest","build":"flutter build apk --debug"}'
+          LINUX='{"name":"Linux","os":"ubuntu-latest","build":"flutter build linux --debug"}'
+          WINDOWS='{"name":"Windows","os":"windows-latest","build":"flutter build windows --debug"}'
+          MACOS='{"name":"macOS","os":"macos-latest","build":"flutter build macos --debug"}'
+          IOS='{"name":"iOS","os":"macos-latest","build":"flutter build ios --debug --no-codesign"}'
+          CORE="[$ANDROID,$LINUX]"
+          FULL="[$ANDROID,$LINUX,$WINDOWS,$MACOS,$IOS]"
+
+          if [ "$EVENT_NAME" != 'pull_request' ]; then
+            echo "Event is $EVENT_NAME: building every shipping platform."
+            echo "matrix=$FULL" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Anything that can change what a native toolchain compiles or links.
+          NATIVE='^(packages/|android/|ios/|macos/|windows/|linux/|pubspec\.(yaml|lock)$|\.github/workflows/ci\.yml$)'
+          CHANGED="$(git diff --name-only "$BASE_SHA" HEAD)"
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          if echo "$CHANGED" | grep -Eq "$NATIVE"; then
+            echo "Native-relevant paths changed: building every shipping platform."
+            echo "matrix=$FULL" >> "$GITHUB_OUTPUT"
+          else
+            echo "Dart-only change: Windows, macOS and iOS are left to the"
+            echo "push-to-master and nightly runs."
+            echo "matrix=$CORE" >> "$GITHUB_OUTPUT"
+          fi
+
+  # One debug build per shipping platform. Debug, and deliberately without
+  # --dart-define-from-file: these jobs only have to prove the platform
+  # toolchains still compile the tree, and fork pull requests cannot read
+  # secrets.
+  build:
+    name: Build ${{ matrix.name }}
+    needs: changes
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.matrix) }}
+    defaults:
+      run:
+        # Git bash on the Windows runner, so every leg reads the same.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # android/app/build.gradle.kts pins source/targetCompatibility to 17.
+      # Pin the toolchain too rather than inherit whichever JDK the runner
+      # image happens to default to this month.
+      - name: Set Up JDK
+        if: matrix.name == 'Android'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Select Latest Xcode
+        if: runner.os == 'macOS'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
       # Same set the release workflow installs, which is the only evidence we
       # have that it is sufficient. libvlc-dev is what the vendored vlc_player
       # plugin links against; libsecret-1-dev is flutter_secure_storage_linux.
@@ -153,6 +325,7 @@ jobs:
       # falls through to an empty target when one is absent, so it needs no
       # apt package of its own.
       - name: Install Linux Dependencies
+        if: matrix.name == 'Linux'
         run: |
           sudo apt-get update -o Acquire::Retries=5 -o Acquire::http::Timeout=30
           sudo apt-get install -y --no-install-recommends \
@@ -162,18 +335,29 @@ jobs:
       - name: Cache Pub Dependencies
         uses: actions/cache@v4
         with:
-          path: ~/.pub-cache
+          # Two paths because the Windows runner does not use ~/.pub-cache.
+          path: |
+            ~/.pub-cache
+            ~/AppData/Local/Pub/Cache
           key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock', 'packages/*/pubspec.yaml') }}
           restore-keys: ${{ runner.os }}-pub-
 
+      # Desktop support is on by default in this SDK, but the release workflow
+      # sets it explicitly and a config default is not something to depend on.
+      - name: Enable Desktop Targets
+        run: flutter config --enable-linux-desktop --enable-macos-desktop --enable-windows-desktop
+
       - name: Install Flutter Dependencies
         run: |
-          flutter config --enable-linux-desktop
           flutter pub get
           flutter gen-l10n
           dart run build_runner build --delete-conflicting-outputs
 
-      # Debug, and without --dart-define-from-file: this job only has to prove
-      # the C++ in packages/ still compiles, and fork PRs cannot read secrets.
-      - name: Build Linux
-        run: flutter build linux --debug
+      # Mirrors the release workflow: the five desktop TorrServer binaries are
+      # ~170 MB of assets that an APK never carries.
+      - name: Strip Desktop TorrServer Binaries
+        if: matrix.name == 'Android'
+        run: rm -f packages/flutter_torrent_server/assets/torrserver/TorrServer-*
+
+      - name: Build ${{ matrix.name }}
+        run: ${{ matrix.build }}

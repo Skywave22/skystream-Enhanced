@@ -7,8 +7,11 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.app.PictureInPictureParams
 import android.os.Build
+import android.util.Rational
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
+import kotlin.math.roundToInt
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "dev.akash.skystream.player/pip"
@@ -16,6 +19,13 @@ class MainActivity : FlutterActivity() {
     private val PLAYER_CHANNEL = "dev.akash.skystream/external_player"
 
     private var isPlaying = false
+
+    /// The shape of the video currently playing, as the PiP window should be
+    /// shaped. Null until Dart has decoded a frame and told us. Held as a
+    /// field because `updatePipActions()` rebuilds the params from scratch on
+    /// every play/pause flip, and a rebuild that dropped the aspect ratio
+    /// would snap the window back to square in the middle of a film.
+    private var pipAspectRatio: Rational? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -26,11 +36,19 @@ class MainActivity : FlutterActivity() {
             if (call.method == "enterPip") {
                 val playing = call.argument<Boolean>("isPlaying") ?: false
                 this.isPlaying = playing // Sync state immediately
-                
+                pipAspectRatio = aspectRatioOf(
+                    call.argument<Int>("videoWidth"),
+                    call.argument<Int>("videoHeight"),
+                ) ?: pipAspectRatio
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     updatePipActions()
                     val builder = PictureInPictureParams.Builder()
                     builder.setActions(createPipActions())
+                    // Without this the window is whatever shape Android last
+                    // used, so a 2.39:1 film is letterboxed inside a window
+                    // that is already small.
+                    pipAspectRatio?.let { builder.setAspectRatio(it) }
                     // Returns false when the user has PiP switched off for
                     // this app: no exception, and no onPictureInPictureModeChanged
                     // either. Dart needs the answer to undo its own optimism.
@@ -41,6 +59,10 @@ class MainActivity : FlutterActivity() {
             } else if (call.method == "setPipState") {
                 // Flutter tells us if playing or not
                 val playing = call.argument<Boolean>("isPlaying") ?: false
+                aspectRatioOf(
+                    call.argument<Int>("videoWidth"),
+                    call.argument<Int>("videoHeight"),
+                )?.let { pipAspectRatio = it }
                 // Always update state and force refresh actions
                 // The user reported sync issues, so we shouldn't skip update if values match
                 this.isPlaying = playing
@@ -142,7 +164,12 @@ class MainActivity : FlutterActivity() {
     }
     
     // Action Constants
-    private val ACTION_MEDIA_CONTROL = "media_control"
+    //
+    // Namespaced, and paired with RECEIVER_NOT_EXPORTED below. The bare
+    // "media_control" string was registered as an exported receiver, so any
+    // app on the device could broadcast it and pause, resume or seek whatever
+    // the user was watching.
+    private val ACTION_MEDIA_CONTROL = "dev.akash.skystream.MEDIA_CONTROL"
     private val EXTRA_CONTROL_TYPE = "control_type"
     private val CONTROL_TYPE_PLAY = 1
     private val CONTROL_TYPE_PAUSE = 2
@@ -173,11 +200,22 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val filter = android.content.IntentFilter(ACTION_MEDIA_CONTROL)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(receiver, filter, android.content.Context.RECEIVER_EXPORTED)
-            } else {
-                registerReceiver(receiver, filter)
-            }
+            // ContextCompat rather than registerReceiver(..., RECEIVER_NOT_EXPORTED)
+            // directly: below Android 13 there is no flag, and the plain
+            // two-argument overload the old code used there is exported by
+            // default. ContextCompat closes that gap by registering with a
+            // signature-level permission only this app holds.
+            //
+            // The PiP buttons still work: their PendingIntents are sent with
+            // this app's own identity and uid, and a same-uid broadcast
+            // reaches a non-exported receiver. The intents below also name
+            // this package explicitly, so the broadcast never leaves the app.
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
         }
     }
 
@@ -195,6 +233,7 @@ class MainActivity : FlutterActivity() {
 
         // 1. Rewind (Use custom 10s icon)
         val rewindIntent = android.content.Intent(ACTION_MEDIA_CONTROL).apply {
+            setPackage(packageName)
             putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_REWIND)
         }
         val rewindPendingIntent = android.app.PendingIntent.getBroadcast(
@@ -205,6 +244,7 @@ class MainActivity : FlutterActivity() {
 
         // 2. Play/Pause
         val playPauseIntent = android.content.Intent(ACTION_MEDIA_CONTROL).apply {
+            setPackage(packageName)
             putExtra(EXTRA_CONTROL_TYPE, if (isPlaying) CONTROL_TYPE_PAUSE else CONTROL_TYPE_PLAY)
         }
         // Unique Request Code is Critical
@@ -219,6 +259,7 @@ class MainActivity : FlutterActivity() {
 
         // 3. Forward (Use custom 10s icon)
         val forwardIntent = android.content.Intent(ACTION_MEDIA_CONTROL).apply {
+            setPackage(packageName)
             putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_FORWARD)
         }
         val forwardPendingIntent = android.app.PendingIntent.getBroadcast(
@@ -232,10 +273,40 @@ class MainActivity : FlutterActivity() {
 
     private fun updatePipActions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            setPictureInPictureParams(PictureInPictureParams.Builder()
+            val builder = PictureInPictureParams.Builder()
                 .setActions(createPipActions())
-                .build())
+            pipAspectRatio?.let { builder.setAspectRatio(it) }
+            setPictureInPictureParams(builder.build())
         }
+    }
+
+    /**
+     * The video's shape as a [Rational] PiP will accept, or null when Dart has
+     * not decoded a frame yet and there is nothing to say.
+     *
+     * Clamped, and that is the load-bearing part: Android rejects any aspect
+     * ratio outside roughly 1:2.39 .. 2.39:1 by throwing
+     * IllegalArgumentException out of `enterPictureInPictureMode`, which would
+     * crash the app on the way into the window. A 2.76:1 Ultra Panavision
+     * transfer or a phone-shot vertical clip is not a hypothetical, so the
+     * bound is applied a hair inside the documented limit rather than at it.
+     */
+    private fun aspectRatioOf(width: Int?, height: Int?): Rational? {
+        if (width == null || height == null || width <= 0 || height <= 0) {
+            return null
+        }
+        val ratio = (width.toDouble() / height.toDouble())
+            .coerceIn(1.0 / MAX_PIP_ASPECT, MAX_PIP_ASPECT)
+        return Rational((ratio * 10_000).roundToInt(), 10_000)
+    }
+
+    companion object {
+        /**
+         * Android's documented ceiling is 2.39:1 (and its reciprocal). Held a
+         * hair inside it so a film that *is* exactly 2.39:1 cannot land on the
+         * wrong side of a float comparison inside the framework.
+         */
+        private const val MAX_PIP_ASPECT = 2.38
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {

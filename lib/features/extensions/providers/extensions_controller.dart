@@ -1,5 +1,7 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'dart:async';
@@ -10,9 +12,41 @@ import '../../../../core/extensions/models/extension_plugin.dart';
 import '../../../../core/extensions/models/extension_repository.dart';
 import '../../../../core/extensions/extension_manager.dart';
 import '../../../../core/extensions/providers.dart';
+import '../../../../core/extensions/services/repository_service.dart';
 import '../../../core/storage/settings_repository.dart';
 
 part 'extensions_controller.g.dart';
+
+/// Whether the device is on a connection the user pays for by the byte.
+///
+/// A `Provider` holding a function rather than a `FutureProvider` so a test can
+/// pin the answer with no platform channel and no cached async value, and so
+/// each call asks afresh - a laptop moves between Wi-Fi and a phone hotspot
+/// inside one app session.
+final meteredConnectionProvider = Provider<Future<bool> Function()>(
+  (ref) => isMeteredConnection,
+);
+
+/// Deliberately answers "no" unless the platform positively says cellular.
+///
+/// Wi-Fi or Ethernet anywhere in the list settles it: an Android phone
+/// tethering over Wi-Fi still reports `wifi`, and a wired desktop must never be
+/// mistaken for a phone on a data plan. `vpn` and `other` - all iOS and macOS
+/// report while a VPN is up - say nothing about the transport underneath, and a
+/// plugin failure must not become a permanent block on ever checking again.
+Future<bool> isMeteredConnection() async {
+  try {
+    final results = await Connectivity().checkConnectivity();
+    if (results.contains(ConnectivityResult.wifi) ||
+        results.contains(ConnectivityResult.ethernet)) {
+      return false;
+    }
+    return results.contains(ConnectivityResult.mobile) ||
+        results.contains(ConnectivityResult.satellite);
+  } catch (_) {
+    return false;
+  }
+}
 
 // State for the Extensions Screen (Sealed Class Hierarchy)
 sealed class ExtensionsState {
@@ -66,6 +100,20 @@ final class ExtensionsError extends ExtensionsState {
 
 @Riverpod(keepAlive: true)
 class ExtensionsController extends _$ExtensionsController {
+  /// SharedPreferences key holding the repository URLs the user has added.
+  static const String repoUrlsKey = 'extension_repo_urls';
+
+  /// SharedPreferences key holding when [autoCheckForUpdates] last completed,
+  /// as milliseconds since epoch.
+  static const String lastAutoCheckKey = 'extensions_last_update_check';
+
+  /// How long after a completed background check the next launch may run one.
+  ///
+  /// Matches `NuvioRepository.autoUpdateInterval`, and for the same reason: a
+  /// cold start is not evidence that a repository moved, and someone who opens
+  /// the app six times a day does not want six rounds of manifest fetches.
+  static const Duration autoCheckInterval = Duration(hours: 6);
+
   bool _initialized = false;
 
   @override
@@ -99,23 +147,27 @@ class ExtensionsController extends _$ExtensionsController {
         plugins.addAll(assetPlugins);
       }
 
-      // 2. Load Repositories
+      // 2. Load Repositories.
+      //
+      // One repository per future rather than a serial loop: the manifest and
+      // its plugin lists are independent per repo, and a user with five
+      // repositories used to wait for five round trips end to end - on the
+      // Extensions screen that is five spinner-seconds they watch.
       final prefs = await SharedPreferences.getInstance();
-      final urls = prefs.getStringList('extension_repo_urls') ?? [];
+      final urls = prefs.getStringList(repoUrlsKey) ?? [];
+
+      final fetched = await Future.wait(
+        urls.map((url) => _loadRepo(url, repositoryService)),
+      );
 
       final repos = <ExtensionRepository>[];
       final available = <String, List<ExtensionPlugin>>{};
-
-      for (final url in urls) {
-        try {
-          final repo = await repositoryService.fetchRepository(url);
-          if (repo != null) {
-            repos.add(repo);
-            available[repo.url] = await repositoryService.getRepoPlugins(repo);
-          }
-        } catch (e) {
-          if (kDebugMode) debugPrint("Failed to load persisted repo $url: $e");
-        }
+      // Rebuilt in the persisted order, which Future.wait preserves, so the
+      // list the user sees does not reshuffle itself by network latency.
+      for (final entry in fetched) {
+        if (entry == null) continue;
+        repos.add(entry.repo);
+        available[entry.repo.url] = entry.plugins;
       }
 
       // 3. Set Final State Once
@@ -135,6 +187,23 @@ class ExtensionsController extends _$ExtensionsController {
         availableUpdates: state.availableUpdates,
         installingPlugins: state.installingPlugins,
       );
+    }
+  }
+
+  /// Fetches one repository and its plugin lists, or null if it is
+  /// unreachable or malformed. A bad repository must not take the others down
+  /// with it, which is why the catch is here rather than around [Future.wait].
+  Future<({ExtensionRepository repo, List<ExtensionPlugin> plugins})?> _loadRepo(
+    String url,
+    RepositoryService repositoryService,
+  ) async {
+    try {
+      final repo = await repositoryService.fetchRepository(url);
+      if (repo == null) return null;
+      return (repo: repo, plugins: await repositoryService.getRepoPlugins(repo));
+    } catch (e) {
+      if (kDebugMode) debugPrint("Failed to load persisted repo $url: $e");
+      return null;
     }
   }
 
@@ -249,8 +318,56 @@ class ExtensionsController extends _$ExtensionsController {
     }
   }
 
-  /// Auto-updates all stale plugins and returns the display names of every
-  /// plugin that was successfully updated (empty list = nothing to update).
+  /// The launch-time update check, off the launch critical path and asking
+  /// before it spends anything.
+  ///
+  /// Returns the display names of the plugins with an update waiting, or an
+  /// empty list when the check did not run at all. Every early return here is
+  /// a decision not to touch the network:
+  ///
+  ///  * no repositories persisted - nothing could ever be found;
+  ///  * checked within [autoCheckInterval] - a relaunch is not news;
+  ///  * a metered connection - manifests are small, but on a data plan small is
+  ///    still the user's money spent on something they did not ask for. Opening
+  ///    the Extensions screen still fetches: that is the user asking.
+  ///
+  /// [force] is what a deliberate, user-initiated refresh passes.
+  Future<List<String>> autoCheckForUpdates({bool force = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if ((prefs.getStringList(repoUrlsKey) ?? const <String>[]).isEmpty) {
+      return const <String>[];
+    }
+
+    if (!force) {
+      final last = prefs.getInt(lastAutoCheckKey);
+      if (last != null) {
+        // A negative age means the clock moved backwards; treat that as due
+        // rather than as "checked in the future" and never check again.
+        final age = DateTime.now().difference(
+          DateTime.fromMillisecondsSinceEpoch(last),
+        );
+        if (!age.isNegative && age < autoCheckInterval) return const <String>[];
+      }
+      if (await ref.read(meteredConnectionProvider)()) return const <String>[];
+    }
+
+    await ensureInitialized();
+    final pending = await checkForUpdates();
+    await prefs.setInt(lastAutoCheckKey, DateTime.now().millisecondsSinceEpoch);
+    return pending;
+  }
+
+  /// Records which installed plugins have a newer version published, in
+  /// [ExtensionsState.availableUpdates]. Installs nothing.
+  ///
+  /// It used to download and install every one of them on the spot, called
+  /// from the first post-frame callback of a cold start. Putting third-party
+  /// executable JavaScript on someone's device is not a decision an app makes
+  /// on their behalf while they wait for the home screen - so this now only
+  /// finds them, and the Extensions screen's per-plugin update button, which
+  /// already renders off this map, is where the consent happens.
+  ///
+  /// Returns the display names of the plugins with an update waiting.
   Future<List<String>> checkForUpdates() async {
     final updates = <String, ExtensionPlugin>{};
     final onlineMap = <String, ExtensionPlugin>{};
@@ -268,8 +385,13 @@ class ExtensionsController extends _$ExtensionsController {
       }
     }
 
-    final updatedNames = <String>[];
-    if (updates.isNotEmpty) {
+    // Written even when empty, so a plugin the user has since updated by hand
+    // stops advertising an update - but not when that would be a no-op state
+    // churn, and not over an error state whose message is still on screen.
+    final unchanged =
+        updates.length == state.availableUpdates.length &&
+        updates.keys.every(state.availableUpdates.containsKey);
+    if (!unchanged && state is! ExtensionsError) {
       state = ExtensionsSuccess(
         installedPlugins: state.installedPlugins,
         repositories: state.repositories,
@@ -277,21 +399,9 @@ class ExtensionsController extends _$ExtensionsController {
         availableUpdates: updates,
         installingPlugins: state.installingPlugins,
       );
-
-      for (final plugin in updates.values) {
-        await installPlugin(plugin);
-        updatedNames.add(plugin.name);
-      }
-
-      state = ExtensionsSuccess(
-        installedPlugins: state.installedPlugins,
-        repositories: state.repositories,
-        availablePlugins: state.availablePlugins,
-        availableUpdates: const {},
-        installingPlugins: state.installingPlugins,
-      );
     }
-    return updatedNames;
+
+    return updates.values.map((plugin) => plugin.name).toList();
   }
 
   Future<void> addRepository(String url, {Set<String>? visitedUrls}) async {
@@ -347,10 +457,10 @@ class ExtensionsController extends _$ExtensionsController {
 
           // Persist URL (Only top-level or unique ones)
           final prefs = await SharedPreferences.getInstance();
-          final urls = prefs.getStringList('extension_repo_urls') ?? [];
+          final urls = prefs.getStringList(repoUrlsKey) ?? [];
           if (!urls.contains(url)) {
             urls.add(url);
-            await prefs.setStringList('extension_repo_urls', urls);
+            await prefs.setStringList(repoUrlsKey, urls);
           }
         }
 
@@ -421,9 +531,9 @@ class ExtensionsController extends _$ExtensionsController {
 
       // Remove persistence
       final prefs = await SharedPreferences.getInstance();
-      final urls = prefs.getStringList('extension_repo_urls') ?? [];
+      final urls = prefs.getStringList(repoUrlsKey) ?? [];
       urls.remove(url);
-      await prefs.setStringList('extension_repo_urls', urls);
+      await prefs.setStringList(repoUrlsKey, urls);
 
       // Reload installed plugins to update the UI
       await loadInstalledPlugins();

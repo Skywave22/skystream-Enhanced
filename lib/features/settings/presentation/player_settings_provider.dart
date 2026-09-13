@@ -1,4 +1,5 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../../../core/storage/secure_token_storage.dart';
 import '../../../core/storage/settings_repository.dart';
 import '../../player/data/subtitle_providers.dart';
 import '../../../core/network/dio_client_provider.dart';
@@ -6,6 +7,22 @@ import '../../../core/network/dio_client_provider.dart';
 part 'player_settings_provider.g.dart';
 
 enum PlayerGesture { brightness, volume, none }
+
+/// Where the OpenSubtitles account password is kept.
+///
+/// The name is unchanged from the Hive key it used to be stored under, and
+/// that is load-bearing: [SecureTokenStorage.read] looks the same key up in
+/// the legacy box on a miss, so an existing user's password moves itself into
+/// the Keychain/Keystore on the first read after upgrading and the plaintext
+/// copy is deleted in the same step.
+///
+/// These are reusable *account passwords*, not revocable tokens. In the Hive
+/// settings box they were inside Android's cloud backup and inside iOS
+/// device-to-device transfer and iTunes/Finder backups, in the clear.
+const String kOsPasswordKey = 'player_os_pass';
+
+/// Where the SubDL account password is kept. See [kOsPasswordKey].
+const String kSubDlPasswordKey = 'player_subdl_pass';
 
 /// Preferred playback quality tier. Plugins don't guarantee a specific
 /// quality but sources are sorted so the preferred tier is tried first.
@@ -279,6 +296,13 @@ class PlayerSettings {
 class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
   SettingsRepository get _repository => ref.read(settingsRepositoryProvider);
 
+  /// Keychain (iOS/macOS) / Keystore (Android) / libsecret / Credentials API,
+  /// with the one-shot migration out of the plaintext Hive box built in.
+  ///
+  /// The same store the OAuth tokens already use — deliberately not a second
+  /// mechanism.
+  SecureTokenStorage get _credentials => ref.read(secureTokenStorageProvider);
+
   @override
   Future<PlayerSettings> build() async {
     final storage = _repository;
@@ -356,11 +380,16 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
         ) ??
         false;
     final osUser = storage.getPlayerSetting<String>('player_os_user') ?? '';
-    final osPass = storage.getPlayerSetting<String>('player_os_pass') ?? '';
+    // Reusable account passwords, not tokens — read from the platform secure
+    // store, never from the Hive settings box. [SecureTokenStorage.read]
+    // migrates a value left in the box by an older build on first read and
+    // deletes the plaintext copy, so nothing is lost on upgrade. See
+    // [kOsPasswordKey].
+    final osPass = await _credentials.read(kOsPasswordKey) ?? '';
     final osKey = storage.getPlayerSetting<String>('player_os_key') ?? '';
     final dlEmail =
         storage.getPlayerSetting<String>('player_subdl_email') ?? '';
-    final dlPass = storage.getPlayerSetting<String>('player_subdl_pass') ?? '';
+    final dlPass = await _credentials.read(kSubDlPasswordKey) ?? '';
     final dlKey = storage.getPlayerSetting<String>('player_subdl_key') ?? '';
     final ssKey = storage.getPlayerSetting<String>('player_ss_key') ?? '';
     final filterMode = _parseFilterMode(
@@ -463,8 +492,6 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
       subsourceApiKey: ssKey,
     );
   }
-
-
 
   Future<void> setLeftGesture(PlayerGesture g) async {
     await _repository.setPlayerSetting('player_gesture_left', g.name);
@@ -599,7 +626,6 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
     state = AsyncData(state.requireValue.copyWith(readaheadSeconds: seconds));
   }
 
-
   Future<void> setSubtitleBackgroundOpacity(double val) async {
     await _repository.setPlayerSetting('player_sub_bg_opacity', val);
     state = AsyncData(
@@ -645,14 +671,15 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
     state = AsyncData(state.requireValue.copyWith(showRemainingTime: val));
   }
 
-
   Future<void> setOpenSubtitlesCredentials(
     String user,
     String pass, [
     String? key,
   ]) async {
     await _repository.setPlayerSetting('player_os_user', user);
-    await _repository.setPlayerSetting('player_os_pass', pass);
+    // Secure store, and [SecureTokenStorage.write] clears any legacy plaintext
+    // copy as it goes.
+    await _credentials.write(kOsPasswordKey, pass);
     if (key != null) {
       await _repository.setPlayerSetting('player_os_key', key);
     }
@@ -675,7 +702,7 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
       await _repository.setPlayerSetting('player_subdl_email', email);
     }
     if (pass != null) {
-      await _repository.setPlayerSetting('player_subdl_pass', pass);
+      await _credentials.write(kSubDlPasswordKey, pass);
     }
 
     state = AsyncData(

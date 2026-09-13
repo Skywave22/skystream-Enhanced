@@ -60,11 +60,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get recordWatchHistory => '시청 기록 남기기';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => '전체 화면';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'TV 레이아웃으로 전환됩니다';
 
   @override
   String get defaultHomeScreen => '기본 홈 화면';
@@ -419,6 +418,26 @@ class AppLocalizationsKo extends AppLocalizations {
   String get min => '분';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count초 뒤로',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count초 앞으로',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => '내부 플레이어 (VLC)';
 
   @override
@@ -727,6 +746,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get goBack => '뒤로 가기';
+
+  @override
+  String get restartApp => '앱 다시 시작';
 
   @override
   String get resolving => '해석 중...';
@@ -1584,6 +1606,28 @@ class AppLocalizationsKo extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => '스크레이퍼 검색 중…';
+
+  @override
+  String get sourcesEmptyFiltered => '현재 필터와 일치하는 링크가 없습니다.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      '이 작품의 TMDB ID가 없습니다. \'Search manually\'로 입력하세요.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      '활성화된 스크레이퍼가 없습니다. \'Nuvio Plugins\'에서 추가하세요.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      '모든 스크레이퍼가 실패했습니다. 연결을 확인하거나 스크레이퍼를 업데이트하세요.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return '링크를 찾지 못했습니다. $total개 중 $failed개 스크레이퍼가 실패했습니다.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound => '보유한 스크레이퍼 중 이 작품을 가진 것이 없습니다.';
 }

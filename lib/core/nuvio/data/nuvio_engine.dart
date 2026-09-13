@@ -351,11 +351,19 @@ class NuvioEngineHttp {
   /// Key used to report a failure inside the payload map.
   static const String errorKey = '__nuvioError';
 
+  /// Note what is deliberately *absent*: no `badCertificateCallback`. It used
+  /// to be `(_, _, _) => true`, which accepted any certificate on a path that
+  /// also replays this jar's session cookies upstream and, worse, trusts the
+  /// JSON the scraper parses to decide *where the video lives*. An on-path
+  /// attacker on café Wi-Fi could therefore harvest the plugin's session and
+  /// substitute the stream, with playback simply working — the same defect
+  /// fixed on the local media proxy (audit W14), on the sibling path.
+  /// A handshake Dart refuses surfaces to the plugin as a normal fetch
+  /// failure, never as a throw; see [fetch].
   final HttpClient _client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 20)
     ..idleTimeout = const Duration(seconds: 15)
-    ..autoUncompress = true
-    ..badCertificateCallback = (_, _, _) => true;
+    ..autoUncompress = true;
 
   final Map<String, Map<String, String>> _cookies = {};
   var _closed = false;

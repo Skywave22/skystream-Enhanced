@@ -47,10 +47,23 @@ linter:
     # discarded_futures: true  # 147 info-level sites; fix with unawaited() or await incrementally
 #
 
-custom_lint:
-  rules:
-    - riverpod_avoid_global_provider
-    - riverpod_avoid_read_inside_build
-    - riverpod_avoid_watch_outside_build
-    - riverpod_notifier_parameters
-    - riverpod_async_notifier_error_handling
+# The `custom_lint` plugin above is riverpod_lint. All 15 of its rules
+# (missing_provider_scope, notifier_extends, provider_dependencies,
+# avoid_public_notifier_properties, avoid_ref_inside_state_dispose, ...) are
+# enabledByDefault, so there is nothing to list here to switch them on - a
+# `custom_lint: rules:` block only ever overrides a default, and any name not
+# in it keeps its default (custom_lint_core LintRule.isEnabled). This file used
+# to name five rules that riverpod_lint 3.1.0 does not ship
+# (riverpod_avoid_global_provider, riverpod_avoid_read_inside_build,
+# riverpod_avoid_watch_outside_build, riverpod_notifier_parameters,
+# riverpod_async_notifier_error_handling); they were inert, and they read as if
+# the rule set were narrower than it is. Add an entry here only to turn a real
+# rule off, e.g.
+#
+#   custom_lint:
+#     rules:
+#       - provider_dependencies: false
+#
+# `flutter analyze` does not load analyzer plugins, so none of these rules run
+# unless `dart run custom_lint` does. The CI workflow runs it on every push and
+# pull request (.github/workflows/ci.yml, the "Custom Lint" step).

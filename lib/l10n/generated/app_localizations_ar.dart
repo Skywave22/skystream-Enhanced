@@ -60,11 +60,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get recordWatchHistory => 'سجل المشاهدة';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'ملء الشاشة';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'التبديل إلى تخطيط التلفزيون';
 
   @override
   String get defaultHomeScreen => 'الشاشة الرئيسية الافتراضية';
@@ -425,6 +424,34 @@ class AppLocalizationsAr extends AppLocalizations {
   String get min => 'دقيقة';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تأخير $count ثانية',
+      many: 'تأخير $count ثانية',
+      few: 'تأخير $count ثوانٍ',
+      two: 'تأخير ثانيتين',
+      one: 'تأخير ثانية واحدة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تقديم $count ثانية',
+      many: 'تقديم $count ثانية',
+      few: 'تقديم $count ثوانٍ',
+      two: 'تقديم ثانيتين',
+      one: 'تقديم ثانية واحدة',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'مشغل داخلي (VLC)';
 
   @override
@@ -743,6 +770,9 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get goBack => 'العودة';
+
+  @override
+  String get restartApp => 'إعادة تشغيل التطبيق';
 
   @override
   String get resolving => 'جارٍ الحل...';
@@ -1604,8 +1634,32 @@ class AppLocalizationsAr extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'جارٍ البحث في أدوات الاستخراج…';
+
+  @override
+  String get sourcesEmptyFiltered =>
+      'لا توجد روابط تطابق عوامل التصفية الحالية.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'لا يوجد معرّف TMDB لهذا العنوان. استخدم \'Search manually\' لإدخاله.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'لا توجد أدوات استخراج مفعّلة. أضف واحدة من \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'فشلت جميع أدوات الاستخراج. تحقّق من اتصالك أو حدّث أدواتك.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'لم يتم العثور على روابط. فشلت $failed من $total أداة.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'لا تحتوي أي من أدواتك على هذا العنوان.';
 }
 
 /// The translations for Arabic (`ar_apc`).
@@ -1662,6 +1716,12 @@ class AppLocalizationsArApc extends AppLocalizationsAr {
 
   @override
   String get recordWatchHistory => 'حفظ سجل المشاهدة';
+
+  @override
+  String get fullScreenMode => 'شاشة كاملة';
+
+  @override
+  String get fullScreenModeSubtitle => 'بيحوّل لواجهة التلفزيون';
 
   @override
   String get defaultHomeScreen => 'الشاشة الرئيسية الافتراضية';
@@ -2016,6 +2076,28 @@ class AppLocalizationsArApc extends AppLocalizationsAr {
   String get min => 'دقيقة';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'رجّع $count ثواني',
+      one: 'رجّع ثانية',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'قدّم $count ثواني',
+      one: 'قدّم ثانية',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'داخلي (VLC)';
 
   @override
@@ -2331,6 +2413,9 @@ class AppLocalizationsArApc extends AppLocalizationsAr {
 
   @override
   String get goBack => 'رجوع';
+
+  @override
+  String get restartApp => 'عيد تشغيل التطبيق';
 
   @override
   String get resolving => 'عم يفك الروابط...';
@@ -2906,4 +2991,30 @@ class AppLocalizationsArApc extends AppLocalizationsAr {
 
   @override
   String get showEpisodes => 'Episodes button';
+
+  @override
+  String get sourcesSearching => 'عم ندوّر بأدوات الاستخراج…';
+
+  @override
+  String get sourcesEmptyFiltered => 'ما في روابط بتطابق الفلاتر الحالية.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'ما في معرّف TMDB لهالعنوان. استخدم \'Search manually\' لتدخّلو.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'ما في أدوات استخراج مفعّلة. ضيف وحدة من \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'كل أدوات الاستخراج فشلت. تأكد من الإنترنت أو حدّث أدواتك.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'ما لقينا روابط. فشلت $failed من $total أداة.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound => 'ولا وحدة من أدواتك عندها هالعنوان.';
 }

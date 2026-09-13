@@ -63,10 +63,11 @@ void setImmersiveRoute({required bool active}) {
   });
 }
 
-/// Set while the app is running in Big Picture — the ten-foot mode a desktop
-/// is put into when it is plugged into a television.
+/// Set while the app is running in full screen mode — the ten-foot mode a
+/// desktop is put into when it is plugged into a television, as against its
+/// ordinary windowed mode.
 ///
-/// Owned by `BigPictureMode` in the settings feature, which is the only thing
+/// Owned by `FullScreenMode` in the settings feature, which is the only thing
 /// that writes it; it lives here because [playerFormFactorOf] is a plain
 /// function with no `ref` to read a provider through, and because the whole
 /// value of the flag is what it does to the form factor.
@@ -74,7 +75,7 @@ void setImmersiveRoute({required bool active}) {
 /// A [ValueNotifier] rather than a bare bool for the same reason
 /// [immersiveRouteActive] is one: the notifier is the single copy of the
 /// state, so a mirror can never drift from it.
-final ValueNotifier<bool> bigPictureActive = ValueNotifier<bool>(false);
+final ValueNotifier<bool> fullScreenModeActive = ValueNotifier<bool>(false);
 
 /// The orientation policy a device wants from the player.
 ///
@@ -133,16 +134,17 @@ enum PlayerFormFactor {
 /// [PlayerFormFactor.unknown] rather than a guess, because guessing "phone" on
 /// a television would pin a TV to portrait for the life of the process.
 ///
-/// [bigPictureActive] is read here rather than at the call sites on purpose:
-/// this is the one place the player decides what shape of device it is on, so
-/// it is the one place "the user says this screen is across the room" has to
-/// be said. An unresolved profile stays [PlayerFormFactor.unknown] even then —
-/// Big Picture changes the verdict, it is not a substitute for having one.
+/// [fullScreenModeActive] is read here rather than at the call sites on
+/// purpose: this is the one place the player decides what shape of device it
+/// is on, so it is the one place "the user says this screen is across the
+/// room" has to be said. An unresolved profile stays
+/// [PlayerFormFactor.unknown] even then — full screen mode changes the
+/// verdict, it is not a substitute for having one.
 PlayerFormFactor playerFormFactorOf(DeviceProfile? profile) {
   if (kIsWeb || profile == null) return PlayerFormFactor.unknown;
   // isTv wins: a leanback device also measures wide enough to set isTablet.
-  // Big Picture reaches the same verdict by choice instead of by hardware.
-  if (profile.isTv || bigPictureActive.value) return PlayerFormFactor.tv;
+  // Full screen mode reaches the same verdict by choice, not by hardware.
+  if (profile.isTv || fullScreenModeActive.value) return PlayerFormFactor.tv;
   if (profile.isDesktopOS) return PlayerFormFactor.desktop;
   return profile.isTablet ? PlayerFormFactor.tablet : PlayerFormFactor.phone;
 }
@@ -188,11 +190,22 @@ class PlayerPlatformService {
   /// Returns whether the window actually shrank. False covers pre-Oreo, a
   /// device that refuses, and - the one that matters - a user who has turned
   /// PiP off for this app, which Android reports as a plain `false`.
-  Future<bool> enterPip(bool isPlaying) async {
-    if (!Platform.isAndroid) return false;
+  ///
+  /// [videoSize] shapes the window. Without it Android keeps whatever shape it
+  /// used last, so a 2.39:1 film is letterboxed inside a window that is
+  /// already small. Null and zero sizes are simply not sent - the native side
+  /// keeps the last shape it was given rather than guessing at square.
+  ///
+  /// The platform gate reads [defaultTargetPlatform] rather than
+  /// `Platform.isAndroid`: the two agree on a device, and only one of them can
+  /// be overridden by a test, which is what lets the message this sends be
+  /// asserted at all.
+  Future<bool> enterPip(bool isPlaying, {Size? videoSize}) async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
     try {
       final entered = await _pipChannel.invokeMethod<bool>('enterPip', {
         'isPlaying': isPlaying,
+        ..._videoSizeArgs(videoSize),
       });
       return entered ?? false;
     } catch (e) {
@@ -203,17 +216,41 @@ class PlayerPlatformService {
     }
   }
 
+  /// The video's shape as MainActivity wants it, or nothing at all.
+  ///
+  /// Absent rather than zero when the first frame has not been decoded yet:
+  /// zero would have to be special-cased on the native side, and a wrong
+  /// aspect ratio there is not a cosmetic error - Android throws
+  /// IllegalArgumentException out of `enterPictureInPictureMode` for a ratio
+  /// it does not like.
+  static Map<String, int> _videoSizeArgs(Size? size) {
+    if (size == null || size.width <= 0 || size.height <= 0) {
+      return const <String, int>{};
+    }
+    return <String, int>{
+      'videoWidth': size.width.round(),
+      'videoHeight': size.height.round(),
+    };
+  }
+
   /// Keeps the PiP window's middle button showing the right play/pause icon.
   ///
   /// Fire-and-forget on purpose: it is driven from a playback-state listener,
   /// and a dropped icon refresh is not worth making that listener async. The
   /// catch is load-bearing — without it a missing native handler surfaces as
   /// an unhandled async error far from this call.
-  void syncPipState(bool isPlaying) {
-    if (!Platform.isAndroid) return;
+  ///
+  /// Carries [videoSize] for the same reason [enterPip] does: the next episode
+  /// can be shaped differently from the one that opened the window, and this
+  /// is the message that is already sent when it starts.
+  void syncPipState(bool isPlaying, {Size? videoSize}) {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
     unawaited(
       _pipChannel
-          .invokeMethod<void>('setPipState', {'isPlaying': isPlaying})
+          .invokeMethod<void>('setPipState', {
+            'isPlaying': isPlaying,
+            ..._videoSizeArgs(videoSize),
+          })
           .catchError((Object e) {
             if (kDebugMode) {
               debugPrint('PlayerPlatformService.syncPipState: $e');
@@ -350,9 +387,10 @@ class PlayerPlatformService {
 
   /// Puts the window into or out of full screen.
   ///
-  /// For a caller that already knows which state it wants — Big Picture, which
-  /// owns the flag it is acting on — where [toggleFullscreen] would depend on
-  /// a window state the OS window controls can change behind its back.
+  /// For a caller that already knows which state it wants — full screen mode,
+  /// which owns the flag it is acting on — where [toggleFullscreen] would
+  /// depend on a window state the OS window controls can change behind its
+  /// back.
   ///
   /// Returns nothing for the same reason [toggleFullscreen] does not: the
   /// window is the only thing that knows, and on macOS it is still animating

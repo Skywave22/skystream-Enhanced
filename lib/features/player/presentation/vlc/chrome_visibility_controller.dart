@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/semantics.dart';
 
 /// Whether the player chrome is on screen, and the one clock that takes it
 /// away.
@@ -34,6 +35,21 @@ class ChromeVisibilityController extends ValueNotifier<bool> {
   Timer? _timer;
   int _holds = 0;
   bool _disposed = false;
+
+  /// Whether an assistive technology is driving navigation - TalkBack,
+  /// VoiceOver, Switch Access.
+  ///
+  /// Exactly the bit `MediaQuery.accessibleNavigationOf` reports:
+  /// `MediaQueryData.fromView` copies it straight off
+  /// [PlatformDispatcher.accessibilityFeatures]. Read off the binding rather
+  /// than a context because this clock lives outside the widget tree, and read
+  /// live on every decision rather than cached at construction, because a
+  /// viewer can turn a screen reader on in the middle of a film.
+  static bool get _accessibleNavigation => SemanticsBinding
+      .instance
+      .platformDispatcher
+      .accessibilityFeatures
+      .accessibleNavigation;
 
   /// True while something owns the screen - a sheet, a drag, a mouse resting
   /// on a bar - and the chrome must not go out from under it.
@@ -92,14 +108,27 @@ class ChromeVisibilityController extends ValueNotifier<bool> {
     _timer?.cancel();
     _timer = null;
     if (_disposed || !value || isHeld) return;
+    // A screen reader explores by swiping or flicking between elements, which
+    // dispatches no pointer event to Flutter, so nothing in that exploration
+    // pokes this clock. Left armed it takes the bars away mid-exploration -
+    // and not just visually: both bars hide behind an opacity-0
+    // AnimatedOpacity, and RenderAnimatedOpacityMixin drops a fully
+    // transparent subtree from the semantics tree, so all thirteen bottom-bar
+    // controls leave the accessibility tree and focus resets. Three seconds is
+    // two to four element stops; Subtitles and Audio are unreachable. So while
+    // an assistive technology is driving, the chrome stays - which is what
+    // Netflix and YouTube do too.
+    if (_accessibleNavigation) return;
     _timer = Timer(hideAfter, _expire);
   }
 
   void _expire() {
     // Paused means the viewer is looking at something - a still frame, the
     // seek bar, the title. Hiding out from under them is the wrong call, so
-    // wait and re-check rather than hiding on a schedule.
-    if (!_isPlaying()) {
+    // wait and re-check rather than hiding on a schedule. Same for a screen
+    // reader switched on after this timer was armed: [_restart] declines to
+    // re-arm, so the bars simply stay.
+    if (!_isPlaying() || _accessibleNavigation) {
       _restart();
       return;
     }

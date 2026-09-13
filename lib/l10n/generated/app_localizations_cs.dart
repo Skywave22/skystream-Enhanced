@@ -60,11 +60,10 @@ class AppLocalizationsCs extends AppLocalizations {
   String get recordWatchHistory => 'Zaznamenávat historii sledování';
 
   @override
-  String get bigPictureMode => 'Big Picture Mode';
+  String get fullScreenMode => 'Celá obrazovka';
 
   @override
-  String get bigPictureModeSubtitle =>
-      'Full screen with the ten-foot TV layout, for a computer plugged into a television';
+  String get fullScreenModeSubtitle => 'Přepne na televizní rozhraní';
 
   @override
   String get defaultHomeScreen => 'Výchozí domovská obrazovka';
@@ -424,6 +423,32 @@ class AppLocalizationsCs extends AppLocalizations {
   String get min => 'min';
 
   @override
+  String playerRewindSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Zpět o $count sekund',
+      many: 'Zpět o $count sekundy',
+      few: 'Zpět o $count sekundy',
+      one: 'Zpět o $count sekundu',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String playerForwardSeconds(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Vpřed o $count sekund',
+      many: 'Vpřed o $count sekundy',
+      few: 'Vpřed o $count sekundy',
+      one: 'Vpřed o $count sekundu',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get internalPlayer => 'Interní (VLC)';
 
   @override
@@ -742,6 +767,9 @@ class AppLocalizationsCs extends AppLocalizations {
 
   @override
   String get goBack => 'Zpět';
+
+  @override
+  String get restartApp => 'Restartovat aplikaci';
 
   @override
   String get resolving => 'Získávání odkazů...';
@@ -1601,6 +1629,29 @@ class AppLocalizationsCs extends AppLocalizations {
       'No subtitles for this episode. These are for the whole season, so check the episode number in the file name.';
 
   @override
-  String get subtitleAccountsNotConfigured =>
-      'No subtitle account is set up. Add an OpenSubtitles, SubDL or SubSource key in Settings to search online.';
+  String get sourcesSearching => 'Hledání ve scraperech…';
+
+  @override
+  String get sourcesEmptyFiltered => 'Žádný odkaz neodpovídá filtrům.';
+
+  @override
+  String get sourcesEmptyNoTmdbId =>
+      'Tento titul nemá TMDB ID. Zadejte ho přes \'Search manually\'.';
+
+  @override
+  String get sourcesEmptyNoScrapers =>
+      'Není zapnutý žádný scraper. Přidejte ho v \'Nuvio Plugins\'.';
+
+  @override
+  String get sourcesEmptyAllFailed =>
+      'Všechny scrapery selhaly. Zkontrolujte připojení nebo je aktualizujte.';
+
+  @override
+  String sourcesEmptySomeFailed(int failed, int total) {
+    return 'Nenalezeny žádné odkazy. Selhalo $failed z $total scraperů.';
+  }
+
+  @override
+  String get sourcesEmptyNothingFound =>
+      'Žádný z vašich scraperů tento titul nemá.';
 }
