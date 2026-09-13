@@ -20,9 +20,20 @@ namespace vlc_player {
 // what the buffer rotation below relies on.
 class VlcPixelBufferSink final : public VlcFrameSink {
  public:
+  // Answers the VISIBLE picture size - the video track as the demuxer
+  // declared it, which is what libvlc_video_get_size reports. False when it
+  // is not known yet.
+  //
+  // Configure needs it because libVLC's format callback offers the CODED
+  // size instead: for a 1080p stream the decoder pads the height to the next
+  // multiple of 16 and the callback is handed 1920x1088. See Configure.
+  using VisibleSizeProbe = std::function<bool(uint32_t*, uint32_t*)>;
+
   // `on_frame_available` is invoked from libVLC's video thread each time a
-  // frame is displayed, and must be cheap.
-  explicit VlcPixelBufferSink(std::function<void()> on_frame_available);
+  // frame is displayed, and must be cheap. `visible_size` is called from the
+  // same thread, once per format change.
+  explicit VlcPixelBufferSink(std::function<void()> on_frame_available,
+                              VisibleSizeProbe visible_size = nullptr);
   ~VlcPixelBufferSink() override;
 
   uint32_t Configure(VlcFrameFormat* format) override;
@@ -53,8 +64,13 @@ class VlcPixelBufferSink final : public VlcFrameSink {
 
  private:
   void Resize(uint32_t width, uint32_t height, uint32_t pitch);
+  // Narrows `format` from the coded size libVLC offered to the visible
+  // picture, when the probe says the difference is only decoder alignment
+  // padding. A no-op otherwise. See the definition for the rules.
+  void TrimAlignmentPadding(VlcFrameFormat* format) const;
 
   std::function<void()> on_frame_available_;
+  VisibleSizeProbe visible_size_;
 
   mutable std::mutex mutex_;
   // Rotated, never copied. frame_buffer_ is what libVLC writes into,

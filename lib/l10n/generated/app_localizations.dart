@@ -2583,12 +2583,6 @@ abstract class AppLocalizations {
   /// **'Resize button'**
   String get showResize;
 
-  /// No description provided for @showRotate.
-  ///
-  /// In en, this message translates to:
-  /// **'Rotate button'**
-  String get showRotate;
-
   /// No description provided for @showPlaybackSpeed.
   ///
   /// In en, this message translates to:

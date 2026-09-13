@@ -19,6 +19,10 @@ namespace {
 // It only grows, and a block that has been outgrown is deliberately not
 // freed: a video thread may still be writing into it, and the handful of
 // bytes that costs is the price of never having to prove otherwise.
+// What a refusal gets when the format measures nothing at all. Only has to be
+// a real address; see PointAtScratch.
+constexpr size_t kEmptyScratchBytes = 4096;
+
 uint8_t* ScratchBin(size_t bytes) {
   static std::mutex mutex;
   static uint8_t* buffer = nullptr;
@@ -71,15 +75,29 @@ void VlcVideoOutput::PointAtScratch(const Attachment& attachment,
   for (uint32_t i = 0; i < attachment.plane_count; ++i) {
     total += static_cast<size_t>(attachment.pitches[i]) * attachment.lines[i];
   }
-  if (total == 0) {
-    return;
+
+  // Returning here without touching `planes` would break the one rule this
+  // whole function exists to keep: libVLC hands the array in uninitialised and
+  // writes the frame into whatever it holds on the way back, so a plane left
+  // alone is a decoder writing to a stack address nobody owns. A format that
+  // measures nothing should be unreachable - Configure refuses those before
+  // libVLC ever locks, and plane_count is only non-zero once one succeeded -
+  // but "unreachable" is not something to hand a decoder a pointer to. An
+  // empty measurement gets a page of scratch and every plane gets pointed at
+  // it; nothing reads the bin, so the overlap costs nothing.
+  const bool measured = total != 0;
+  if (!measured) {
+    total = kEmptyScratchBytes;
   }
 
   uint8_t* bin = ScratchBin(total);
+  const uint32_t used = measured ? attachment.plane_count : kVlcMaxPlanes;
   size_t offset = 0;
-  for (uint32_t i = 0; i < attachment.plane_count; ++i) {
+  for (uint32_t i = 0; i < used; ++i) {
     planes[i] = bin + offset;
-    offset += static_cast<size_t>(attachment.pitches[i]) * attachment.lines[i];
+    if (measured) {
+      offset += static_cast<size_t>(attachment.pitches[i]) * attachment.lines[i];
+    }
   }
 }
 
@@ -103,7 +121,18 @@ unsigned VlcVideoOutput::SetupCallback(void** opaque,
   format.width = *width;
   format.height = *height;
 
-  const uint32_t planes = attachment->sink->Configure(&format);
+  // Configure sizes and allocates the frame buffers, and at 4K RGBA those are
+  // tens of megabytes apiece. A std::bad_alloc thrown here would unwind into
+  // libVLC's C frames, which have nothing to catch it, and reach
+  // std::terminate - the whole app aborting over a format it was free to
+  // decline. Returning 0 is that decline, and libVLC already knows how to
+  // read it: it tries the next format, or fails the vout cleanly.
+  uint32_t planes = 0;
+  try {
+    planes = attachment->sink->Configure(&format);
+  } catch (...) {
+    return 0;
+  }
   if (planes == 0) {
     return 0;
   }

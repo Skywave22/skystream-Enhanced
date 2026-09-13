@@ -105,6 +105,11 @@ void main() {
     //  * bigPictureMode / bigPictureModeSubtitle were Steam's branding,
     //    inherited from a contributor PR. They are fullScreenMode and
     //    fullScreenModeSubtitle now.
+    //  * showRotate labelled a switch in Player Controls that hid the player's
+    //    manual rotate button. Orientation follows the video's own shape now,
+    //    the button is gone, and the switch was moving a stored boolean that
+    //    nothing read. Removing the row without the key would leave 43 locales
+    //    holding a translation for a control that does not exist.
     for (final String key in _retired) {
       final List<String> carriers =
           keysByLocale.entries
@@ -304,6 +309,7 @@ const List<String> _retired = <String>[
   'subtitleAccountsNotConfigured',
   'bigPictureMode',
   'bigPictureModeSubtitle',
+  'showRotate',
 ];
 
 /// Message strings per locale, `@@locale` and `@key` metadata dropped.

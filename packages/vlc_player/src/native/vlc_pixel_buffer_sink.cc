@@ -5,20 +5,87 @@
 #include <utility>
 
 namespace vlc_player {
+namespace {
+
+// How many rows of difference between the coded and the visible height still
+// count as decoder alignment padding.
+//
+// Video decoders round the coded height up to a macroblock multiple, so the
+// gap is at most 15 rows (1080 -> 1088 is the everyday one, and libVLC has
+// been seen to ask for 1090). Anything wider than that is not padding - it is
+// a stale answer describing some other picture - and is refused.
+constexpr uint32_t kMaxAlignmentPadding = 16;
+
+}  // namespace
 
 VlcPixelBufferSink::VlcPixelBufferSink(
-    std::function<void()> on_frame_available)
-    : on_frame_available_(std::move(on_frame_available)) {}
+    std::function<void()> on_frame_available,
+    VisibleSizeProbe visible_size)
+    : on_frame_available_(std::move(on_frame_available)),
+      visible_size_(std::move(visible_size)) {}
 
 VlcPixelBufferSink::~VlcPixelBufferSink() = default;
 
 uint32_t VlcPixelBufferSink::Configure(VlcFrameFormat* format) {
+  // width and height are IN/OUT. libVLC offers the CODED size - a 1080p
+  // stream arrives here as 1920x1088, because the decoder pads the height to
+  // a multiple of 16 - and honours whatever is written back, converting and
+  // rescaling into it as needed. Asking for the visible picture instead is
+  // what keeps the buffer and the picture the same thing.
+  //
+  // Leaving the coded size in place is wrong in two ways at once, and which
+  // one bites depends on the converter libVLC picks. When it inserts a
+  // scaler, the visible rows are stretched to fill all 1088 and the picture
+  // is then reported to Flutter as 1920x1088 - a 0.74% vertical stretch, and
+  // a wrong aspect ratio. When it picks a converter that copies planes 1:1
+  // and ignores the size difference, the padding rows are never written at
+  // all and the bleed shows up as a coloured band along the bottom edge.
+  // Negotiating the visible size removes both: there are no padding rows to
+  // leave unwritten and nothing to rescale.
+  TrimAlignmentPadding(format);
   std::memcpy(format->chroma, "RGBA", 4);
   format->chroma[4] = '\0';
   format->pitches[0] = format->width * 4;
   format->lines[0] = format->height;
   Resize(format->width, format->height, format->pitches[0]);
   return 1;
+}
+
+void VlcPixelBufferSink::TrimAlignmentPadding(VlcFrameFormat* format) const {
+  if (!visible_size_) {
+    return;
+  }
+  uint32_t width = 0;
+  uint32_t height = 0;
+  if (!visible_size_(&width, &height)) {
+    return;
+  }
+
+  // Deliberately narrow: the only edit allowed is dropping alignment rows off
+  // the bottom.
+  //
+  // The probe reads the media's track info, which is a different source from
+  // the format libVLC is negotiating here, and the two fall out of step
+  // across a media change or an adaptive rendition switch. Acting on a stale
+  // answer would make libVLC rescale the picture into a buffer of the wrong
+  // shape - silently losing resolution - so anything that does not look like
+  // the un-padded form of what was offered is refused and the coded size
+  // stands, exactly as before.
+  if (width != format->width) {
+    return;
+  }
+  if (height == 0 || height > format->height) {
+    return;
+  }
+  if (format->height - height >= kMaxAlignmentPadding) {
+    return;
+  }
+
+  // Height only. Trimming the width would change the pitch to something that
+  // is no longer a multiple of 32, which libVLC explicitly recommends against
+  // (see libvlc_video_format_cb), and real content is already aligned across
+  // - 1920, 1280, 3840 - so it is the height that needs this.
+  format->height = height;
 }
 
 void VlcPixelBufferSink::Cleanup() {}

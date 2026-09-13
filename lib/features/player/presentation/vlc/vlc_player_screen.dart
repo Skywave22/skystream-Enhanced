@@ -490,10 +490,6 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// early frame pins nothing and therefore needs nothing restored.
   PlayerFormFactor _form = PlayerFormFactor.unknown;
 
-  /// The last decoded video size handed to the platform. Orientation is a
-  /// platform message, so it is only sent when the shape actually changes.
-  Size? _videoSize;
-
   /// The next episode, once playback is close enough to the end to offer it.
   /// Null whenever the card is not up.
   Episode? _nextEpisodeOffer;
@@ -675,9 +671,28 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
           adaptiveMaxHeight: _adaptiveMaxHeight,
         ),
         subtitleStyle: subtitleStyleFrom(settings),
+        // Off by default; see [PlayerDiagnostics]. The only way to get libVLC's
+        // own account of a playback out of a machine nobody here owns.
+        verbose: PlayerDiagnostics.verboseVlcLog,
         // The user's hardware-decoding preference. libVLC has no equivalent for
         // the tone-mapping settings that sat beside this one, but it does have
-        // --avcodec-hw, so this switch is honoured rather than ignored.
+        // --avcodec-hw.
+        //
+        // Reaches the decoder on Android only. Darwin, Windows and Linux all
+        // render through libVLC's vmem callbacks, and libvlc_video_set_callbacks
+        // sets `avcodec-hw = "none"` on the media player itself
+        // (VLC 3.0.21 lib/media_player.c:1113) - which sits below the instance
+        // in the variable-inheritance chain, so it beats whatever this emits.
+        //
+        // What that costs differs by platform, which is why it is worth stating
+        // rather than leaving as one rule. Windows and Linux have no hardware
+        // decoder outside avcodec - DXVA2/D3D11VA and VA-API/VDPAU are all
+        // avcodec accelerators - so they are software-decode-only however this
+        // switch is set. Darwin decodes on VideoToolbox, a standalone `video
+        // decoder` module that `avcodec-hw` has no authority over, so it keeps
+        // its hardware path however this switch is set. The switch is therefore
+        // inert in *both* directions on Darwin, not just the off one.
+        // See VlcDecodingConfig.hardwareAcceleration.
         decoding: VlcDecodingConfig(
           hardwareAcceleration: settings.hardwareDecoding
               ? VlcHardwareAcceleration.automatic
@@ -1631,13 +1646,6 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// the other platforms this ships to, and it is meaningless on a television.
   bool get _pipAvailable => Platform.isAndroid && _form != PlayerFormFactor.tv;
 
-  /// The rotate button, which only makes sense where the app is allowed to pin
-  /// an orientation at all — and not on an iPad, whose own rotation lock is the
-  /// system's to own (38da335:...skystream_player_controls.dart:1508-1516).
-  bool get _rotateAvailable =>
-      _form.pinsOrientation &&
-      !(Platform.isIOS && _form == PlayerFormFactor.tablet);
-
   /// Only a desktop window can change size; mobile and TV are already full
   /// screen, so the affordance is absent rather than inert.
   bool get _fullscreenAvailable =>
@@ -1708,11 +1716,6 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     if (entered || _disposed || !mounted || !_inPip) return;
     setState(() => _inPip = false);
   }
-
-  /// Flips the device the other way up, and stops the video's own aspect ratio
-  /// overruling that for the rest of the session.
-  void _rotate() =>
-      _platform.toggleOrientation(_form, MediaQuery.orientationOf(context));
 
   /// Opens the side panel, on whichever of its tabs the caller asked for.
   ///
@@ -2352,21 +2355,48 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   ///
   /// Driven by the decoded size rather than by anything the app knows in
   /// advance, because a portrait clip inside a landscape-locked player is
-  /// letterboxed down to a stripe. Guarded on change: the size is reported on
-  /// every tick and this is a platform message.
+  /// letterboxed down to a stripe, and because nothing in the route arguments
+  /// knows the aspect: it arrives from the engine after the first frames.
+  ///
+  /// ## Why `codedVideoSize` and not `videoSize`
+  ///
+  /// Because `videoSize` does not know which way up the picture is, and this
+  /// decision is *only* about which way up the picture is.
+  ///
+  /// `videoSize` is the elementary stream's declared width and height on every
+  /// backend that reports one, and the rotation a phone camera writes lives in
+  /// a field beside it that no backend forwards — the evidence, per platform,
+  /// is on [PlayerPlatformService.applyVideoOrientation]. `codedVideoSize` is
+  /// the buffer libVLC decodes into after it has applied that rotation, so it
+  /// is the upright picture by construction.
+  ///
+  /// The three cases this leaves, all deliberate:
+  ///
+  ///  * **iOS** takes the shared NV12 texture path by default, so it reports a
+  ///    coded size and a portrait clip turns the handset portrait — including
+  ///    one shot on a phone, which is the case that used to come out backwards.
+  ///  * **Android** renders through an `AndroidView` and reports no coded
+  ///    size, so nothing is pinned and the device keeps whatever orientation
+  ///    the user's own rotation setting gives it. That is the conservative
+  ///    answer and the only honest one available from Dart: the sole size
+  ///    Android sends is the rotation-blind one, and pinning from it would be
+  ///    a coin flip on exactly the video the viewer most wants turned. Landing
+  ///    `orientation` alongside `width`/`height` in the plugin's snapshot is
+  ///    what restores the feature there; it is a change under `packages/`.
+  ///  * **macOS, Windows and Linux** are [PlayerFormFactor.desktop] and were
+  ///    never pinned, so nothing is lost by not reading the rotation-aware
+  ///    size those two desktops do happen to report.
+  ///
+  /// Fed on every tick rather than only on a size change. That is no longer
+  /// load-bearing — the service settles on a clock now, not on a count of
+  /// events — but it costs one comparison and it is what keeps a shape that
+  /// arrives late, on a tick that changed nothing else, from being missed.
+  ///
+  /// No `unknown` guard: the service's own form-factor gate handles a profile
+  /// that is still resolving, and does it better than a guard here could, by
+  /// also disarming a settle that a change of form factor has invalidated.
   void _syncOrientation(VlcPlayerValue value) {
-    // Withheld rather than latched while the device profile is still
-    // resolving: applyVideoOrientation is a no-op on `unknown`, and recording
-    // the size against that no-op would mean the video's shape is never
-    // applied at all on a fast-starting stream.
-    if (_form == PlayerFormFactor.unknown) return;
-    if (value.videoSize == _videoSize) return;
-    _videoSize = value.videoSize;
-    _platform.applyVideoOrientation(
-      _form,
-      width: value.videoSize?.width.round(),
-      height: value.videoSize?.height.round(),
-    );
+    _platform.applyVideoOrientation(_form, renderedSize: value.codedVideoSize);
   }
 
   /// Raises the up-next card in the closing seconds of an episode.
@@ -2932,12 +2962,23 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
               // path VlcPlayer draws its own FittedBox from this, and the
               // native setFit behind it is a no-op on Windows and Linux. Left
               // off, the viewer's default resize mode was ignored there.
-              VlcPlayer(
-                controller: _controller,
-                fit: _fit,
-                darwinRenderer: playerDarwinRenderer,
-                androidRenderer: playerAndroidRenderer,
-                backgroundColor: playerBackdropColor,
+              //
+              // Offstage rather than absent under the diagnostic switch, and
+              // the distinction is the whole value of it: on the texture
+              // platforms it is VlcPlayer's own initState that attaches the
+              // native player, so a widget left out of the tree is not a
+              // player without a picture, it is no player at all. Offstage
+              // keeps the element, the State and the attach, and drops only
+              // the paint - which is exactly the half being bisected.
+              Offstage(
+                offstage: PlayerDiagnostics.suppressVideoSurface,
+                child: VlcPlayer(
+                  controller: _controller,
+                  fit: _fit,
+                  darwinRenderer: playerDarwinRenderer,
+                  androidRenderer: playerAndroidRenderer,
+                  backgroundColor: playerBackdropColor,
+                ),
               ),
               // `setMedia` hands libVLC a URL and returns; it opens nothing.
               // So this stage begins with the engine owing us a picture, and
@@ -2990,7 +3031,6 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                     onOpenPanel: (tab) => _openPanel(tab),
                     panelTabs: _panelData.value.tabs,
                     onEnterPip: _pipAvailable ? _enterPip : null,
-                    onRotate: _rotateAvailable ? _rotate : null,
                     onToggleFullscreen: _fullscreenAvailable
                         ? _toggleFullscreen
                         : null,

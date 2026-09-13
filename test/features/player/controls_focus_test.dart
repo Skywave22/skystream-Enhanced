@@ -182,9 +182,8 @@ Future<VlcPlayerController> _pumpControls(
   Set<PlayerPanelTab> panelTabs = _allTabs,
   VoidCallback? onNextEpisode,
 
-  /// The three a phone gets and a television does not. Null by default so
+  /// The two a phone gets and a television does not. Null by default so
   /// every test written before them sees the tree it was written against.
-  VoidCallback? onRotate,
   VoidCallback? onEnterPip,
   ValueNotifier<bool>? locked,
   ChromeVisibilityController? chrome,
@@ -217,7 +216,6 @@ Future<VlcPlayerController> _pumpControls(
         onNextEpisode: onNextEpisode ?? () {},
         onOpenPanel: withoutPanel ? null : onOpenPanel,
         panelTabs: panelTabs,
-        onRotate: onRotate,
         onEnterPip: onEnterPip,
         locked: locked,
         onToggleFullscreen: desktop ? () {} : null,
@@ -2315,16 +2313,18 @@ void main() {
       );
     });
 
-    // DEFECT 4, the half a fixed stand-in cannot see. `leading` is not
-    // 120 dp on a real handset: it is five pinned buttons - rewind,
-    // play/pause, forward, lock, next - and they measure 250 dp, so on the
-    // commonest Android portrait width the strip gets 70 dp of the bar's 320.
-    // One button of ten, with the 28 dp edge hint painted over most of the
-    // next: a viewer looking for Sources, Episodes, Speed, Volume, PiP,
-    // Rotate, Resize or the torrent file list sees a gradient, and has to
-    // fling something narrower than a fingertip. Portrait is a shipping state
-    // - the app pins it for a portrait-shaped video and the rotate button
-    // offers it for any video.
+    // DEFECT 3, against the real button lists. `leading` is not 120 dp on a
+    // real handset: it is five pinned buttons - rewind, play/pause, forward,
+    // lock, next - and they measure 250 dp, so on the commonest Android
+    // portrait width the strip gets 70 dp of the bar's 320. An earlier
+    // version of the bar answered that by giving the strip a *run of its
+    // own*, and the owner photographed the result: the bottom-left controls
+    // on two lines on a phone. They are one line that scrolls, at every
+    // width - a 70 dp strip that advertises the fling is the trade, growing
+    // the chrome over the video is not. The run count itself is pinned in
+    // control_strip_single_line_test.dart; what this one adds is that the
+    // squeeze is measured against the *real* transport group and the real
+    // action list rather than a stand-in that might not squeeze at all.
     //
     // So both halves of the geometry come off a really-pumped
     // [VlcPlayerControls]: the actions are its own widgets and the leading
@@ -2335,8 +2335,8 @@ void main() {
     // re-rendered through the touch branch, which `isTouch`
     // (`Platform.isAndroid || Platform.isIOS`, false on every test host)
     // would otherwise never let a test reach.
-    testWidgets('a portrait handset gets a strip it can use, and a landscape '
-        'one still pays nothing for it', (tester) async {
+    testWidgets('a portrait handset keeps the real control row on one line, '
+        'and a landscape one is no taller', (tester) async {
       final locked = ValueNotifier<bool>(false);
       addTearDown(locked.dispose);
       await _pumpControls(
@@ -2344,7 +2344,6 @@ void main() {
         isTv: false,
         size: const Size(360, 800),
         locked: locked,
-        onRotate: () {},
         onEnterPip: () {},
       );
 
@@ -2361,8 +2360,12 @@ void main() {
       );
       expect(
         actions.length,
-        greaterThanOrEqualTo(10),
-        reason: 'a torrent series renders ten utilities or more',
+        greaterThanOrEqualTo(8),
+        reason:
+            'a torrent series renders eight utilities or more, which is what '
+            'makes a 320 dp line overflow in the first place. The exact count '
+            'moves as controls come and go - that the row really does '
+            'overflow is asserted by the edge hint below, not by this floor',
       );
 
       // Measured, not assumed, and measured on the handset frame the bar will
@@ -2408,57 +2411,38 @@ void main() {
       await renderTouchBar(360);
 
       final Rect strip = tester.getRect(find.byType(PlayerActionStrip));
-      // What is on offer, not what is merely laid out inside the viewport:
-      // the edge hint is paint over the strip's left edge, so a button under
-      // it is one the viewer cannot see to press.
-      final double usableLeft = strip.left + PlayerActionStrip.hintWidth;
-      final List<String> offered = <String>[];
-      for (final Element element
-          in find
-              .descendant(
-                of: find.byType(PlayerActionStrip),
-                matching: find.byType(PlayerIconButton),
-              )
-              .evaluate()) {
-        final RenderBox box = element.renderObject! as RenderBox;
-        final Rect r = box.localToGlobal(Offset.zero) & box.size;
-        if (r.left >= usableLeft - 0.01 && r.right <= strip.right + 0.01) {
-          offered.add((element.widget as PlayerIconButton).tooltip);
-        }
-      }
+      // The whole utility list is on the one run the transport is on. Every
+      // button's vertical centre, not just the strip's: a Wrap inside the
+      // strip would keep the strip one box and still stack the buttons.
+      final List<Rect> buttons = find
+          .descendant(
+            of: find.byType(PlayerActionStrip),
+            matching: find.byType(PlayerIconButton),
+          )
+          .evaluate()
+          .map((e) => e.renderObject! as RenderBox)
+          .map((b) => b.localToGlobal(Offset.zero) & b.size)
+          .toList();
+      expect(buttons, hasLength(actions.length));
+      final Set<double> centres = buttons.map((r) => r.center.dy).toSet();
       expect(
-        offered.length,
-        greaterThanOrEqualTo(5),
+        centres,
+        hasLength(1),
         reason:
-            'a 360 dp portrait handset offered ${offered.length} of '
-            '${actions.length} utilities clear of the edge hint - $offered - '
-            'in a strip ${strip.width} dp wide. Sharing one line with a '
-            '${group.width} dp transport group leaves 70, which is one '
-            'button and a gradient; the strip has to get a run of its own',
-      );
-      for (final String tooltip in offered) {
-        expect(
-          find.byTooltip(tooltip).hitTestable(),
-          findsOneWidget,
-          reason: '$tooltip is on screen, so it has to be pressable',
-        );
-      }
-      expect(
-        find.byIcon(Icons.chevron_left_rounded),
-        findsOneWidget,
-        reason:
-            'ten buttons still do not fit 320 dp, and a strip that hides '
-            'some has to keep saying so',
+            'the ${actions.length} utilities sit on ${centres.length} lines '
+            'at $centres; a phone gets one line that scrolls',
       );
 
-      // The transport group is what must not move: the strip takes the run
-      // above it, never the one below, so the thumb keeps its play/pause
-      // where it has always been.
+      // The transport group is what must not move: the strip sits beside it
+      // on the same line, never above it, so the thumb keeps its play/pause
+      // where it has always been and the bar does not grow over the video.
       final Rect transportRect = tester.getRect(find.byWidget(transport));
       expect(
-        transportRect.top,
-        greaterThanOrEqualTo(strip.bottom),
-        reason: 'transport at $transportRect is not below the strip at $strip',
+        centres.single,
+        moreOrLessEquals(transportRect.center.dy, epsilon: 0.5),
+        reason:
+            'the utilities at ${centres.single} are on a different line from '
+            'the transport group at $transportRect',
       );
       expect(
         transportRect.left,
@@ -2466,9 +2450,39 @@ void main() {
         reason: 'and it stays pinned to the left edge, not centred',
       );
 
-      // And the other edge of the contract: a landscape handset has room for
-      // one flat line, so it must not be charged 48 dp of a 390 dp-tall frame
-      // for a second one.
+      // 70 dp of strip is honest only if it says so and the fling works: the
+      // edge hint is paint over the left edge, and the first utility is the
+      // one furthest off it.
+      expect(
+        find.byIcon(Icons.chevron_left_rounded),
+        findsOneWidget,
+        reason:
+            '${actions.length} buttons do not fit ${strip.width} dp, and a '
+            'strip that hides some has to keep saying so',
+      );
+      final String first = tester
+          .widget<PlayerIconButton>(
+            find
+                .descendant(
+                  of: find.byType(PlayerActionStrip),
+                  matching: find.byType(PlayerIconButton),
+                )
+                .first,
+          )
+          .tooltip;
+      expect(find.byTooltip(first).hitTestable(), findsNothing);
+      await tester.drag(find.byType(PlayerActionStrip), const Offset(900, 0));
+      await tester.pumpAndSettle();
+      expect(
+        find.byTooltip(first).hitTestable(),
+        findsOneWidget,
+        reason:
+            '$first is off the left edge at rest, so the fling has to be '
+            'able to bring it back',
+      );
+
+      // And the other edge of the contract: the portrait bar costs exactly
+      // what the landscape one costs. It used to be 48 dp taller.
       final double narrowHeight = tester
           .getSize(find.byType(PlayerBottomBar))
           .height;
@@ -2478,11 +2492,11 @@ void main() {
           .height;
       expect(
         wideHeight,
-        lessThan(narrowHeight),
+        narrowHeight,
         reason:
             'the bar is $wideHeight dp at 844 and $narrowHeight at 360; a '
-            'landscape handset fits on one line and must not pay a run for a '
-            'portrait one',
+            'portrait handset must not be charged a second run of chrome '
+            'over the video',
       );
       final Rect wideStrip = tester.getRect(find.byType(PlayerActionStrip));
       expect(

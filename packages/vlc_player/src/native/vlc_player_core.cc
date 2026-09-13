@@ -140,11 +140,34 @@ VlcPlayerCore::VlcPlayerCore(std::vector<std::string> options,
     return;
   }
 
-  frame_sink_ = std::make_unique<VlcPixelBufferSink>([this] {
-    if (!disposed_.load() && on_frame_available_) {
-      on_frame_available_();
-    }
-  });
+  frame_sink_ = std::make_unique<VlcPixelBufferSink>(
+      [this] {
+        if (!disposed_.load() && on_frame_available_) {
+          on_frame_available_();
+        }
+      },
+      // The visible picture size, for the sink's format negotiation. Reads
+      // the media's video track as the demuxer declared it -
+      // libvlc_video_get_size touches the track info, not the video output -
+      // which is the same number the Darwin renderer publishes alongside its
+      // coded size.
+      //
+      // Called on libVLC's video output thread, from inside the format
+      // callback. player_ is safe to touch there: Dispose detaches the video
+      // output first, and Detach takes the attachment lock that the format
+      // callback is holding, so no callback can still be running by the time
+      // player_ is reset.
+      [this](uint32_t* width, uint32_t* height) {
+        unsigned visible_width = 0;
+        unsigned visible_height = 0;
+        if (player_ == nullptr ||
+            !player_->size(0, &visible_width, &visible_height)) {
+          return false;
+        }
+        *width = visible_width;
+        *height = visible_height;
+        return true;
+      });
   video_output_ =
       std::make_unique<VlcVideoOutput>(player_->get(), frame_sink_.get());
 }
@@ -539,6 +562,12 @@ VlcSnapshot VlcPlayerCore::Snapshot() {
   snapshot.is_seekable = player_->isSeekable();
   snapshot.is_live = IsLiveState(snapshot.state) && snapshot.duration == 0 &&
                      !snapshot.is_seekable;
+  // The texture's own size, which is the only size Flutter can lay it out at.
+  // It is the visible picture whenever the sink managed to negotiate that -
+  // see VlcPixelBufferSink::Configure - and the coded buffer when it did not,
+  // which is what it always was before. No separate coded size is published
+  // because on this path there is nothing for a consumer to clip: the buffer
+  // and the picture are the same rectangle.
   uint32_t frame_width = 0;
   uint32_t frame_height = 0;
   frame_sink_->FrameSize(&frame_width, &frame_height);

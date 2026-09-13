@@ -95,6 +95,103 @@ TEST(VlcPixelBufferSink, ConfigureRequestsRgbaAndSizesTheBuffers) {
   EXPECT_EQ(height, 3u);
 }
 
+// libVLC's format callback offers the CODED size: a 1080p stream arrives as
+// 1920x1088 because the decoder pads the height to a multiple of 16. Taking
+// that at face value is wrong whichever converter libVLC then picks. When it
+// inserts a scaler the picture is stretched to fill all 1088 rows and is then
+// laid out at 1920x1088 - the wrong aspect ratio. When it picks a converter
+// that copies planes and ignores the size difference, the padding rows are
+// never written and bleed into the bottom edge as a coloured band. Asking for
+// the visible picture instead - which the callback's IN/OUT width and height
+// exist for - leaves nothing to rescale and no rows to leave unwritten.
+TEST(VlcPixelBufferSink,
+     ConfigureNegotiatesTheVisiblePictureNotThePaddedBuffer) {
+  VlcPixelBufferSink sink([] {}, [](uint32_t* width, uint32_t* height) {
+    *width = 1920;
+    *height = 1080;
+    return true;
+  });
+  VlcFrameFormat format;
+  std::memcpy(format.chroma, "I420", 5);
+  format.width = 1920;
+  format.height = 1088;
+
+  EXPECT_EQ(sink.Configure(&format), 1u);
+
+  // Written back, so libVLC converts into a buffer that is exactly the
+  // picture.
+  EXPECT_EQ(format.width, 1920u);
+  EXPECT_EQ(format.height, 1080u);
+  EXPECT_EQ(format.pitches[0], 7680u);
+  EXPECT_EQ(format.lines[0], 1080u);
+
+  uint32_t width = 0;
+  uint32_t height = 0;
+  sink.FrameSize(&width, &height);
+  EXPECT_EQ(width, 1920u);
+  EXPECT_EQ(height, 1080u);
+  EXPECT_EQ(sink.FrameBufferSizeForTesting(),
+            static_cast<size_t>(7680) * 1080);
+}
+
+// The probe reads the media's track info; the format callback is negotiating
+// with the video output. Nothing keeps those two in step across a media change
+// or an adaptive rendition switch, and acting on a stale answer would make
+// libVLC rescale the picture into a buffer of the wrong shape - losing
+// resolution silently, which is worse than the padding. So only a difference
+// that looks like decoder alignment is acted on; everything else leaves the
+// offered size exactly where it was.
+TEST(VlcPixelBufferSink, ConfigureKeepsTheOfferedSizeWhenTheProbeIsNotPadding) {
+  struct Case {
+    const char* what;
+    bool answered;
+    uint32_t visible_width;
+    uint32_t visible_height;
+  };
+  const Case cases[] = {
+      {"no track info yet", false, 0, 0},
+      {"a different picture entirely", true, 1280, 720},
+      {"same height, so nothing to trim", true, 1920, 1088},
+      {"taller than the buffer offered", true, 1920, 1200},
+      {"a whole macroblock row short - not alignment", true, 1920, 1072},
+      {"degenerate", true, 1920, 0},
+  };
+
+  for (const Case& test_case : cases) {
+    VlcPixelBufferSink sink([] {}, [&test_case](uint32_t* width,
+                                                uint32_t* height) {
+      *width = test_case.visible_width;
+      *height = test_case.visible_height;
+      return test_case.answered;
+    });
+    VlcFrameFormat format;
+    std::memcpy(format.chroma, "I420", 5);
+    format.width = 1920;
+    format.height = 1088;
+
+    EXPECT_EQ(sink.Configure(&format), 1u) << test_case.what;
+
+    EXPECT_EQ(format.width, 1920u) << test_case.what;
+    EXPECT_EQ(format.height, 1088u) << test_case.what;
+    EXPECT_EQ(format.lines[0], 1088u) << test_case.what;
+  }
+}
+
+// Every embedder that does not supply a probe - and every existing caller -
+// keeps the behaviour it had.
+TEST(VlcPixelBufferSink, ConfigureWithoutAProbeUsesTheOfferedSize) {
+  VlcPixelBufferSink sink([] {});
+  VlcFrameFormat format;
+  std::memcpy(format.chroma, "I420", 5);
+  format.width = 1920;
+  format.height = 1088;
+
+  EXPECT_EQ(sink.Configure(&format), 1u);
+
+  EXPECT_EQ(format.width, 1920u);
+  EXPECT_EQ(format.height, 1088u);
+}
+
 TEST(VlcPixelBufferSink, CommitNotifiesOnlyForRealPictures) {
   int notifications = 0;
   VlcPixelBufferSink sink([&notifications] { ++notifications; });

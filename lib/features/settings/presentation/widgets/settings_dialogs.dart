@@ -1757,27 +1757,18 @@ typedef _ControlToggle = ({
 bool playerCanShowPip(TargetPlatform platform, PlayerFormFactor form) =>
     platform == TargetPlatform.android && form != PlayerFormFactor.tv;
 
-/// Whether the player would actually build a rotate button on a device of this
-/// shape.
-///
-/// Deliberately the same predicate as `_rotateAvailable` in
-/// `vlc_player_screen.dart`: only a handset or a tablet lets the app pin an
-/// orientation at all, and an iPad refuses even then because iPadOS keeps its
-/// own rotation lock. Elsewhere `onRotate` is null and the button never
-/// exists.
-bool playerCanShowRotate(TargetPlatform platform, PlayerFormFactor form) =>
-    form.pinsOrientation &&
-    !(platform == TargetPlatform.iOS && form == PlayerFormFactor.tablet);
-
 /// Shows a dialog to toggle the visibility of individual player control
 /// buttons. Changes apply live via the player settings notifier.
 ///
-/// Only offers a switch for a button this device can actually draw. Two of the
-/// five are conditional on hardware: picture-in-picture exists only on an
-/// Android handset or tablet, and rotate only where the app is allowed to pin
-/// an orientation. Offering the other four platforms a switch that moves a
-/// stored boolean and changes nothing on screen is the screen lying about what
-/// it controls.
+/// Only offers a switch for a button this device can actually draw. One row is
+/// conditional on hardware: picture-in-picture exists only on an Android
+/// handset or tablet. Offering the platforms that have no such window a switch
+/// that moves a stored boolean and changes nothing on screen is the screen
+/// lying about what it controls.
+///
+/// There is deliberately no rotate row. The player's manual rotate button went
+/// away when orientation started following the video's own shape, so the
+/// switch that hid it had nothing left to hide.
 void showPlayerControlsDialog(BuildContext context, WidgetRef ref) {
   final l10n = AppLocalizations.of(context)!;
   final notifier = ref.read(playerSettingsProvider.notifier);
@@ -1803,13 +1794,6 @@ void showPlayerControlsDialog(BuildContext context, WidgetRef ref) {
       setter: notifier.setShowResize,
       initial: settings.showResize,
     ),
-    if (playerCanShowRotate(platform, form))
-      (
-        icon: Icons.screen_rotation_rounded,
-        label: l10n.showRotate,
-        setter: notifier.setShowRotate,
-        initial: settings.showRotate,
-      ),
     (
       icon: Icons.speed_rounded,
       label: l10n.showPlaybackSpeed,

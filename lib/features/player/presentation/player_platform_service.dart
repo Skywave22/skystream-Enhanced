@@ -182,10 +182,41 @@ class PlayerPlatformService {
   /// handler cannot drift from the icons the user is looking at.
   static const Duration pipSeekStep = Duration(seconds: 10);
 
-  /// Set once the viewer has used the rotate button, so that the next
-  /// video-size event does not immediately undo their choice. See
-  /// [toggleOrientation].
-  bool _rotationChosenByViewer = false;
+  /// How long a shape has to hold before the player believes it.
+  ///
+  /// Deliberately a duration, and deliberately *not* a count of readings. The
+  /// count that shipped was a two-**event** rule dressed up as a two-frame
+  /// rule: it waited for two consecutive matching snapshots, but every native
+  /// side drops a snapshot identical to the one before it
+  /// (`VlcPlayerPlatformView.sendSnapshot`'s `event == lastSentEvent`, the two
+  /// Darwin plugins' `lastSentEvent.isEqual`) and a paused engine stops
+  /// emitting at all, so a player paused on its first frame never received a
+  /// second event and never settled. A shape reported once and then held is
+  /// exactly as trustworthy as one reported twice — more so, if anything,
+  /// since the engine had the chance to revise it and did not.
+  ///
+  /// 750ms is three of `VlcPlayerController`'s 250ms event ticks, so a track
+  /// libVLC revises during startup is still absorbed in silence, and it is
+  /// short enough that the rotation reads as part of the film opening rather
+  /// than as a second event.
+  static const Duration shapeSettleDelay = Duration(milliseconds: 750);
+
+  /// The shape the player is waiting on, and the clock it is waiting out.
+  ///
+  /// Dropped — not carried — the moment the rendered size becomes unknown
+  /// again, which is how the next episode gets to settle on its own readings.
+  Orientation? _shapeCandidate;
+  Timer? _shapeSettleTimer;
+
+  /// The orientation this service actually asked the OS for, or null if it
+  /// never has.
+  ///
+  /// The ground truth for two things that used to be guessed at. Nothing is
+  /// re-sent while the verdict is unchanged, so a resolution change inside one
+  /// landscape film is silent; and nothing is *restored* unless something was
+  /// pinned, so a player torn down before the first frame decoded leaves the
+  /// device exactly as it found it.
+  Orientation? _pinnedOrientation;
 
   /// Returns whether the window actually shrank. False covers pre-Oreo, a
   /// device that refuses, and - the one that matters - a user who has turned
@@ -303,61 +334,158 @@ class PlayerPlatformService {
 
   void detachPipListener() => _pipChannel.setMethodCallHandler(null);
 
-  /// Pins the device to the orientation the video is shaped for.
+  /// Points the device the way the video is shaped, once the video's shape has
+  /// stopped changing.
   ///
-  /// Intended for every video-size change, which is where the old player drove
-  /// it: a portrait clip should not letterbox itself into a landscape phone.
-  /// Sizes are nullable and zero until the first frame is decoded, so the
-  /// unknown case is a no-op rather than a guess at landscape.
+  /// The only thing that decides orientation in the player: there is no manual
+  /// rotate control any more, because "which way up should this be" has one
+  /// right answer and the video knows it. A landscape film opens landscape and
+  /// a portrait clip opens portrait, without the viewer being asked.
   ///
-  /// Yields to [toggleOrientation] for the rest of the session — an automatic
-  /// re-pin that overrides a button the viewer just pressed reads as a bug.
+  /// ## [renderedSize] is the *rendered* picture, and that is not negotiable
+  ///
+  /// It must be `VlcPlayerValue.codedVideoSize` — the dimensions of the buffer
+  /// libVLC actually decodes into — and never `VlcPlayerValue.videoSize`.
+  /// The two disagree on exactly the video this feature exists for.
+  ///
+  /// `videoSize` is the elementary stream's *declared* width and height and
+  /// carries no rotation:
+  ///
+  ///  * Darwin's is `VLCMediaPlayer.videoSize` → `libvlc_video_get_size`.
+  ///    Disassembling the pinned binaries (VLCKit arm64 `0x1de6c`,
+  ///    MobileVLCKit arm64 `0x20be8`) shows both calling
+  ///    `libvlc_media_get_tracks_info` and reading the video union out of a
+  ///    28-byte `libvlc_media_track_info_t`, a struct whose header has no
+  ///    orientation member at all.
+  ///  * Android's is `mediaPlayer.currentVideoTrack.width/height`. The class
+  ///    it reads (`IMedia.VideoTrack`) *does* carry a sibling `orientation`
+  ///    field; the plugin does not read it.
+  ///
+  /// So a clip shot in portrait on a handset — stored as landscape frames plus
+  /// a 90° rotation matrix, which is how every phone camera writes one — is
+  /// reported as 1920x1080 and would turn the handset the wrong way, which is
+  /// worse than the manual switch this replaced.
+  ///
+  /// `codedVideoSize` cannot lie about it. It is the width and height libVLC's
+  /// `vmem` output hands the sink, and `vmem.c`'s `Open` runs
+  /// `video_format_ApplyRotation` first (VLCKit arm64 `0x140b8e0`, immediately
+  /// before the `blr` to our setup callback); the transposed orientations swap
+  /// width and height there in a single `rev64.4s` at `0x8e050`. The buffer is
+  /// the upright picture, so its shape is the picture's shape.
+  ///
+  /// The cost is that a backend with no texture reports no coded size, and
+  /// then this pins **nothing** — see the class doc on the screen's
+  /// `_syncOrientation` for which backends those are and why leaving the
+  /// device alone is the right answer there.
+  ///
+  /// ## The settle
+  ///
+  /// A shape has to hold for [shapeSettleDelay] before it is believed. libVLC
+  /// revises the track it reports during startup, and acting on the first
+  /// reading meant a handset that physically rotated and then rotated again a
+  /// beat later. Waiting on a clock rather than counting readings is what
+  /// makes it work for an engine that reports a shape correctly *once* and
+  /// then goes quiet — see [shapeSettleDelay].
+  ///
+  /// Two more gates:
+  ///
+  ///  * An unknown size — null or zero, which is what every `setMedia`
+  ///    produces while the state is `opening` — drops the candidate so the
+  ///    next media settles on its own readings, and leaves [_pinnedOrientation]
+  ///    alone so the device does not swing back to the browse orientation in
+  ///    the gap between two episodes.
+  ///  * Only a *changed* verdict is sent. A resolution change inside one
+  ///    landscape film — an HLS variant switch, a failover to another source —
+  ///    is the same verdict and must not become another platform message.
+  ///
+  /// ## What this does to an OS rotation lock
+  ///
+  /// It overrides it, and it did so before this settle existed too. Flutter's
+  /// `setPreferredOrientations` becomes `setRequestedOrientation` on Android
+  /// and the supported-orientations mask on iOS, and both outrank the user's
+  /// rotation lock. Nothing detects that lock: iOS exposes no public API for
+  /// it at all, and Android's `Settings.System.ACCELEROMETER_ROTATION` is
+  /// reachable only through a native channel this app does not have.
+  ///
+  /// Two things keep it as small as it can be. The pin is always a *pair*, so
+  /// the viewer can still turn the handset end for end, and it is scoped to
+  /// the player route and undone by [restoreOrientation]. And it is now only
+  /// ever issued from a measurement that knows which way up the picture is:
+  /// the player will decline to rotate a device rather than rotate it on a
+  /// guess.
   void applyVideoOrientation(
     PlayerFormFactor form, {
-    required int? width,
-    required int? height,
+    required Size? renderedSize,
   }) {
-    if (!form.pinsOrientation || _rotationChosenByViewer) return;
-    if (width == null || height == null || width <= 0 || height <= 0) return;
-    unawaited(
-      SystemChrome.setPreferredOrientations(
-        width >= height ? _landscape : _portrait,
-      ),
-    );
+    // Dropped rather than merely ignored: full screen mode can turn a phone
+    // into a `tv` between two ticks, and a candidate armed a moment earlier
+    // must not go on to rotate a television.
+    if (!form.pinsOrientation) return _dropShapeCandidate();
+    if (renderedSize == null ||
+        renderedSize.width <= 0 ||
+        renderedSize.height <= 0) {
+      return _dropShapeCandidate();
+    }
+    // Square counts as landscape: a 1:1 clip fits either way, and landscape is
+    // where the controls have room. That absorbs the one imprecision in using
+    // a decoder buffer as the measurement - the buffer is padded up to a
+    // multiple of sixteen, so a picture within fifteen rows of square can be
+    // rounded across the line. A 1080x1088 video is square to a viewer, and
+    // either verdict serves it.
+    final wanted = renderedSize.width >= renderedSize.height
+        ? Orientation.landscape
+        : Orientation.portrait;
+    // Already waiting on this verdict. Let the clock run rather than restart
+    // it, or a film that ticks four times a second would never settle.
+    if (wanted == _shapeCandidate) return;
+    _dropShapeCandidate();
+    if (wanted == _pinnedOrientation) return;
+    _shapeCandidate = wanted;
+    _shapeSettleTimer = Timer(shapeSettleDelay, () {
+      _shapeSettleTimer = null;
+      _shapeCandidate = null;
+      _pinnedOrientation = wanted;
+      unawaited(
+        SystemChrome.setPreferredOrientations(
+          wanted == Orientation.landscape ? _landscape : _portrait,
+        ),
+      );
+    });
   }
 
-  /// Flips the device between portrait and landscape, for the rotate button.
+  /// Forgets the shape being waited on and stops the clock waiting on it.
   ///
-  /// Takes the current orientation instead of a BuildContext so the decision
-  /// is a pure function of its inputs and does not depend on a widget tree
-  /// that may already be unmounting.
-  ///
-  /// Latches [applyVideoOrientation] off until [restoreOrientation] runs. The
-  /// viewer asking for an orientation outranks the aspect ratio of whatever
-  /// plays next.
-  void toggleOrientation(PlayerFormFactor form, Orientation current) {
-    if (!form.pinsOrientation) return;
-    _rotationChosenByViewer = true;
-    unawaited(
-      SystemChrome.setPreferredOrientations(
-        current == Orientation.landscape ? _portrait : _landscape,
-      ),
-    );
+  /// Never touches [_pinnedOrientation]: what has already been asked of the OS
+  /// is a fact about the device, not part of the settle.
+  void _dropShapeCandidate() {
+    _shapeSettleTimer?.cancel();
+    _shapeSettleTimer = null;
+    _shapeCandidate = null;
   }
 
   /// Hands orientation back to the rest of the app on the way out.
   ///
   /// Phones return to [DeviceOrientation.portraitUp], the browse UI's only
-  /// sensible shape; tablets are released with an empty list, which means
+  /// sensible shape; anything else is released with an empty list, which means
   /// "whatever the manifest and Info.plist already allow". Restoring
-  /// `DeviceOrientation.values` instead — as the screen does today — unlocks
+  /// `DeviceOrientation.values` instead — as the screen once did — unlocks
   /// rotation app-wide and leaves every other screen free to land sideways.
   ///
-  /// Symmetric with the pinning above: form factors that were never pinned are
-  /// left alone rather than forced to a default they never had.
+  /// Gated on [_pinnedOrientation] rather than on the form factor, which is the
+  /// fix for a real trap: a player closed before the first frame decoded — a
+  /// stream that would not resolve, a viewer who changed their mind — pinned
+  /// nothing on the way in, and pinning `portraitUp` on the way out froze
+  /// rotation for the rest of the process, since nothing else in the app ever
+  /// calls `setPreferredOrientations`. The flag is also the only honest record
+  /// of it: the form factor can have changed underneath us since the pin.
+  ///
+  /// Also the only thing that stops the settle clock, so it has to run on the
+  /// way out of every session: a [shapeSettleDelay] timer outliving the screen
+  /// would rotate the device under whatever came next.
   void restoreOrientation(PlayerFormFactor form) {
-    _rotationChosenByViewer = false;
-    if (!form.pinsOrientation) return;
+    _dropShapeCandidate();
+    if (_pinnedOrientation == null) return;
+    _pinnedOrientation = null;
     unawaited(
       SystemChrome.setPreferredOrientations(
         form == PlayerFormFactor.phone

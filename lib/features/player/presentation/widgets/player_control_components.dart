@@ -107,31 +107,25 @@ class PlayerTopBar extends StatelessWidget {
 ///     affordance, and both a D-pad (Up/Down across the runs, Left/Right along
 ///     one) and a pointer reach every button with no gesture at all.
 ///   * On touch they are a right-anchored finger-scroll strip with a visible
-///     edge hint, because a landscape handset has room for most of the row
-///     and a five-run bar would swallow the film. Every button is still
-///     present and reachable - by the one input that can fling a strip.
-///   * On touch AND below [narrowTouchWidth], the strip gets a *run of its
-///     own*, above the transport row, whenever the two cannot share one.
-///     This is not decoration. [leading] is five pinned buttons - seek back,
-///     play/pause, seek forward, lock, next - and they measure 250 dp; a
-///     360 dp portrait handset has 320 dp inside its edge insets, so sharing
-///     one row leaves the strip **70 dp**, which is one button of ten plus a
-///     28 dp edge hint painted over the next. That is not a strip, it is a
-///     chevron. Given the whole width the same strip shows six of the ten and
-///     scrolls honestly to the rest, and the bar grows by exactly one run -
-///     the same trade the [Wrap] above already makes off touch.
+///     edge hint, on **every** touch viewport and at every width. Nothing is
+///     hidden that the hint does not advertise, and a finger is the one input
+///     that can fling a strip, so the row stays exactly one line tall from a
+///     360 dp portrait handset up. Every button is still present and
+///     reachable.
 ///
-/// The reflow is content-driven rather than counted: [Wrap] puts the two on
-/// one run when they genuinely fit and on two when they do not. A bar stripped
-/// down by the viewer's settings - one utility at 360 dp of inner width, two
-/// at 412 - keeps the flat single line and pays no height for a rule it does
-/// not need. When the split does happen and the utilities still do not need
-/// the whole line, they sit at its left under the transport row rather than
-/// hard right: nothing is hidden there, so there is nothing for the
-/// right-anchoring to protect.
+/// ONE LINE ON TOUCH, AND THAT IS THE WHOLE RULE. A version of this file gave
+/// the strip a run of its own below a width threshold, on the reasoning that
+/// five pinned transport buttons measure 250 dp and leave the strip 70 of a
+/// 360 dp handset's 320. Measured, it did what a [Wrap] does: the bar rendered
+/// **two runs, 112 dp tall**, on the commonest Android portrait width. That is
+/// the defect this comment exists to keep out. The bar is chrome laid over the
+/// video - on Android over the platform view itself - and a second run eats
+/// 48 dp of the frame for controls the viewer did not ask to see all of at
+/// once. A 70 dp strip that scrolls, and says so, is the trade; growing the
+/// chrome is not.
 ///
 /// That is the whole of the fork, and it is a layout ramp rather than a
-/// capability gate: every branch renders the *same* button list.
+/// capability gate: both branches render the *same* button list.
 ///
 /// Left/Right/Up/Down are left to [DirectionalFocusAction]: the buttons are
 /// siblings in one [Row] inside one [FocusTraversalGroup], so geometric
@@ -152,15 +146,20 @@ class PlayerBottomBar extends StatelessWidget {
 
   /// The widest viewport still laid out as a portrait handset, in the logical
   /// pixels the bar's own [Padding] leaves it - so a device figure minus the
-  /// two [HotstarPlayerStyle.edgeInset]s.
-  ///
-  /// Above it the transport row and the strip always share one line, because
-  /// there the strip's share is a usable five buttons or more and a second
-  /// run would cost 48 dp of a 360 dp-tall landscape frame for nothing. Below
-  /// it the two are allowed to split. The number sits in the gap between the
-  /// widest handset held upright (430 dp on the largest iPhone, 412 on the
+  /// two [HotstarPlayerStyle.edgeInset]s. The number sits in the gap between
+  /// the widest handset held upright (430 dp on the largest iPhone, 412 on the
   /// largest Pixel) and the narrowest one turned sideways (568 dp), so no
-  /// device straddles it and the split is a portrait behaviour only.
+  /// device straddles it and anything under it is a phone in portrait.
+  ///
+  /// **The bar itself no longer branches on this.** It used to: below the
+  /// threshold the action strip took a run of its own and the bar stood 48 dp
+  /// taller, which is the two-line bottom-left control cluster the owner
+  /// reported from a handset. The bar is one line on touch at every width now
+  /// (see the class comment). The constant survives only because
+  /// `next_episode_countdown.dart` reads it to decide how much room to leave
+  /// above the bar, and that arithmetic is not this file's to change; it now
+  /// over-reserves 48 dp on a portrait handset, which lifts the up-next card
+  /// higher than it needs to sit but cannot make it overlap the scrubber.
   static const double narrowTouchWidth = 520;
 
   const PlayerBottomBar({
@@ -210,74 +209,42 @@ class PlayerBottomBar extends StatelessWidget {
     );
   }
 
-  /// The one flat control line, or - on a narrow touch viewport that cannot
-  /// hold one - the transport row with the strip on a run of its own above it.
+  /// The one flat control line: the transport group pinned left, everything
+  /// else filling the rest of the *same* line.
   ///
   /// The left group (seek back, play/pause, seek forward, lock, next) is
-  /// always visible, never scrolled and never wrapped *within itself*; what
-  /// the narrow branch moves is the strip, not a button out of the group.
+  /// always visible, never scrolled and never wrapped. What the two branches
+  /// differ on is only what the remainder does when the actions outgrow it -
+  /// off touch it wraps upwards, on touch it scrolls sideways - and neither
+  /// may move the transport group off the bottom line.
   Widget _controlsRow() {
-    // Sized to its own children rather than spread into the outer Row, so the
-    // narrow branch can treat the whole group as one indivisible [Wrap] child.
-    // Inflexible either way, so the wide branch lays out exactly as the spread
-    // did.
+    // Sized to its own children rather than spread, so it is inflexible and
+    // the remainder is exactly what [Expanded] hands the actions.
     final Widget transport = Row(
       mainAxisSize: MainAxisSize.min,
       children: leading,
     );
 
-    if (!isTouch) {
-      return Row(
-        children: [
-          transport,
-          Expanded(
-            child: Wrap(
-              alignment: WrapAlignment.end,
-              runAlignment: WrapAlignment.end,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: actions,
-            ),
-          ),
-        ],
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth >= narrowTouchWidth) {
-          return Row(
-            children: [
-              transport,
-              Expanded(child: PlayerActionStrip(actions: actions)),
-            ],
-          );
-        }
-        // Tight, not the Wrap's own content width: [WrapAlignment.spaceBetween]
-        // has free space to give the strip only if the Wrap fills the line, and
-        // without it a one-run bar would centre transport+strip as a block
-        // instead of pinning them to the two edges.
-        return SizedBox(
-          width: double.infinity,
-          child: Wrap(
-            // One run: transport hard left, strip hard right - the flat bar,
-            // unchanged. Two runs: each is alone on its line, so this only
-            // decides that the strip starts at the left edge of its own.
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            // Runs bottom-up, so the transport row keeps the bottom line it
-            // has always had and the strip appears *above* it. The other way
-            // round, every reflow would shove play/pause 48 dp up the screen.
-            verticalDirection: VerticalDirection.up,
-            children: [
-              transport,
-              // Bare, so the Wrap sees the strip's content width and can put
-              // it beside the transport whenever it genuinely fits. Given a
-              // run to itself it takes the full line.
-              PlayerActionStrip(actions: actions),
-            ],
-          ),
-        );
-      },
+    return Row(
+      children: [
+        transport,
+        Expanded(
+          // Touch: one line, right-anchored, finger-scrolled, with the edge
+          // hint that says so. No [LayoutBuilder] and no width threshold -
+          // a threshold is how the second run got here.
+          child: isTouch
+              ? PlayerActionStrip(actions: actions)
+              // Off touch there is no fling, so the overflow has to be laid
+              // out rather than scrolled: extra runs go *above* the first and
+              // the bar grows upwards. Unchanged.
+              : Wrap(
+                  alignment: WrapAlignment.end,
+                  runAlignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: actions,
+                ),
+        ),
+      ],
     );
   }
 }

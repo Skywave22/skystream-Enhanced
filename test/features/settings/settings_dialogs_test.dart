@@ -80,38 +80,41 @@ void main() {
       // Every row's label, in the order the dialog builds them.
       const String pip = 'Picture-in-Picture button';
       const String resize = 'Resize button';
-      const String rotate = 'Rotate button';
       const String speed = 'Playback speed button';
       const String episodes = 'Episodes button';
+
+      /// The label the retired rotate switch carried. No device may offer it:
+      /// the player draws no rotate button for it to hide.
+      const String rotate = 'Rotate button';
 
       /// (case name, platform, profile, rows that must be offered).
       final cases = <(String, TargetPlatform, DeviceProfile, List<String>)>[
         (
-          'Android phone — the only device with both',
+          'Android phone — the only device that gets the PiP row',
           TargetPlatform.android,
           const DeviceProfile(),
-          [pip, resize, rotate, speed, episodes],
+          [pip, resize, speed, episodes],
         ),
         (
           'Android tablet',
           TargetPlatform.android,
           const DeviceProfile(isTablet: true),
-          [pip, resize, rotate, speed, episodes],
+          [pip, resize, speed, episodes],
         ),
         (
-          'Android TV — nothing to shrink into, nothing to rotate',
+          'Android TV — nothing to shrink into',
           TargetPlatform.android,
           const DeviceProfile(isTv: true),
           [resize, speed, episodes],
         ),
         (
-          'iPhone — no OS-level PiP for us, but it does rotate',
+          'iPhone — no OS-level PiP for us',
           TargetPlatform.iOS,
           const DeviceProfile(),
-          [resize, rotate, speed, episodes],
+          [resize, speed, episodes],
         ),
         (
-          'iPad — iPadOS keeps its own rotation lock',
+          'iPad',
           TargetPlatform.iOS,
           const DeviceProfile(isTablet: true),
           [resize, speed, episodes],
@@ -199,41 +202,39 @@ void main() {
           isFalse,
         );
 
-        // Rotate: only where the app may pin an orientation, and never an iPad.
-        expect(
-          playerCanShowRotate(TargetPlatform.android, PlayerFormFactor.phone),
-          isTrue,
-        );
-        expect(
-          playerCanShowRotate(TargetPlatform.android, PlayerFormFactor.tablet),
-          isTrue,
-        );
-        expect(
-          playerCanShowRotate(TargetPlatform.iOS, PlayerFormFactor.phone),
-          isTrue,
-        );
-        expect(
-          playerCanShowRotate(TargetPlatform.iOS, PlayerFormFactor.tablet),
-          isFalse,
-        );
-        expect(
-          playerCanShowRotate(TargetPlatform.android, PlayerFormFactor.tv),
-          isFalse,
-        );
-        expect(
-          playerCanShowRotate(TargetPlatform.linux, PlayerFormFactor.desktop),
-          isFalse,
-        );
-        // An unresolved device profile is "we do not know", and the player
-        // itself passes null for both callbacks there, so neither is offered.
+        // An unresolved device profile is "we do not know". PiP survives it
+        // because the player's own `_pipAvailable` does: the callback is
+        // non-null on Android until the profile says television.
         expect(
           playerCanShowPip(TargetPlatform.android, PlayerFormFactor.unknown),
           isTrue,
         );
-        expect(
-          playerCanShowRotate(TargetPlatform.android, PlayerFormFactor.unknown),
-          isFalse,
-        );
+      });
+
+      testWidgets('the rotate row is gone on the two devices that used to '
+          'get it', (tester) async {
+        // An Android phone and an Android tablet were the shapes where the
+        // retired predicate was true, so they are the shapes where a
+        // resurrected row would show up first. The player builds no rotate
+        // button on either any more (see
+        // test/features/player/orientation_follows_video_test.dart), so a
+        // switch here would move a stored boolean and change nothing.
+        for (final DeviceProfile profile in <DeviceProfile>[
+          const DeviceProfile(),
+          const DeviceProfile(isTablet: true),
+        ]) {
+          await _pumpOpener(
+            tester,
+            open: showPlayerControlsDialog,
+            platform: TargetPlatform.android,
+            profile: profile,
+          );
+          expect(find.text(rotate), findsNothing);
+          expect(find.byIcon(Icons.screen_rotation_rounded), findsNothing);
+          expect(find.byType(SwitchListTile), findsNWidgets(4));
+          await tester.tap(find.text('Close'));
+          await tester.pumpAndSettle();
+        }
       });
     },
   );

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -290,6 +291,83 @@ class _VlcPlayerState extends State<VlcPlayer> {
     return (controller as VlcPlayerControllerInternals).detach(viewId: viewId);
   }
 
+  /// How far short of the decoder padding the clip has to stop, measured in
+  /// source rows and columns of the texture - which is what one logical unit
+  /// of [_fitTexture]'s `picture` box is, since that box is laid out at the
+  /// coded size.
+  ///
+  /// A clip is geometry, but the compositor SAMPLES the texture, and it
+  /// samples bilinearly: the destination pixel sitting on the clip boundary
+  /// has a filter footprint reaching half a texel past its own centre, so it
+  /// blends the last written row with the first padding row. Unwritten NV12 is
+  /// green; a partially written or differently initialised buffer gives the
+  /// magenta the other chroma extreme produces. Either way it is one blended
+  /// destination row - the thin coloured band along the bottom edge, visible
+  /// only where the coded size differs from the visible one and only at the
+  /// scale factors where the boundary lands off a physical pixel edge, which
+  /// is why it is both video- and device-dependent.
+  ///
+  /// Half a texel would clear the luma plane. It does not clear chroma: NV12
+  /// carries CbCr at half height, so half a luma row is only a quarter of a
+  /// chroma texel and the chroma tap still reaches the padding. One whole luma
+  /// row is half a chroma texel, and that is the smallest inset that keeps
+  /// both planes clear at any scale.
+  ///
+  /// "At any scale" carries a precondition, and it is the one thing here that
+  /// a later edit could quietly take away: the clip must not be antialiased.
+  /// With [Clip.hardEdge] the boundary is rounded to a whole device pixel, so
+  /// the last device row actually drawn has its centre at `round(D) - 0.5`,
+  /// never past the boundary `D`; map that back and the bilinear tap reaches
+  /// no further than source row `shown`, which this guard has already pulled
+  /// off the padding. [Clip.antiAlias] instead draws the boundary pixel at
+  /// partial coverage, and it is still sampled at its own centre, so the tap
+  /// reaches `shown + 0.5 / m` where `m` is device rows per source row - the
+  /// `FittedBox` scale times the device pixel ratio. Below `m = 0.5` that is
+  /// more than the single row bought here and the band returns: a 1080p
+  /// picture drawn into fewer than 540 device rows, which is picture-in-
+  /// picture, or a small window on a 1x display.
+  ///
+  /// The guard cannot defend itself. `m` is a paint-time property of an
+  /// ancestor and is not knowable at the point the inset is chosen, so making
+  /// this robust to antialiasing would mean insetting for the worst case and
+  /// throwing away real picture at every ordinary scale. The clip behaviour is
+  /// named explicitly at the [ClipRect] below and pinned by the test
+  /// 'clips with a hard edge, which the one-row sampling guard depends on'.
+  static const double _samplingGuard = 1;
+
+  /// The texture's own size.
+  ///
+  /// Falls back to the visible size when the platform reports no coded size -
+  /// Windows and Linux never do - or reports a degenerate one.
+  static Size _codedSizeOf(Size visible, Size? reported) {
+    if (reported == null || reported.width <= 0 || reported.height <= 0) {
+      return visible;
+    }
+    return reported;
+  }
+
+  /// How much of the texture the viewer is shown along one axis.
+  ///
+  /// Never more than the texture holds. The two sizes are separate
+  /// measurements that nothing keeps in step: the visible size is the media's
+  /// video track as the demuxer declared it - `libvlc_video_get_size` reads
+  /// the track info, not the video output - while the coded size is the buffer
+  /// the current video output negotiated with the sink. Every media change has
+  /// a window where the track info is already the new video's and the vout is
+  /// still the old one's, and a bigger new video then makes the visible size
+  /// exceed the texture.
+  ///
+  /// A factor above 1 does not clip. `Align` grows past its child and pins the
+  /// picture top-left, so the `FittedBox` fits a box larger than the picture
+  /// and draws the video small inside dead space - the video shrinking instead
+  /// of zooming.
+  static double _shownExtent(double visible, double coded) {
+    if (visible >= coded) {
+      return coded;
+    }
+    return math.max(visible - _samplingGuard, 1);
+  }
+
   Widget _fitTexture(int textureId, Size? videoSize, Size? codedSize) {
     final texture = Texture(textureId: textureId);
     final visible = videoSize;
@@ -302,18 +380,27 @@ class _VlcPlayerState extends State<VlcPlayer> {
     // rows libVLC never writes, and unwritten NV12 is green. Lay the texture
     // out at its coded size and clip to the visible picture, anchored top-left
     // where the real rows are.
-    final coded = codedSize ?? visible;
+    final coded = _codedSizeOf(visible, codedSize);
     Widget picture = SizedBox(
       width: coded.width,
       height: coded.height,
       child: texture,
     );
-    if (coded != visible) {
+    final shown = Size(
+      _shownExtent(visible.width, coded.width),
+      _shownExtent(visible.height, coded.height),
+    );
+    if (shown != coded) {
       picture = ClipRect(
+        // The default, spelled out because [_samplingGuard] depends on it: one
+        // source row is only enough margin while the boundary rounds to a
+        // whole device pixel. Antialiasing it puts the coloured band back
+        // under strong minification.
+        clipBehavior: Clip.hardEdge,
         child: Align(
           alignment: Alignment.topLeft,
-          widthFactor: visible.width / coded.width,
-          heightFactor: visible.height / coded.height,
+          widthFactor: shown.width / coded.width,
+          heightFactor: shown.height / coded.height,
           child: picture,
         ),
       );

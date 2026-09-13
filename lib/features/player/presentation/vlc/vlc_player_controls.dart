@@ -112,7 +112,6 @@ class VlcPlayerControls extends ConsumerStatefulWidget {
     this.onEnterPip,
     this.fit = VlcVideoFit.contain,
     this.onFitChanged,
-    this.onRotate,
     this.onToggleFullscreen,
     this.isFullscreen = false,
     this.isLive = false,
@@ -173,10 +172,6 @@ class VlcPlayerControls extends ConsumerStatefulWidget {
   /// texture platforms its FittedBox is the only thing that can honour a fit,
   /// because the native setFit is a no-op there.
   final ValueChanged<VlcVideoFit>? onFitChanged;
-
-  /// Non-null only where the app is allowed to pin an orientation, which
-  /// excludes desktop, television and iPad.
-  final VoidCallback? onRotate;
 
   /// Desktop only; null elsewhere, where the window is already full screen.
   final VoidCallback? onToggleFullscreen;
@@ -1515,9 +1510,9 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// end-aligned off it, so a squeeze eats the row from the LEFT: whatever is
   /// first in this list is the first thing a viewer loses. It used to open
   /// with sources, audio, subtitles, which on a 360 dp portrait handset -
-  /// a real state, since the app pins portrait for a portrait-shaped video
-  /// and the rotate button lets anyone choose it - meant the two controls
-  /// people actually reach for during a film were the two that were gone.
+  /// a real state, since the app pins portrait for a portrait-shaped video -
+  /// meant the two controls people actually reach for during a film were the
+  /// two that were gone.
   /// So the torrent diagnostics and the one-off view settings lead, and audio
   /// and subtitles are last, hard against the right edge where they survive
   /// any width.
@@ -1553,18 +1548,6 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
           onPressed: () {
             _chrome.poke();
             _cycleFit();
-          },
-        ),
-      // Touch only, and behind the setting that has been offering to hide it
-      // while controlling nothing.
-      if (widget.onRotate != null && settings.showRotate)
-        PlayerIconButton(
-          icon: Icons.screen_rotation,
-          tooltip: l10n.rotate,
-          isTv: isTv,
-          onPressed: () {
-            _chrome.poke();
-            widget.onRotate!.call();
           },
         ),
       if (widget.onEnterPip != null && settings.showPip)

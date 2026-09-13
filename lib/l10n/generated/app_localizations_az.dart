@@ -1346,9 +1346,6 @@ class AppLocalizationsAz extends AppLocalizations {
   String get showResize => 'Ölçü düyməsi';
 
   @override
-  String get showRotate => 'Döndərmə düyməsi';
-
-  @override
   String get showPlaybackSpeed => 'Oxutma sürəti düyməsi';
 
   @override

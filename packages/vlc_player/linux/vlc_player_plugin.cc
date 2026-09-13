@@ -551,6 +551,11 @@ class LinuxVlcPlayer {
   int64_t texture_id_ = -1;
 };
 
+// Stands in for the picture whenever there is not one yet. One opaque black
+// pixel; the engine stretches it over the texture's bounds, which is the black
+// the player already shows before the first frame.
+const uint8_t kBlankPixel[4] = {0x00, 0x00, 0x00, 0xFF};
+
 gboolean vlc_pixel_buffer_texture_copy_pixels(FlPixelBufferTexture* texture,
                                               const uint8_t** buffer,
                                               uint32_t* width,
@@ -564,10 +569,33 @@ gboolean vlc_pixel_buffer_texture_copy_pixels(FlPixelBufferTexture* texture,
   // waits microseconds, and libVLC's callback thread never touches this lock
   // at all.
   g_mutex_lock(&self->player_mutex);
-  const gboolean copied = self->player != nullptr &&
-                          self->player->CopyPixels(buffer, width, height);
+  const bool copied = self->player != nullptr &&
+                      self->player->CopyPixels(buffer, width, height);
   g_mutex_unlock(&self->player_mutex);
-  return copied;
+  if (copied) {
+    return true;
+  }
+
+  // Never return FALSE from here, and never leave `error` unset if that ever
+  // changes. fl_engine_gl_external_texture_frame_callback treats FALSE as an
+  // error and immediately does g_warning("%s", error->message) on a GError it
+  // declared null and never checks, so a refusal is a null dereference on the
+  // raster thread that kills the process rather than the frame.
+  //
+  // Refusing is not a rare path: the embedder resolves an external texture on
+  // its first paint (EmbedderExternalTextureGL::Paint, `if (last_image_ ==
+  // nullptr)`) whether or not a frame was ever committed, and the sink has no
+  // frame until libVLC decodes one - so the first paint of the video surface
+  // always arrived first, for every piece of content, whatever its codec.
+  //
+  // Committing a real frame calls mark_texture_frame_available, which clears
+  // the embedder's cached image and forces a re-resolve, so the placeholder is
+  // replaced on the next paint and cannot stick.
+  (void)error;
+  *buffer = kBlankPixel;
+  *width = 1;
+  *height = 1;
+  return true;
 }
 
 void vlc_pixel_buffer_texture_finalize(GObject* object) {

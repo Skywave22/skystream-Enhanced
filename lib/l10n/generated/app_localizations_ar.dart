@@ -1342,9 +1342,6 @@ class AppLocalizationsAr extends AppLocalizations {
   String get showResize => 'Resize button';
 
   @override
-  String get showRotate => 'Rotate button';
-
-  @override
   String get showPlaybackSpeed => 'Playback speed button';
 
   @override
@@ -2982,9 +2979,6 @@ class AppLocalizationsArApc extends AppLocalizationsAr {
 
   @override
   String get showResize => 'Resize button';
-
-  @override
-  String get showRotate => 'Rotate button';
 
   @override
   String get showPlaybackSpeed => 'Playback speed button';

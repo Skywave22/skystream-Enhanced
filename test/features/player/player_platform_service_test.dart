@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/features/player/presentation/player_platform_service.dart';
@@ -270,150 +269,319 @@ void main() {
     });
   });
 
-  group('applyVideoOrientation', () {
-    test(
-      'a landscape video pins landscape, a portrait video pins portrait',
-      () {
-        PlayerPlatformService().applyVideoOrientation(
-          PlayerFormFactor.phone,
-          width: 1920,
-          height: 1080,
-        );
-        PlayerPlatformService().applyVideoOrientation(
-          PlayerFormFactor.tablet,
-          width: 1080,
-          height: 1920,
-        );
+  /// One reading of the rendered picture's shape, as the screen feeds it:
+  /// every playback tick, not only the ticks where the size changed.
+  ///
+  /// A `Size` and not a width/height pair, and the *rendered* size and not the
+  /// track's declared one — see [PlayerPlatformService.applyVideoOrientation]
+  /// for why the track's size cannot be used to decide this.
+  void read(
+    PlayerPlatformService service,
+    PlayerFormFactor form,
+    Size? renderedSize, {
+    int times = 1,
+  }) {
+    for (var i = 0; i < times; i++) {
+      service.applyVideoOrientation(form, renderedSize: renderedSize);
+    }
+  }
 
-        expect(pinned, [
-          [
-            'DeviceOrientation.landscapeLeft',
-            'DeviceOrientation.landscapeRight',
-          ],
-          ['DeviceOrientation.portraitUp', 'DeviceOrientation.portraitDown'],
-        ]);
+  /// Waits the shape out, plus the tick that fires the timer.
+  Future<void> waitOutSettle(WidgetTester tester) =>
+      tester.pump(PlayerPlatformService.shapeSettleDelay + _oneTick);
+
+  const landscape = [
+    'DeviceOrientation.landscapeLeft',
+    'DeviceOrientation.landscapeRight',
+  ];
+  const portrait = [
+    'DeviceOrientation.portraitUp',
+    'DeviceOrientation.portraitDown',
+  ];
+
+  // A rendered buffer, which is what the decoder writes into: the padded,
+  // upright picture. 1080p pads to 1088 rows; a portrait clip is the same
+  // buffer transposed, because libVLC applies the file's rotation before it
+  // ever reaches a sink.
+  const landscapeBuffer = Size(1920, 1088);
+  const portraitBuffer = Size(1088, 1920);
+
+  group('applyVideoOrientation', () {
+    testWidgets('a shape is believed once it has held, and not before', (
+      tester,
+    ) async {
+      final service = PlayerPlatformService();
+
+      read(service, PlayerFormFactor.phone, landscapeBuffer);
+      await tester.pump(PlayerPlatformService.shapeSettleDelay - _oneTick);
+      expect(
+        pinned,
+        isEmpty,
+        reason:
+            'libVLC revises the track it reports during startup, so a shape '
+            'that has only just arrived is a candidate, not a verdict',
+      );
+
+      await waitOutSettle(tester);
+      expect(
+        pinned,
+        [landscape],
+        reason:
+            'ONE reading is enough once it has held. The rule this replaced '
+            'wanted two consecutive matching EVENTS, which a player paused on '
+            'its first frame never gets: the natives drop a snapshot '
+            'identical to the last one, and a paused engine sends none at all',
+      );
+
+      service.restoreOrientation(PlayerFormFactor.phone);
+    });
+
+    testWidgets('a film ticking the same shape does not push the settle back', (
+      tester,
+    ) async {
+      final service = PlayerPlatformService();
+
+      // Four ticks a second, all agreeing, for almost the whole window. A
+      // settle that restarted its clock on every reading would never fire.
+      for (
+        var elapsed = Duration.zero;
+        elapsed < PlayerPlatformService.shapeSettleDelay;
+        elapsed += const Duration(milliseconds: 250)
+      ) {
+        read(service, PlayerFormFactor.phone, landscapeBuffer);
+        await tester.pump(const Duration(milliseconds: 250));
+      }
+
+      expect(pinned, [landscape]);
+
+      service.restoreOrientation(PlayerFormFactor.phone);
+    });
+
+    testWidgets(
+      'a shape revised during startup rotates the device once, not twice',
+      (tester) async {
+        final service = PlayerPlatformService();
+
+        // The reading that used to be acted on immediately, and the one that
+        // replaced it a beat later. Only the shape that stuck may reach the OS.
+        read(service, PlayerFormFactor.phone, landscapeBuffer);
+        await tester.pump(const Duration(milliseconds: 250));
+        read(service, PlayerFormFactor.phone, portraitBuffer, times: 3);
+        await waitOutSettle(tester);
+
+        expect(pinned, [portrait]);
+
+        service.restoreOrientation(PlayerFormFactor.phone);
       },
     );
 
-    test('a square video counts as landscape', () {
-      PlayerPlatformService().applyVideoOrientation(
-        PlayerFormFactor.phone,
-        width: 720,
-        height: 720,
-      );
+    testWidgets('a settled shape is never re-sent, at any resolution', (
+      tester,
+    ) async {
+      final service = PlayerPlatformService();
+      read(service, PlayerFormFactor.phone, const Size(1280, 720));
+      await waitOutSettle(tester);
+      expect(pinned, [landscape]);
 
-      expect(pinned.single, [
-        'DeviceOrientation.landscapeLeft',
-        'DeviceOrientation.landscapeRight',
-      ]);
+      // The rest of the film, with an HLS variant switch part way through.
+      // Same verdict, so not one further platform message.
+      read(service, PlayerFormFactor.phone, const Size(1280, 720), times: 10);
+      read(service, PlayerFormFactor.phone, landscapeBuffer, times: 10);
+      await waitOutSettle(tester);
+
+      expect(pinned, [landscape]);
+
+      service.restoreOrientation(PlayerFormFactor.phone);
     });
 
-    test('sizes that are not known yet are left alone', () {
+    testWidgets('a portrait clip pins portrait, on a phone and on a tablet', (
+      tester,
+    ) async {
+      final phone = PlayerPlatformService();
+      final tablet = PlayerPlatformService();
+      read(phone, PlayerFormFactor.phone, portraitBuffer);
+      read(tablet, PlayerFormFactor.tablet, portraitBuffer);
+      await waitOutSettle(tester);
+
+      expect(pinned, [portrait, portrait]);
+
+      phone.restoreOrientation(PlayerFormFactor.phone);
+      tablet.restoreOrientation(PlayerFormFactor.tablet);
+    });
+
+    testWidgets('a square video counts as landscape', (tester) async {
       final service = PlayerPlatformService();
-      service.applyVideoOrientation(
-        PlayerFormFactor.phone,
-        width: null,
-        height: 1080,
-      );
-      service.applyVideoOrientation(
-        PlayerFormFactor.phone,
-        width: 1920,
-        height: null,
-      );
-      service.applyVideoOrientation(
-        PlayerFormFactor.phone,
-        width: 0,
-        height: 0,
-      );
+      read(service, PlayerFormFactor.phone, const Size(720, 720));
+      await waitOutSettle(tester);
+
+      expect(pinned.single, landscape);
+
+      service.restoreOrientation(PlayerFormFactor.phone);
+    });
+
+    testWidgets('sizes that are not known yet are left alone', (tester) async {
+      final service = PlayerPlatformService();
+      read(service, PlayerFormFactor.phone, null, times: 2);
+      read(service, PlayerFormFactor.phone, Size.zero, times: 2);
+      read(service, PlayerFormFactor.phone, const Size(1920, 0), times: 2);
+      await waitOutSettle(tester);
 
       expect(pinned, isEmpty);
     });
 
-    test('television and desktop are never pinned', () {
+    testWidgets('an unknown size mid-settle stops the clock', (tester) async {
+      final service = PlayerPlatformService();
+
+      read(service, PlayerFormFactor.phone, portraitBuffer);
+      await tester.pump(const Duration(milliseconds: 250));
+      // setMedia clears the size, which is "not known" and not agreement.
+      read(service, PlayerFormFactor.phone, null);
+      await waitOutSettle(tester);
+      expect(pinned, isEmpty);
+
+      read(service, PlayerFormFactor.phone, portraitBuffer);
+      await waitOutSettle(tester);
+      expect(pinned, [portrait]);
+
+      service.restoreOrientation(PlayerFormFactor.phone);
+    });
+
+    testWidgets(
+      'the next episode re-settles, and holds the old pin until it does',
+      (tester) async {
+        final service = PlayerPlatformService();
+        read(service, PlayerFormFactor.phone, landscapeBuffer);
+        await waitOutSettle(tester);
+        pinned.clear();
+
+        // The gap between two episodes: state goes to `opening`, which clears
+        // the size. The device must not swing back to portrait in the gap.
+        read(service, PlayerFormFactor.phone, null, times: 4);
+        await waitOutSettle(tester);
+        expect(pinned, isEmpty);
+
+        read(service, PlayerFormFactor.phone, portraitBuffer);
+        await waitOutSettle(tester);
+        expect(pinned, [portrait]);
+
+        service.restoreOrientation(PlayerFormFactor.phone);
+      },
+    );
+
+    testWidgets('television and desktop are never pinned', (tester) async {
       for (final form in [
         PlayerFormFactor.tv,
         PlayerFormFactor.desktop,
         PlayerFormFactor.unknown,
       ]) {
-        PlayerPlatformService().applyVideoOrientation(
-          form,
-          width: 1920,
-          height: 1080,
-        );
+        read(PlayerPlatformService(), form, landscapeBuffer, times: 4);
       }
-
-      expect(pinned, isEmpty);
-    });
-  });
-
-  group('toggleOrientation', () {
-    test('flips to the other pair', () {
-      PlayerPlatformService().toggleOrientation(
-        PlayerFormFactor.phone,
-        Orientation.landscape,
-      );
-      PlayerPlatformService().toggleOrientation(
-        PlayerFormFactor.phone,
-        Orientation.portrait,
-      );
-
-      expect(pinned, [
-        ['DeviceOrientation.portraitUp', 'DeviceOrientation.portraitDown'],
-        ['DeviceOrientation.landscapeLeft', 'DeviceOrientation.landscapeRight'],
-      ]);
-    });
-
-    test('does nothing on a television', () {
-      PlayerPlatformService().toggleOrientation(
-        PlayerFormFactor.tv,
-        Orientation.landscape,
-      );
+      await waitOutSettle(tester);
 
       expect(pinned, isEmpty);
     });
 
-    test('the viewer outranks the next video-size event', () {
-      final service = PlayerPlatformService()
-        ..toggleOrientation(PlayerFormFactor.phone, Orientation.landscape);
-      pinned.clear();
+    testWidgets('a form factor that stops pinning mid-settle disarms it', (
+      tester,
+    ) async {
+      final service = PlayerPlatformService();
 
-      service.applyVideoOrientation(
-        PlayerFormFactor.phone,
-        width: 1920,
-        height: 1080,
-      );
+      // Full screen mode turns a phone into a television between two ticks.
+      // The candidate armed a moment ago must not go on to rotate it.
+      read(service, PlayerFormFactor.phone, landscapeBuffer);
+      await tester.pump(const Duration(milliseconds: 250));
+      read(service, PlayerFormFactor.tv, landscapeBuffer);
+      await waitOutSettle(tester);
 
       expect(pinned, isEmpty);
     });
 
-    test('a television toggle does not latch the override', () {
-      final service = PlayerPlatformService()
-        ..toggleOrientation(PlayerFormFactor.tv, Orientation.landscape);
+    testWidgets('a profile that resolves late still gets the full settle', (
+      tester,
+    ) async {
+      final service = PlayerPlatformService();
 
-      service.applyVideoOrientation(
-        PlayerFormFactor.phone,
-        width: 1920,
-        height: 1080,
-      );
+      // Readings while the device profile is still in flight arm nothing, so
+      // the first reading after it lands is the one that starts the clock.
+      read(service, PlayerFormFactor.unknown, portraitBuffer, times: 6);
+      await waitOutSettle(tester);
+      expect(pinned, isEmpty);
 
-      expect(pinned, hasLength(1));
+      read(service, PlayerFormFactor.phone, portraitBuffer);
+      await waitOutSettle(tester);
+      expect(pinned, [portrait]);
+
+      service.restoreOrientation(PlayerFormFactor.phone);
     });
   });
 
   group('restoreOrientation', () {
-    test('a phone goes back to portrait, not to a free-for-all', () {
-      PlayerPlatformService().restoreOrientation(PlayerFormFactor.phone);
+    testWidgets(
+      'a phone that was pinned goes back to portrait, not to a free-for-all',
+      (tester) async {
+        final service = PlayerPlatformService();
+        read(service, PlayerFormFactor.phone, landscapeBuffer);
+        await waitOutSettle(tester);
+        pinned.clear();
 
-      expect(pinned.single, ['DeviceOrientation.portraitUp']);
+        service.restoreOrientation(PlayerFormFactor.phone);
+
+        expect(pinned.single, ['DeviceOrientation.portraitUp']);
+      },
+    );
+
+    testWidgets(
+      'a tablet that was pinned is released to whatever the platform allows',
+      (tester) async {
+        final service = PlayerPlatformService();
+        read(service, PlayerFormFactor.tablet, landscapeBuffer);
+        await waitOutSettle(tester);
+        pinned.clear();
+
+        service.restoreOrientation(PlayerFormFactor.tablet);
+
+        expect(pinned.single, isEmpty);
+      },
+    );
+
+    testWidgets('a player closed before the first frame leaves the device '
+        'alone', (tester) async {
+      final service = PlayerPlatformService();
+      // A stream that never resolved, or a viewer who changed their mind: the
+      // size never arrived, so nothing was pinned and nothing may be
+      // "restored". Pinning portraitUp here froze rotation app-wide for the
+      // rest of the process, because nothing else ever calls
+      // setPreferredOrientations.
+      read(service, PlayerFormFactor.phone, null, times: 4);
+      await waitOutSettle(tester);
+
+      service.restoreOrientation(PlayerFormFactor.phone);
+
+      expect(pinned, isEmpty);
     });
 
-    test('a tablet is released to whatever the platform allows', () {
-      PlayerPlatformService().restoreOrientation(PlayerFormFactor.tablet);
+    testWidgets('leaving during the settle stops the clock, and pins nothing', (
+      tester,
+    ) async {
+      final service = PlayerPlatformService();
+      read(service, PlayerFormFactor.phone, landscapeBuffer);
+      await tester.pump(const Duration(milliseconds: 250));
 
-      expect(pinned.single, isEmpty);
+      service.restoreOrientation(PlayerFormFactor.phone);
+      await waitOutSettle(tester);
+
+      expect(
+        pinned,
+        isEmpty,
+        reason:
+            'a settle that outlived the screen would rotate the device under '
+            'whatever the viewer went back to',
+      );
     });
 
-    test('nothing was pinned on TV or desktop, so nothing is restored', () {
+    testWidgets('nothing was pinned on TV or desktop, so nothing is restored', (
+      tester,
+    ) async {
       for (final form in [
         PlayerFormFactor.tv,
         PlayerFormFactor.desktop,
@@ -425,25 +593,42 @@ void main() {
       expect(pinned, isEmpty);
     });
 
-    test(
-      'clears the viewer override so the next session auto-rotates again',
-      () {
-        final service = PlayerPlatformService()
-          ..toggleOrientation(PlayerFormFactor.phone, Orientation.landscape)
-          ..restoreOrientation(PlayerFormFactor.phone);
-        pinned.clear();
+    testWidgets('restoring twice hands the device back once', (tester) async {
+      final service = PlayerPlatformService();
+      read(service, PlayerFormFactor.phone, landscapeBuffer);
+      await waitOutSettle(tester);
+      pinned.clear();
 
-        service.applyVideoOrientation(
-          PlayerFormFactor.phone,
-          width: 1920,
-          height: 1080,
-        );
+      service
+        ..restoreOrientation(PlayerFormFactor.phone)
+        ..restoreOrientation(PlayerFormFactor.phone);
 
-        expect(pinned.single, [
-          'DeviceOrientation.landscapeLeft',
-          'DeviceOrientation.landscapeRight',
-        ]);
-      },
-    );
+      expect(pinned, hasLength(1));
+    });
+
+    testWidgets('the settle starts clean for the next session', (tester) async {
+      final service = PlayerPlatformService();
+      read(service, PlayerFormFactor.phone, landscapeBuffer);
+      await waitOutSettle(tester);
+      service.restoreOrientation(PlayerFormFactor.phone);
+      pinned.clear();
+
+      read(service, PlayerFormFactor.phone, landscapeBuffer);
+      await tester.pump(PlayerPlatformService.shapeSettleDelay - _oneTick);
+      expect(
+        pinned,
+        isEmpty,
+        reason: 'the candidate was dropped on the way out',
+      );
+
+      await waitOutSettle(tester);
+      expect(pinned.single, landscape);
+
+      service.restoreOrientation(PlayerFormFactor.phone);
+    });
   });
 }
+
+/// One frame at the fake clock's default rate, enough to run a timer that has
+/// come due.
+const Duration _oneTick = Duration(milliseconds: 1);

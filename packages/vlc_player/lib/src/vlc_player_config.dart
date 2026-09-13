@@ -201,6 +201,39 @@ class VlcDecodingConfig {
   });
 
   /// Hardware decoding preference (`--avcodec-hw`).
+  ///
+  /// Honoured on Android and Darwin. **Inert on Windows and Linux**, and the
+  /// reason is libVLC's, not this plugin's: those two render through the vmem
+  /// callbacks, and `libvlc_video_set_callbacks` sets `avcodec-hw = "none"` on
+  /// the media player as it installs them (VLC 3.0.21 `lib/media_player.c`:
+  /// 1113, unchanged across every 3.0.x tag). `var_Inherit` walks child to
+  /// parent and stops at the first object holding the variable
+  /// (`src/misc/variables.c`:1177), and the decoder's chain is decoder →
+  /// input → media player → instance, so the media player's `"none"` is found
+  /// before the instance-level option this emits is ever reached.
+  ///
+  /// libVLC means it. `libvlc_media_player_set_nsobject`, `set_xwindow` and
+  /// `set_hwnd` each put `avcodec-hw` back to `""` (`:1143`, `:1200`, `:1222`)
+  /// precisely because those paths have a real window to decode into. The
+  /// model is "native window ⇒ hardware decode allowed; vmem ⇒ never".
+  ///
+  /// Two things follow, and both have been reasoned about wrongly here before.
+  /// There is no hardware-surface-into-a-vmem-output mismatch to be had on
+  /// Windows or Linux, because the combination cannot be constructed. And
+  /// turning hardware decoding *off* on those platforms costs nothing, because
+  /// it was never on - so a null result from that experiment says nothing
+  /// about whether hardware decode was implicated.
+  ///
+  /// Darwin keeps its hardware path regardless: VideoToolbox is a standalone
+  /// `video decoder` module in VLC 3 (`modules/codec/videotoolbox.m`,
+  /// capability 800), not an avcodec hardware accelerator, so `avcodec-hw` has
+  /// no authority over it. On Windows and Linux the hardware decoders are
+  /// DXVA2/D3D11VA and VA-API/VDPAU, which *are* avcodec accelerators, and are
+  /// therefore exactly what this shuts off.
+  ///
+  /// A per-media option would win if hardware decode is ever wanted on those
+  /// platforms - media options attach to the input thread, a child of the
+  /// media player - but nothing does that today.
   final VlcHardwareAcceleration hardwareAcceleration;
 
   /// How much decode work may be skipped when running behind.

@@ -157,9 +157,15 @@ class PlayerSettings {
   /// Toggles for individual player control-bar buttons. All default to
   /// visible. Sources, Audio Tracks and Subtitles are intentionally not
   /// toggleable because they are essential.
+  ///
+  /// There is no rotate toggle: the manual rotate button went away when
+  /// orientation started following the video's own shape, and a stored
+  /// boolean for a button nobody draws is a preference that changes nothing.
+  /// Old installs may still hold a `player_show_rotate` key in the Hive
+  /// settings box; it is never read, and nothing enumerates that box, so it
+  /// costs one unread boolean and needs no migration.
   final bool showPip;
   final bool showResize;
-  final bool showRotate;
   final bool showPlaybackSpeed;
   final bool showEpisodes;
 
@@ -198,7 +204,6 @@ class PlayerSettings {
     this.showRemainingTime = false,
     this.showPip = true,
     this.showResize = true,
-    this.showRotate = true,
     this.showPlaybackSpeed = true,
     this.showEpisodes = true,
     this.osUsername = '',
@@ -237,7 +242,6 @@ class PlayerSettings {
     bool? showRemainingTime,
     bool? showPip,
     bool? showResize,
-    bool? showRotate,
     bool? showPlaybackSpeed,
     bool? showEpisodes,
     String? osUsername,
@@ -278,7 +282,6 @@ class PlayerSettings {
       showRemainingTime: showRemainingTime ?? this.showRemainingTime,
       showPip: showPip ?? this.showPip,
       showResize: showResize ?? this.showResize,
-      showRotate: showRotate ?? this.showRotate,
       showPlaybackSpeed: showPlaybackSpeed ?? this.showPlaybackSpeed,
       showEpisodes: showEpisodes ?? this.showEpisodes,
       osUsername: osUsername ?? this.osUsername,
@@ -405,12 +408,6 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
           defaultValue: true,
         ) ??
         true;
-    final showRotate =
-        storage.getPlayerSetting<bool>(
-          'player_show_rotate',
-          defaultValue: true,
-        ) ??
-        true;
     final showPlaybackSpeed =
         storage.getPlayerSetting<bool>(
           'player_show_playback_speed',
@@ -480,7 +477,6 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
       showRemainingTime: showRemaining,
       showPip: showPip,
       showResize: showResize,
-      showRotate: showRotate,
       showPlaybackSpeed: showPlaybackSpeed,
       showEpisodes: showEpisodes,
       osUsername: osUser,
@@ -569,11 +565,6 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
   Future<void> setShowResize(bool val) async {
     await _repository.setPlayerSetting('player_show_resize', val);
     state = AsyncData(state.requireValue.copyWith(showResize: val));
-  }
-
-  Future<void> setShowRotate(bool val) async {
-    await _repository.setPlayerSetting('player_show_rotate', val);
-    state = AsyncData(state.requireValue.copyWith(showRotate: val));
   }
 
   Future<void> setShowPlaybackSpeed(bool val) async {

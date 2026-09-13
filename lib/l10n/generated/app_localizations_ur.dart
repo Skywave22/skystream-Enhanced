@@ -1348,9 +1348,6 @@ class AppLocalizationsUr extends AppLocalizations {
   String get showResize => 'Resize button';
 
   @override
-  String get showRotate => 'Rotate button';
-
-  @override
   String get showPlaybackSpeed => 'Playback speed button';
 
   @override
