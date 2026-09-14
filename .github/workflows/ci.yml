@@ -147,6 +147,39 @@ jobs:
       - name: Custom Lint
         run: dart run custom_lint
 
+      # The extension-engine tests drive QuickJS over FFI, and under
+      # FLUTTER_TEST the vendored fork resolves it per platform: macOS reads
+      # the symbols out of the test process, Linux opens a real .so named by
+      # LIBQUICKJSC_TEST_PATH. Nothing in a host test run builds that .so - it
+      # is normally produced by a Linux *app* build - so without this step
+      # every FFI test fails with "cannot open shared object file", and the
+      # plugin-sandbox tests that fail are the ones asserting one extension
+      # cannot harvest another's token.
+      #
+      # Built directly rather than through packages/flutter_js_ng/linux, whose
+      # CMake target links flutter and GTK to be a plugin. The FFI needs only
+      # the bridge and QuickJS itself, so this is the same source list with the
+      # plugin wrapper dropped, and it needs no Flutter artifacts. The .c files
+      # are compiled as C and the bridge as C++, which is what that CMakeLists
+      # does via `project(... LANGUAGES CXX C)`.
+      - name: Build QuickJS Test Bridge
+        run: |
+          set -euo pipefail
+          cd packages/flutter_js_ng
+          out="$RUNNER_TEMP/qjs"
+          mkdir -p "$out"
+          defs='-DCONFIG_VERSION="2024-01-01" -DQUICKJS -DCONFIG_BIGNUM -D_GNU_SOURCE'
+          for f in cutils libregexp libunicode libbf quickjs; do
+            gcc -c -fPIC -O1 -funsigned-char -Wno-unused-but-set-variable \
+              $defs -Icxx/quickjs -o "$out/$f.o" "cxx/quickjs/$f.c"
+          done
+          g++ -c -fPIC -O1 -std=c++17 $defs -Icxx/quickjs -Icxx \
+            -o "$out/bridge.o" cxx/libfastdev_quickjs_runtime.cpp
+          g++ -shared -o "$out/libquickjs_c_bridge_plugin.so" "$out"/*.o -lm -ldl -lpthread
+          # Fail here rather than as a confusing FFI error inside the suite.
+          nm -D --defined-only "$out/libquickjs_c_bridge_plugin.so" | grep -q ' jsNewRuntime$'
+          echo "LIBQUICKJSC_TEST_PATH=$out/libquickjs_c_bridge_plugin.so" >> "$GITHUB_ENV"
+
       - name: Test
         run: flutter test
 

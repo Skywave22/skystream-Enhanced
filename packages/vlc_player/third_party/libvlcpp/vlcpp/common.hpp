@@ -24,8 +24,24 @@
 #ifndef LIBVLC_CXX_COMMON_H
 #define LIBVLC_CXX_COMMON_H
 
+// Local change. Upstream declares `using ssize_t = long int;` here, which
+// collides with the typedef libvlc_media.h makes for the same name a few lines
+// below (it is reached through <vlc/vlc.h> on the next line). The two disagree:
+// `long` is 32 bits on 64-bit Windows and SSIZE_T is 64, so MSVC rejects the
+// second one as a redefinition with a different basic type - and picking either
+// side alone breaks the other, because vlc_video_output.h reaches <vlc/vlc.h>
+// without libvlcpp and so has only libvlc_media.h's typedef to rely on.
+//
+// Both now use SSIZE_T behind the CRT's own _SSIZE_T_DEFINED guard, so whichever
+// header a translation unit reaches first defines it and the other stands down.
+// It also fixes the width: libvlc_media_read_cb returns ssize_t, and 32 bits was
+// the wrong size for it here.
 #ifdef _MSC_VER
-using ssize_t = long int;
+#include <basetsd.h>
+#ifndef _SSIZE_T_DEFINED
+#define _SSIZE_T_DEFINED
+typedef SSIZE_T ssize_t;
+#endif
 #endif
 
 #include <vlc/vlc.h>

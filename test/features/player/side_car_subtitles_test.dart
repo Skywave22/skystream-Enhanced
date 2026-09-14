@@ -10,8 +10,6 @@
 /// The same fact is why [addSideCarSubtitles] exists at all.
 library;
 
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -43,8 +41,13 @@ String? _focusedRow() {
   return context?.findAncestorWidgetOfExactType<PanelRow>()?.label;
 }
 
-/// A file the picker "returned". Everything the tab reads comes off [uri];
-/// the rest of [PlatformFile] is never touched.
+/// A file the picker "returned". Everything the tab reads comes off [uri] -
+/// `path` included, which [PlatformFile] derives from it - so only [uri] and
+/// [name] are answered here.
+///
+/// [PlatformFile] is a `base` class, so a double has to extend it and cannot
+/// implement it; the [noSuchMethod] catch-all stands in for the rest, and
+/// leaves the class standing when the package adds another member.
 final class _PickedFile extends PlatformFile {
   _PickedFile(this.uri);
 
@@ -55,16 +58,8 @@ final class _PickedFile extends PlatformFile {
   String get name => uri.pathSegments.last;
 
   @override
-  Never get xFile => throw UnimplementedError();
-
-  @override
-  Future<int> length() async => 0;
-
-  @override
-  Future<Uint8List> readAsBytes() async => Uint8List(0);
-
-  @override
-  Stream<Uint8List> readAsByteStream() => const Stream<Uint8List>.empty();
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('not needed: ${invocation.memberName}');
 }
 
 /// The device picker, answering with [pick] (null = the viewer cancelled)
