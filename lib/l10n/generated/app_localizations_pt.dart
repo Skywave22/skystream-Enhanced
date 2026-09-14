@@ -99,9 +99,6 @@ class AppLocalizationsPt extends AppLocalizations {
   String get seekDuration => 'Duração da Navegação';
 
   @override
-  String get bufferDepth => 'Profundidade do Buffer';
-
-  @override
   String get defaultResizeMode => 'Modo de Redimensionamento';
 
   @override
@@ -467,9 +464,6 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Selecionar Duração da Navegação';
-
-  @override
-  String get selectBufferDepth => 'Selecionar Profundidade do Buffer';
 
   @override
   String get subtitleSettings => 'Definições de Legendas';
@@ -924,6 +918,11 @@ class AppLocalizationsPt extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName não detetado.';
   }
@@ -1192,7 +1191,10 @@ class AppLocalizationsPt extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Preferência de qualidade Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Preferência de qualidade móvel';
@@ -1648,6 +1650,20 @@ class AppLocalizationsPt extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Nenhum dos seus scrapers tem este título.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).
@@ -1743,9 +1759,6 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
 
   @override
   String get seekDuration => 'Duração do Salto';
-
-  @override
-  String get bufferDepth => 'Profundidade do Buffer';
 
   @override
   String get defaultResizeMode => 'Modo de Redimensionamento';
@@ -2113,9 +2126,6 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
 
   @override
   String get selectSeekDuration => 'Selecionar Duração do Salto';
-
-  @override
-  String get selectBufferDepth => 'Selecionar Profundidade do Buffer';
 
   @override
   String get subtitleSettings => 'Configurações de Legendas';
@@ -2836,9 +2846,6 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
 
   @override
   String get subSource => 'SubSource';
-
-  @override
-  String get wifiQualityPreference => 'Preferência de qualidade Wi-Fi';
 
   @override
   String get mobileQualityPreference => 'Preferência de qualidade móvel';

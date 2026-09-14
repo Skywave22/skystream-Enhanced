@@ -6,42 +6,30 @@ import 'vlc_player_error.dart';
 
 /// Playback lifecycle states reported by the native VLC player.
 enum VlcPlaybackState {
-  /// No media is loaded.
   idle,
 
-  /// VLC is opening the current media.
   opening,
 
-  /// VLC is buffering enough data to continue playback.
   buffering,
 
-  /// Media is currently playing.
   playing,
 
-  /// Media playback is paused.
   paused,
 
-  /// Playback has been stopped.
   stopped,
 
   /// The current media reached the end.
   ended,
 
-  /// The player is in an error state.
   error,
 }
 
 /// Why the system, rather than the viewer, changed playback.
 ///
-/// Audio is an exclusive resource on a phone: a call, a navigation prompt or
-/// another media app all expect whatever is playing to get out of the way, and
-/// nothing in libVLC knows that. The native side does, and it acts in the same
-/// instant — a round trip to Dart would leave a film talking over the first
-/// ring — so this is a report of what already happened, not a request.
-///
-/// A host that shows nothing for these is still correct: [VlcPlayerValue.state]
-/// already says `paused`. This says *why*, which is the difference between a
-/// player that looks broken and one that explains itself.
+/// The native side pauses or ducks in the same instant the OS takes audio
+/// away, so this reports what already happened rather than requesting it. A
+/// host that ignores it is still correct: [VlcPlayerValue.state] already says
+/// `paused`.
 enum VlcAudioInterruption {
   /// Nothing is interrupting playback.
   none,
@@ -49,7 +37,7 @@ enum VlcAudioInterruption {
   /// Audio went to another app for good, and playback is paused.
   ///
   /// Only the viewer restarts this one. Android reports it as
-  /// `AUDIOFOCUS_LOSS`; iOS as an interruption that ended without advising a
+  /// `AUDIOFOCUS_LOSS`, iOS as an interruption that ended without advising a
   /// resume.
   focusLost,
 
@@ -61,10 +49,9 @@ enum VlcAudioInterruption {
 
   /// Something is talking over the top and playback continues, attenuated.
   ///
-  /// Android only (`AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK`). Ducking beats
-  /// pausing for a navigation prompt, and the viewer's chosen
-  /// [VlcPlayerValue.volume] is untouched — the attenuation is applied under
-  /// it and lifted when the prompt finishes.
+  /// Android only (`AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK`). The viewer's chosen
+  /// [VlcPlayerValue.volume] is untouched: the attenuation is applied under it
+  /// and lifted when the prompt finishes.
   ducked,
 
   /// The output device went away and playback is paused.
@@ -72,6 +59,54 @@ enum VlcAudioInterruption {
   /// Headphones pulled out, or Bluetooth dropped. Resuming would blare the
   /// film out of the phone speaker, so this never resumes on its own.
   becameNoisy,
+}
+
+/// How a video's stored frames are turned the right way up for display.
+///
+/// libVLC's own `libvlc_video_orient_t` values, in libVLC's order, so a native
+/// side can send the raw integer and Dart can name it. Each name says where
+/// the stored image's first row and column belong.
+///
+/// A clip shot in portrait is not stored in portrait: phone cameras record
+/// landscape frames and write a rotation beside them, so the stored width and
+/// height say landscape for a video the viewer holds upright. [swapsAxes]
+/// resolves that.
+enum VlcVideoOrientation {
+  /// Already upright. Top row is the top, left column is the left.
+  topLeft,
+
+  /// Mirrored left to right.
+  topRight,
+
+  /// Mirrored top to bottom.
+  bottomLeft,
+
+  /// Turned upside down.
+  bottomRight,
+
+  /// Transposed — reflected along the leading diagonal.
+  leftTop,
+
+  /// Rotated 90 degrees. What a handset held upright records.
+  leftBottom,
+
+  /// Rotated 270 degrees. What a handset held upright and turned the other way
+  /// records.
+  rightTop,
+
+  /// Anti-transposed — reflected along the trailing diagonal.
+  rightBottom;
+
+  /// Whether displaying this video exchanges its stored width and height.
+  ///
+  /// The four quarter-turn orientations do; the four that only flip or rotate
+  /// by half a turn do not. This is libVLC's own `ORIENT_IS_SWAP` test from
+  /// `include/vlc_es.h`, the fourth bit.
+  ///
+  /// Deliberately not the test libVLC's Android bindings use: `VideoHelper`
+  /// checks `orientation == 5 || orientation == 6`, which is wrong for the two
+  /// transposes.
+  bool get swapsAxes => index & 4 != 0;
 }
 
 /// Immutable snapshot of the native player state.
@@ -98,95 +133,69 @@ class VlcPlayerValue {
     this.isStalled = false,
     this.interruption = VlcAudioInterruption.none,
     this.videoSize,
+    this.videoOrientation,
     this.codedVideoSize,
     this.bufferingProgress,
     this.error,
     this.errorDescription,
   });
 
-  /// Current playback lifecycle state.
   final VlcPlaybackState state;
 
-  /// Current playback position.
   final Duration position;
 
   /// Current media duration, or [Duration.zero] when unknown.
   final Duration duration;
 
-  /// Current VLC volume.
-  ///
-  /// VLC volume is generally represented as `0..200`, where `100` is normal
-  /// volume.
+  /// Current volume on VLC's `0..200` scale, where `100` is normal.
   final int volume;
 
-  /// Current playback speed multiplier.
+  /// Playback speed multiplier, where `1` is normal.
   final double playbackSpeed;
 
-  /// Current audio playback delay.
-  ///
   /// Positive values delay audio; negative values play audio earlier.
   final Duration audioDelay;
 
-  /// Current subtitle display delay.
-  ///
   /// Positive values delay subtitles; negative values show subtitles earlier.
   final Duration subtitleDelay;
 
   /// The id of the audio track the engine is currently playing, or null when
   /// there is none.
   ///
-  /// Null covers every "nothing" the engine can mean: no media loaded, media
-  /// with no audio elementary stream, or a track list not yet parsed. libVLC
-  /// itself reports these as `-1`, and that pseudo-id is normalised to null
-  /// here, once, so no consumer has to compare against it. `0` is a legal
-  /// track id and is passed through untouched.
-  ///
-  /// Ids are the same native ids [VlcTrackDescription.id] carries, so a
-  /// selected-row check is `track.id == value.activeAudioTrackId`. Every
-  /// backend re-sends its snapshot after `setAudioTrack` and after each seek,
-  /// so a selection made through the controller shows up here without a
-  /// pull; an engine-initiated switch is reported on the next tick.
+  /// libVLC's `-1` "none" pseudo-id is normalised to null here, so no consumer
+  /// has to compare against it; `0` is a legal track id. Ids are the native
+  /// ids [VlcTrackDescription.id] carries. Every backend re-sends its snapshot
+  /// after `setAudioTrack` and after each seek.
   final int? activeAudioTrackId;
 
   /// The id of the subtitle track the engine is currently rendering, or null
   /// when subtitles are off.
   ///
-  /// Null means the same as for [activeAudioTrackId] - no media, no text
-  /// stream, or an explicit `disableSubtitle()` - and is likewise the
-  /// normalised form of libVLC's `-1`, so "subtitles off" is a null check and
-  /// never a magic-number compare. `0` is a legal id. Re-sent by every
-  /// backend after `setSubtitleTrack`, `disableSubtitle` and each seek: each
-  /// of those is a synchronous write on the player that reads straight back,
-  /// so the snapshot forced after the call already carries the new id.
+  /// Null is libVLC's `-1` normalised, as for [activeAudioTrackId]; `0` is a
+  /// legal id. Re-sent by every backend after `setSubtitleTrack`,
+  /// `disableSubtitle` and each seek, all of which are synchronous writes that
+  /// read straight back.
   ///
-  /// `addSubtitle` is deliberately not in that list. libVLC 3 hands an added
-  /// slave to the input thread rather than applying it inline, so on all five
-  /// backends the snapshot forced immediately after the call still describes
-  /// the pre-add state — the future completing means "the engine accepted the
-  /// slave", not "the track is in the list now". The side-car surfaces when
-  /// the engine announces the new elementary stream (`.esAdded` on macOS and
-  /// iOS, `MediaPlayer.Event.ESAdded` on Android, the next 500 ms poll on
-  /// Windows and Linux), and that is what moves [trackRevision]. Key off
-  /// [trackRevision], never off the `addSubtitle` future.
+  /// `addSubtitle` is the exception: libVLC 3 hands an added slave to the
+  /// input thread rather than applying it inline, so the snapshot forced right
+  /// after the call still describes the pre-add state. The side-car surfaces
+  /// when the engine announces the new elementary stream, which is what moves
+  /// [trackRevision]. Key off [trackRevision], never off the `addSubtitle`
+  /// future.
   final int? activeSubtitleTrackId;
 
   /// A counter that moves whenever the engine's track list changes shape.
   ///
-  /// Monotonic per player, starting at `0`, and bumped when the audio +
-  /// subtitle track *set* changes — not merely when its size changes. macOS,
-  /// iOS, Windows and Linux hash the ids and names of both lists into every
-  /// snapshot and bump when that hash moves, so a same-size swap (an adaptive
-  /// rendition change, an MPEG-TS PMT update) is caught too; Android bumps on
-  /// an audio or subtitle `ESAdded` / `ESDeleted`, and deliberately not on a
-  /// video-only one. A demuxer finishing its parse, a side-car file landing
-  /// through `addSubtitle`, a stream dropping a language all move it.
+  /// Monotonic per player, starting at `0`, and bumped when the audio plus
+  /// subtitle track set changes, not merely when its size changes: a same-size
+  /// swap such as an adaptive rendition change is caught too. Android bumps on
+  /// an audio or subtitle `ESAdded` / `ESDeleted` and deliberately not on a
+  /// video-only one.
   ///
-  /// Because `addSubtitle` converges asynchronously, this — not the
-  /// completion of the call — is the signal that an added side-car exists.
   /// Consumers that cache `getAudioTracks()` / `getSubtitleTracks()` results
   /// should refetch when this differs from the revision they fetched under,
-  /// rather than polling. The number itself carries no meaning beyond
-  /// "changed since".
+  /// rather than polling. The number carries no meaning beyond "changed
+  /// since".
   final int trackRevision;
 
   /// Whether the native player has reached a playable active or terminal state.
@@ -201,33 +210,66 @@ class VlcPlayerValue {
   /// Whether playback has visibly stopped making progress while [state] still
   /// says it is running.
   ///
-  /// This is the mid-play spinner signal, and it deliberately does not come
-  /// from libVLC's state machine. libVLC 3 keeps reporting `playing` through a
-  /// rebuffer on every platform but Android, so [isBuffering] can only ever
-  /// describe the startup buffer. What does betray a stall is the position
-  /// clock standing still, and the controller - not the natives - watches that
-  /// clock and raises this once it has stood still for
-  /// `VlcPlayerController.stallIndicatorDelay`. It is only ever true while
-  /// [state] is [VlcPlaybackState.playing] or [VlcPlaybackState.buffering]: a
-  /// paused, stopped, ended or errored player is not stalled, it is what it
-  /// says it is.
+  /// The mid-play spinner signal, and deliberately not libVLC's state machine:
+  /// libVLC 3 keeps reporting `playing` through a rebuffer on every platform
+  /// but Android, so [isBuffering] can only describe the startup buffer. The
+  /// controller watches the position clock instead and raises this once it has
+  /// stood still for `VlcPlayerController.stallIndicatorDelay`. Only ever true
+  /// while [state] is [VlcPlaybackState.playing] or
+  /// [VlcPlaybackState.buffering].
   final bool isStalled;
 
   /// Why the system last interrupted playback, if it has.
   final VlcAudioInterruption interruption;
 
   /// Decoded video size when VLC exposes it.
+  ///
+  /// The elementary stream's stored width and height, which carries no
+  /// rotation. Use [displayVideoSize] for anything that cares which way up the
+  /// picture is.
   final Size? videoSize;
+
+  /// The rotation the backend will apply to [videoSize] before showing it.
+  ///
+  /// Null when the backend does not report one, which is not the same as
+  /// [VlcVideoOrientation.topLeft]: it means "unknown", and [displayVideoSize]
+  /// falls back to another source rather than assuming upright.
+  final VlcVideoOrientation? videoOrientation;
 
   /// The decoder's buffer size on a texture-backed player, when it differs
   /// from [videoSize].
   ///
   /// Decoders pad height to a multiple of 16, so a 1080p stream decodes into
-  /// 1920x1088 with eight rows nobody writes - and unwritten NV12 is green.
-  /// The texture is that whole buffer; the widget uses this to clip it back
-  /// to the visible picture. Null for view-backed players, whose drawable
-  /// already crops.
+  /// 1920x1088 with eight rows nobody writes, and unwritten NV12 is green. The
+  /// texture is that whole buffer; the widget uses this to clip it back to the
+  /// visible picture. Null for view-backed players, whose drawable already
+  /// crops.
   final Size? codedVideoSize;
+
+  /// The shape the picture is shown at, with rotation already resolved.
+  ///
+  /// Backends reach that answer by different routes, reconciled here so
+  /// callers need not know which platform they are on. A reported
+  /// [videoOrientation] (Android) is applied to [videoSize]; otherwise
+  /// [codedVideoSize] is used, because libVLC's `vmem` output applies the
+  /// rotation before negotiating that buffer, so its shape is already the
+  /// upright picture's.
+  ///
+  /// Null when neither is available, and deliberately not [videoSize] as a
+  /// last resort: a portrait clip and a landscape film are both 1920x1080
+  /// there, so this says "unknown" rather than guessing. Also null before any
+  /// size arrives, which is every backend's answer while the player is still
+  /// opening.
+  Size? get displayVideoSize {
+    final stored = videoSize;
+    final orientation = videoOrientation;
+    if (orientation != null && stored != null) {
+      return orientation.swapsAxes
+          ? Size(stored.height, stored.width)
+          : stored;
+    }
+    return codedVideoSize;
+  }
 
   /// Normalized buffering progress from `0.0` to `1.0`, when available.
   final double? bufferingProgress;
@@ -238,16 +280,12 @@ class VlcPlayerValue {
   /// Human-readable playback error text when available.
   final String? errorDescription;
 
-  /// Whether [state] is [VlcPlaybackState.playing].
   bool get isPlaying => state == VlcPlaybackState.playing;
 
-  /// Whether [state] is [VlcPlaybackState.buffering].
   bool get isBuffering => state == VlcPlaybackState.buffering;
 
-  /// Whether [state] is [VlcPlaybackState.error].
   bool get hasError => state == VlcPlaybackState.error;
 
-  /// Whether the system is currently interrupting playback.
   bool get isInterrupted => interruption != VlcAudioInterruption.none;
 
   @override
@@ -272,6 +310,7 @@ class VlcPlayerValue {
         other.isStalled == isStalled &&
         other.interruption == interruption &&
         other.videoSize == videoSize &&
+        other.videoOrientation == videoOrientation &&
         other.codedVideoSize == codedVideoSize &&
         other.bufferingProgress == bufferingProgress &&
         other.error == error &&
@@ -279,7 +318,9 @@ class VlcPlayerValue {
   }
 
   @override
-  int get hashCode => Object.hash(
+  // hashAll rather than hash: Object.hash takes at most twenty positional
+  // arguments and this snapshot carries twenty-one fields.
+  int get hashCode => Object.hashAll([
     state,
     position,
     duration,
@@ -296,11 +337,12 @@ class VlcPlayerValue {
     isStalled,
     interruption,
     videoSize,
+    videoOrientation,
     codedVideoSize,
     bufferingProgress,
     error,
     errorDescription,
-  );
+  ]);
 
   /// Returns a copy with selected fields replaced.
   ///
@@ -326,6 +368,7 @@ class VlcPlayerValue {
     bool? isStalled,
     VlcAudioInterruption? interruption,
     Size? videoSize,
+    VlcVideoOrientation? videoOrientation,
     bool clearVideoSize = false,
     Size? codedVideoSize,
     double? bufferingProgress,
@@ -369,8 +412,12 @@ class VlcPlayerValue {
       isStalled: isStalled ?? this.isStalled,
       interruption: interruption ?? this.interruption,
       videoSize: clearVideoSize ? null : videoSize ?? this.videoSize,
-      // Cleared together with videoSize: both describe the same picture, and
-      // a stale coded size against a fresh visible one would clip wrongly.
+      // Cleared with videoSize: all three describe the same picture, and last
+      // clip's rotation or coded size against fresh dimensions would clip
+      // wrongly or open a landscape film sideways.
+      videoOrientation: clearVideoSize
+          ? null
+          : videoOrientation ?? this.videoOrientation,
       codedVideoSize: clearVideoSize
           ? null
           : codedVideoSize ?? this.codedVideoSize,
@@ -393,21 +440,15 @@ class VlcPlayerValue {
     var state =
         _stateFromString(_stringValue(event['state'])) ?? previous.state;
 
-    // libVLC's state machine cannot be taken at face value. VLCKit reports
-    // `buffering` for the whole of healthy playback with `isPlaying` false, and
-    // libVLC on Android emits a Buffering event on nearly every tick. A
-    // consumer that trusts the enum shows a spinner over a playing video and,
-    // worse, never learns that playback started at all.
+    // libVLC's state machine cannot be taken at face value: VLCKit reports
+    // `buffering` for the whole of healthy playback with `isPlaying` false,
+    // and libVLC on Android emits a Buffering event on nearly every tick. An
+    // advancing position cannot lie, so it corrects the enum here for every
+    // platform and consumer.
     //
-    // An advancing position cannot lie, so it corrects the enum here - once,
-    // for every platform and every consumer - rather than in each UI that hits
-    // the problem.
-    //
-    // Deliberately narrow. The correction applies only when playback was
-    // ALREADY running and the position moved forward, which is exactly the
-    // spurious case. A genuine buffer at startup arrives from `opening`, and a
-    // genuine rebuffer mid-playback does not advance the position - both are
-    // left alone, as are paused, stopped, ended and error.
+    // Narrow on purpose: only when playback was already running and the
+    // position moved forward. A genuine buffer at startup arrives from
+    // `opening`, and a genuine rebuffer does not advance the position.
     if (state == VlcPlaybackState.buffering &&
         previous.state == VlcPlaybackState.playing) {
       final position = _durationFromMilliseconds(event['position']);
@@ -420,22 +461,22 @@ class VlcPlayerValue {
     final codedVideoSize = event.containsKey('codedSize')
         ? _sizeFromMap(event['codedSize'])
         : null;
+    final videoOrientation = _orientationValue(event['videoOrientation']);
     final hasBufferingProgress = event.containsKey('bufferingProgress');
     final bufferingProgress = hasBufferingProgress
         ? _normalizedProgress(event['bufferingProgress'])
         : null;
     final error = _errorFromEvent(event);
-    // Track ids: an absent key keeps the previous value (older natives and
-    // test fixtures send none), while a present key that is not a usable id -
-    // libVLC's -1 for "none/off" - clears it to null.
+    // An absent track key keeps the previous value; a present key that is not
+    // a usable id - libVLC's -1 for "none/off" - clears it to null.
     final hasAudioTrack = event.containsKey('audioTrack');
     final audioTrack = _trackIdValue(event['audioTrack']);
     final hasSubtitleTrack = event.containsKey('subtitleTrack');
     final subtitleTrack = _trackIdValue(event['subtitleTrack']);
 
-    // isStalled is deliberately not read from the event. No native backend can
-    // report it - see the field - so it is carried over from [previous] and
-    // owned entirely by the controller's position clock.
+    // isStalled is deliberately not read from the event: no native backend can
+    // report it, so it is carried over from [previous] and owned entirely by
+    // the controller's position clock.
     return previous.copyWith(
       state: state,
       position: _durationFromMilliseconds(event['position']),
@@ -456,6 +497,7 @@ class VlcPlayerValue {
         _stringValue(event['interruption']),
       ),
       videoSize: videoSize,
+      videoOrientation: videoOrientation,
       codedVideoSize: codedVideoSize,
       clearVideoSize:
           (hasVideoSize && videoSize == null) || _clearsVideoSize(state),
@@ -467,6 +509,23 @@ class VlcPlayerValue {
       errorDescription: error?.message,
       clearError: error == null,
     );
+  }
+
+  /// libVLC's `libvlc_video_orient_t`, as an integer off the wire.
+  ///
+  /// Anything outside the eight documented values reads as null rather than
+  /// being clamped to upright: a wrong rotation turns a handset the wrong way,
+  /// while an absent one falls through to the next source in
+  /// [VlcPlayerValue.displayVideoSize].
+  static VlcVideoOrientation? _orientationValue(Object? value) {
+    if (value is! num || !value.isFinite) {
+      return null;
+    }
+    final index = value.round();
+    if (index < 0 || index >= VlcVideoOrientation.values.length) {
+      return null;
+    }
+    return VlcVideoOrientation.values[index];
   }
 
   static Duration? _durationFromMilliseconds(Object? value) {

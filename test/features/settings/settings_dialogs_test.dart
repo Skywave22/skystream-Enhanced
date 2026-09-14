@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/network/doh_service.dart';
+import 'package:skystream/core/storage/settings_repository.dart';
+import 'package:skystream/core/storage/storage_service.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/features/player/presentation/player_platform_service.dart';
 import 'package:skystream/features/settings/presentation/player_settings_provider.dart';
@@ -13,6 +17,31 @@ import 'package:skystream/l10n/generated/app_localizations.dart';
 class _StubPlayerSettings extends PlayerSettingsNotifier {
   @override
   Future<PlayerSettings> build() async => const PlayerSettings();
+}
+
+/// Records what a dialog asks the notifier for instead of writing it to Hive.
+///
+/// [_StubPlayerSettings] answers `build` and nothing else, so a setter called
+/// on it reaches the real repository and the real box. These tests are about
+/// the write the dialog issues, so the write is the thing that has to be
+/// observable.
+class _RecordingPlayerSettings extends PlayerSettingsNotifier {
+  _RecordingPlayerSettings(this.initial, this.subtitleDefaults);
+
+  final SubtitleDefault initial;
+  final List<SubtitleDefault> subtitleDefaults;
+
+  @override
+  Future<PlayerSettings> build() async =>
+      PlayerSettings(subtitleDefault: initial);
+
+  /// Records only. Nothing in these tests watches the provider, so its state
+  /// is still `AsyncLoading` when the tap lands and writing to it would throw
+  /// where the real notifier - built by something that awaited it - would not.
+  @override
+  Future<void> setSubtitleDefault(SubtitleDefault value) async {
+    subtitleDefaults.add(value);
+  }
 }
 
 /// Keeps the DoH picker off SharedPreferences.
@@ -31,12 +60,15 @@ Future<void> _pumpOpener(
   required void Function(BuildContext, WidgetRef) open,
   TargetPlatform platform = TargetPlatform.android,
   DeviceProfile profile = const DeviceProfile(),
+  PlayerSettingsNotifier Function()? settings,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         deviceProfileProvider.overrideWithValue(AsyncValue.data(profile)),
-        playerSettingsProvider.overrideWith(_StubPlayerSettings.new),
+        playerSettingsProvider.overrideWith(
+          settings ?? _StubPlayerSettings.new,
+        ),
       ],
       child: MaterialApp(
         theme: ThemeData(platform: platform),
@@ -290,13 +322,23 @@ void main() {
 
     testWidgets('a long picker scrolls the current row into view, not just '
         'focuses it off screen', (tester) async {
-      // 20 rows of 56 dp cannot fit an 800x600 dialog; 20 min is the last.
+      // The language list is the app's longest picker by far: 43 rows of 56 dp
+      // against an 800x600 dialog. Whichever locale is last is the one that
+      // needs scrolling to.
+      final Locale target = AppLocalizations.supportedLocales.last;
+      final String targetLabel = (await AppLocalizations.delegate.load(
+        target,
+      )).languageName;
+      final String firstLabel = (await AppLocalizations.delegate.load(
+        AppLocalizations.supportedLocales.first,
+      )).languageName;
+
       await _pumpOpener(
         tester,
-        open: (context, ref) => showReadaheadDialog(context, ref, 20 * 60),
+        open: (context, ref) => showLanguageDialog(context, ref, target),
       );
 
-      expect(_focusedRowTitle(), '20 min');
+      expect(_focusedRowTitle(), targetLabel);
 
       final Finder viewport = find.descendant(
         of: find.byType(AlertDialog),
@@ -304,10 +346,16 @@ void main() {
       );
       final Rect viewportRect = tester.getRect(viewport);
       final Rect rowRect = tester.getRect(
-        find.ancestor(of: find.text('20 min'), matching: find.byType(ListTile)),
+        find.ancestor(
+          of: find.text(targetLabel),
+          matching: find.byType(ListTile),
+        ),
       );
       final Rect firstRowRect = tester.getRect(
-        find.ancestor(of: find.text('1 min'), matching: find.byType(ListTile)),
+        find.ancestor(
+          of: find.text(firstLabel),
+          matching: find.byType(ListTile),
+        ),
       );
 
       // The list is genuinely taller than its viewport, or this proves nothing.
@@ -406,4 +454,309 @@ void main() {
       expect(_focusedRowTitle(), 'Quad9');
     });
   });
+
+  /// The Subtitles-by-default picker.
+  ///
+  /// The row it opens from is a default for newly opened media, not a switch
+  /// that takes the player's Subtitles menu away, and "Off" on its own reads
+  /// exactly like the second thing. So the detail line under each choice is
+  /// part of the control, not decoration, and is asserted here.
+  group('showSubtitleDefaultDialog', () {
+    late AppLocalizations l10n;
+
+    setUpAll(() async {
+      l10n = await AppLocalizations.delegate.load(const Locale('en'));
+    });
+
+    Future<List<SubtitleDefault>> open(
+      WidgetTester tester,
+      SubtitleDefault current,
+    ) async {
+      final List<SubtitleDefault> chosen = <SubtitleDefault>[];
+      await _pumpOpener(
+        tester,
+        settings: () => _RecordingPlayerSettings(current, chosen),
+        open: (context, ref) =>
+            showSubtitleDefaultDialog(context, ref, current),
+      );
+      return chosen;
+    }
+
+    testWidgets('offers both choices, each with what it means', (tester) async {
+      await open(tester, SubtitleDefault.auto);
+
+      expect(find.text(l10n.subtitleDefault), findsOneWidget);
+      expect(find.text(l10n.subtitleDefaultAuto), findsOneWidget);
+      expect(find.text(l10n.subtitleDefaultAutoDetail), findsOneWidget);
+      expect(find.text(l10n.off), findsOneWidget);
+      expect(
+        find.text(l10n.subtitleDefaultOffDetail),
+        findsOneWidget,
+        reason:
+            'without this line Off reads as "subtitles are disabled", which '
+            'is not what it does',
+      );
+    });
+
+    testWidgets('opens on the choice in force, so a remote lands on it', (
+      tester,
+    ) async {
+      await open(tester, SubtitleDefault.off);
+
+      expect(_focusedRowTitle(), l10n.off);
+    });
+
+    testWidgets('a pick reaches the setter and closes the dialog', (
+      tester,
+    ) async {
+      final List<SubtitleDefault> chosen = await open(
+        tester,
+        SubtitleDefault.auto,
+      );
+
+      await tester.tap(find.text(l10n.subtitleDefaultOffDetail));
+      await tester.pumpAndSettle();
+
+      expect(chosen, <SubtitleDefault>[SubtitleDefault.off]);
+      expect(find.text(l10n.subtitleDefaultAutoDetail), findsNothing);
+    });
+  });
+
+  /// The OpenSubtitles sign-in.
+  ///
+  /// `OpenSubtitlesProvider` returns an empty list before it sends anything
+  /// when it has no API key, and no shipped build supplies the build-time one,
+  /// so the key the viewer pastes here is the only thing that turns the
+  /// provider on. Until this field existed `osApiKey` could not be written
+  /// from anywhere in the app.
+  group('the OpenSubtitles dialog', () {
+    late AppLocalizations l10n;
+
+    setUpAll(() async {
+      l10n = await AppLocalizations.delegate.load(const Locale('en'));
+    });
+
+    Future<_RecordingOpenSubtitles> open(
+      WidgetTester tester,
+      PlayerSettings settings,
+    ) async {
+      final _RecordingOpenSubtitles notifier = _RecordingOpenSubtitles(
+        settings,
+      );
+      await _pumpOpener(
+        tester,
+        settings: () => notifier,
+        open: (context, ref) =>
+            showOpenSubtitlesAuthDialog(context, ref, settings),
+      );
+      return notifier;
+    }
+
+    Finder fieldFor(String label) =>
+        find.ancestor(of: find.text(label), matching: find.byType(TextField));
+
+    testWidgets('Save carries the API key, not only the credentials', (
+      tester,
+    ) async {
+      final _RecordingOpenSubtitles notifier = await open(
+        tester,
+        const PlayerSettings(),
+      );
+
+      await tester.enterText(fieldFor(l10n.apiKey), 'os-api-key');
+      await tester.enterText(fieldFor(l10n.username), 'ada');
+      await tester.enterText(fieldFor(l10n.password), 'hunter2');
+      await tester.tap(find.text(l10n.save));
+      await tester.pumpAndSettle();
+
+      expect(notifier.saved, <List<String?>>[
+        <String?>['ada', 'hunter2', 'os-api-key'],
+      ]);
+    });
+
+    testWidgets('Test Connection tests the key that was just typed', (
+      tester,
+    ) async {
+      final _RecordingOpenSubtitles notifier = await open(
+        tester,
+        const PlayerSettings(),
+      );
+
+      await tester.enterText(fieldFor(l10n.apiKey), 'os-api-key');
+      await tester.enterText(fieldFor(l10n.username), 'ada');
+      await tester.enterText(fieldFor(l10n.password), 'hunter2');
+      await tester.tap(find.text(l10n.testConnection));
+      await tester.pumpAndSettle();
+
+      expect(notifier.verified, <List<String?>>[
+        <String?>['ada', 'hunter2', 'os-api-key'],
+      ]);
+    });
+
+    testWidgets('a stored key comes back into the field', (tester) async {
+      await open(tester, const PlayerSettings(osApiKey: 'stored-key'));
+
+      expect(
+        tester.widget<TextField>(fieldFor(l10n.apiKey)).controller?.text,
+        'stored-key',
+      );
+    });
+  });
+
+  /// "Reset Data (Keep Extensions)" promises to clear Settings, and the two
+  /// subtitle account passwords are not in the box it empties - they are in
+  /// the Keychain/Keystore. Left behind, the next launch reads the usernames
+  /// as gone and draws "Not logged in" over passwords still on the device.
+  testWidgets('Reset Data clears the account passwords with the box', (
+    tester,
+  ) async {
+    final AppLocalizations l10n = await AppLocalizations.delegate.load(
+      const Locale('en'),
+    );
+    final _RecordingReset repository = _RecordingReset();
+    final _RecordingCredentialReset notifier = _RecordingCredentialReset();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsRepositoryProvider.overrideWithValue(repository),
+          playerSettingsProvider.overrideWith(() => notifier),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: Consumer(
+              builder: (context, ref, _) => TextButton(
+                onPressed: () => showResetDataDialog(context, ref),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(l10n.resetDataKeepExtensions));
+    await tester.pumpAndSettle();
+
+    expect(repository.cleared, 1, reason: 'the box still has to go');
+    expect(notifier.clears, 1);
+  });
+
+  // A stored player id this platform does not list - a build that dropped the
+  // player, or a settings box carried over - matched no row, so the group
+  // opened with nothing selected and Cancel put the same id back.
+  group('showDefaultPlayerDialog always shows what is stored', () {
+    testWidgets('a player this platform does not list still has a row', (
+      tester,
+    ) async {
+      await _pumpOpener(
+        tester,
+        open: (context, ref) =>
+            showDefaultPlayerDialog(context, ref, 'potplayer'),
+      );
+
+      // PotPlayer is Windows-only and the test host reports Android.
+      expect(find.text('PotPlayer'), findsOneWidget);
+      expect(
+        find.text('Not offered on this device'),
+        findsOneWidget,
+        reason: 'a row with no explanation is worse than the missing one',
+      );
+      expect(_selectedRadioValues(tester), <String?>['potplayer']);
+    });
+
+    testWidgets('an id no build ever had is named as itself', (tester) async {
+      await _pumpOpener(
+        tester,
+        open: (context, ref) =>
+            showDefaultPlayerDialog(context, ref, 'some_retired_player'),
+      );
+
+      expect(find.text('some_retired_player'), findsOneWidget);
+      expect(_selectedRadioValues(tester), <String?>['some_retired_player']);
+    });
+
+    testWidgets('a player this platform does list gets no extra row', (
+      tester,
+    ) async {
+      await _pumpOpener(
+        tester,
+        open: (context, ref) =>
+            showDefaultPlayerDialog(context, ref, 'mx_player'),
+      );
+
+      expect(find.text('Not offered on this device'), findsNothing);
+      expect(_selectedRadioValues(tester), <String?>['mx_player']);
+    });
+  });
+}
+
+/// The values of every radio the dialog is currently showing as chosen.
+List<String?> _selectedRadioValues(WidgetTester tester) {
+  final RadioGroup<String?> group = tester.widget<RadioGroup<String?>>(
+    find.byType(RadioGroup<String?>),
+  );
+  return tester
+      .widgetList<Radio<String?>>(find.byType(Radio<String?>))
+      .where((Radio<String?> r) => r.value == group.groupValue)
+      .map((Radio<String?> r) => r.value)
+      .toList();
+}
+
+/// Records what the reset button does instead of emptying the real box.
+class _RecordingReset extends SettingsRepository {
+  _RecordingReset() : super(StorageService());
+
+  int cleared = 0;
+
+  @override
+  Future<void> clearPreferences({bool keepRepos = true}) async => cleared++;
+}
+
+/// Counts the secure-store wipe instead of reaching the Keychain.
+class _RecordingCredentialReset extends PlayerSettingsNotifier {
+  int clears = 0;
+
+  @override
+  FutureOr<PlayerSettings> build() => const PlayerSettings();
+
+  @override
+  Future<void> clearCredentials() async => clears++;
+}
+
+/// Records the two calls the OpenSubtitles dialog can make instead of writing
+/// to Hive and the network.
+class _RecordingOpenSubtitles extends PlayerSettingsNotifier {
+  _RecordingOpenSubtitles(this.initial);
+
+  final PlayerSettings initial;
+  final List<List<String?>> saved = <List<String?>>[];
+  final List<List<String?>> verified = <List<String?>>[];
+
+  @override
+  FutureOr<PlayerSettings> build() => initial;
+
+  @override
+  Future<void> setOpenSubtitlesCredentials(
+    String user,
+    String pass, [
+    String? key,
+  ]) async {
+    saved.add(<String?>[user, pass, key]);
+  }
+
+  @override
+  Future<bool> verifyOpenSubtitles(
+    String user,
+    String pass, [
+    String? key,
+  ]) async {
+    verified.add(<String?>[user, pass, key]);
+    return true;
+  }
 }

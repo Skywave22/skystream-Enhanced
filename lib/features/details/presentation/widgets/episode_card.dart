@@ -102,7 +102,6 @@ class EpisodeCard extends HookConsumerWidget {
 
     final downloadedFile = ref.watch(downloadedFilesProvider)[episode.url];
 
-    // Check for downloaded file on load
     useEffect(() {
       if (!isDownloading) {
         Future.microtask(() {
@@ -122,9 +121,8 @@ class EpisodeCard extends HookConsumerWidget {
     // The card-wide InkWell owns a node that is permanently out of traversal.
     // `canRequestFocus: false` alone would not do it: [InkResponse] forces
     // `canRequestFocus` to true whenever the host declares
-    // `NavigationMode.directional` — i.e. on precisely the televisions this
-    // card has to behave on — and a focusable node the size of the card would
-    // swallow the traversal step that belongs to the body.
+    // `NavigationMode.directional`, which televisions do, and a focusable node
+    // the size of the card would swallow the body's traversal step.
     final cardInkFocusNode = useFocusNode(
       debugLabel: 'ep_card_ink',
       skipTraversal: true,
@@ -188,9 +186,9 @@ class EpisodeCard extends HookConsumerWidget {
     final longPressTriggered = useRef(false);
 
     return Focus(
-      // Passive observer for the card as a whole. `hasFocus` here stays true
-      // while the download button is the focused child, which is what keeps
-      // the card's border lit and the button's traversal permit open (see
+      // Passive observer for the card as a whole. `hasFocus` stays true while
+      // the download button is the focused child, which keeps the card's
+      // border lit and the button's traversal permit open (see
       // [_EpisodeCardAction]).
       canRequestFocus: false,
       skipTraversal: true,
@@ -219,14 +217,12 @@ class EpisodeCard extends HookConsumerWidget {
       child: InkWell(
         onTap: handleEpisodeTap,
         onLongPress: updateSelection,
-        // Deliberately NOT a focus stop. The focusable body is the smaller
-        // node inside the header row below. An InkWell that wraps the whole
-        // card would be a second stop per card, and its rect *encloses* the
-        // download button: directional traversal only ever considers
-        // candidates whose centre lies past the focused rect's edge
-        // (`_sortAndFilterHorizontally` / `_sortAndFilterVertically`), so from
-        // a node the size of the card the button is unreachable in every
-        // direction. Tap and long-press still cover the whole card.
+        // Deliberately NOT a focus stop; the focusable body is the smaller
+        // node inside the header row below. This rect encloses the download
+        // button, and directional traversal only considers candidates whose
+        // centre lies past the focused rect's edge, so from a node the size of
+        // the card the button is unreachable in every direction. Tap and
+        // long-press still cover the whole card.
         focusNode: cardInkFocusNode,
         canRequestFocus: false,
         borderRadius: BorderRadius.circular(12),
@@ -265,13 +261,12 @@ class EpisodeCard extends HookConsumerWidget {
                   // The card's single traversal stop, covering the thumbnail
                   // and the title but NOT the trailing action. Keeping the
                   // action outside this rect is what lets plain directional
-                  // traversal walk RIGHT into it and LEFT back out, with no
-                  // hand-rolled arrow handling anywhere in this file.
+                  // traversal walk RIGHT into it and LEFT back out.
                   Expanded(
                     child: Focus(
                       focusNode: bodyFocusNode,
                       onKeyEvent: (node, event) {
-                        // Menu key → trigger download immediately.
+                        // Menu key triggers the download immediately.
                         final isMenu =
                             event.logicalKey ==
                                 LogicalKeyboardKey.contextMenu ||
@@ -281,7 +276,7 @@ class EpisodeCard extends HookConsumerWidget {
                           return KeyEventResult.handled;
                         }
 
-                        // Select / Enter / Space → long-press detection via
+                        // Select, Enter and Space detect a long press through
                         // KeyRepeatEvent.
                         if (event.logicalKey == LogicalKeyboardKey.select ||
                             event.logicalKey == LogicalKeyboardKey.enter ||
@@ -418,12 +413,9 @@ class EpisodeCard extends HookConsumerWidget {
     );
     if (raw == null) return const SizedBox.shrink();
 
-    // One shape on every platform. What used to stand here was
-    // `if (context.isDesktop) return ExcludeFocus(child: raw)`, which made the
-    // download unreachable by remote and by keyboard on any surface 900 dp or
-    // wider — every television (960 dp), every landscape tablet, every wide
-    // desktop window — and offered a Menu key as the substitute on exactly the
-    // devices least likely to have one.
+    // One shape on every platform. Excluding this from focus on wide surfaces
+    // strands the download on any device 900 dp or wider, which includes every
+    // television (960 dp) and every landscape tablet.
     return _EpisodeCardAction(
       cardHasFocus: cardHasFocus,
       onActivate: onActivate,
@@ -488,7 +480,7 @@ class EpisodeCard extends HookConsumerWidget {
                         strokeWidth: 2,
                       ),
                       Text(
-                        "${(downloadProgress * 100).toInt()}%", // Display the percentage
+                        "${(downloadProgress * 100).toInt()}%",
                         style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
@@ -629,30 +621,22 @@ class EpisodeCard extends HookConsumerWidget {
 /// The card's trailing download action: one focus stop, reachable by D-pad,
 /// by remote and by keyboard on every platform.
 ///
-/// **Traversal.** The card body is the UP/DOWN stop; this button is reached
-/// with RIGHT once the card holds focus (LEFT comes back), which is ordinary
-/// directional traversal — the body's rect stops short of this button, so
-/// Flutter's own policy resolves both moves and this file hand-rolls no arrow
-/// handling at all.
+/// The card body is the UP/DOWN stop; this button is reached with RIGHT once
+/// the card holds focus and LEFT comes back, which is ordinary directional
+/// traversal because the body's rect stops short of this button.
 ///
-/// What the wrapper adds is the gate `SourceCardActions` uses for the source
-/// sheet: while the card does NOT hold focus its descendants are
-/// untraversable, so no OTHER row's icon is ever in the candidate set. Two
-/// moves depend on it. DOWN from this button lands on the next episode rather
-/// than on the next episode's icon, so every DOWN press is one episode, which
-/// is what keeps a fifty-episode list walkable. And in the two-column grid a
-/// television lays out (crossAxisExtent / 480), LEFT from the right-hand card
-/// lands on the left-hand EPISODE rather than on its icon, which is nearer.
-/// The button stays *focusable* throughout; only traversal is gated.
+/// While the card does NOT hold focus its descendants are untraversable, so no
+/// other row's icon is ever in the candidate set. DOWN from this button then
+/// lands on the next episode rather than that episode's icon, and in the
+/// two-column grid a television lays out, LEFT from the right-hand card lands
+/// on the left-hand episode rather than on its nearer icon. The button stays
+/// focusable throughout; only traversal is gated.
 ///
-/// **Activation.** OK / Enter / Space are answered here rather than left to
-/// Flutter's default `SingleActivator -> ActivateIntent`, for one reason:
-/// those activators take repeats (`includeRepeats` defaults to true), and a
-/// remote repeats OK for as long as it is held. Native activation therefore
-/// fires a download — a resolve dialog, a launcher call — on every repeat
-/// tick. Answering the key here means the down edge acts and the repeats are
-/// swallowed. The wrapper cannot take focus itself, so it sees these events on
-/// their way up from the button, which is the only node below it.
+/// OK / Enter / Space are answered here rather than left to Flutter's default
+/// `SingleActivator -> ActivateIntent`, because those activators take repeats
+/// (`includeRepeats` defaults to true) and a remote repeats OK for as long as
+/// it is held, which would fire a download on every tick. The wrapper cannot
+/// take focus itself, so it sees these events on their way up from the button.
 class _EpisodeCardAction extends StatefulWidget {
   final Widget child;
 

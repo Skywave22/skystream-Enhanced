@@ -5,30 +5,17 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 /// leaves the remote with nothing focused.
 ///
 /// `autofocus` inside a [ListView.builder] only fires for rows the builder has
-/// actually run, so on a forty-source list opening at index 30 nothing claimed
-/// focus at all and it stayed on the enclosing route scope — the one state the
-/// player's focus rules forbid, because the key sink that normally rescues it
-/// lives in the route *below* a panel and cannot see that scope.
-///
-/// Three things work together here, on every form factor:
-///
-///   * the list opens already scrolled near the anchor, from
-///     [estimatedRowExtent], so the anchor row is one of the rows the builder
-///     runs — inside the viewport plus its 800 px cache — and its own
-///     `autofocus` fires normally;
-///   * in the first post-frame callback the anchor's *laid-out* rect is read
-///     and the list jumps so the row sits mid-viewport, which is what a viewer
-///     scanning for "where am I" expects and what a remote needs so the focused
-///     row is never above the fold. The framework does not do this on its own:
-///     autofocus only requests focus, and only D-pad traversal scrolls;
-///   * a post-frame check on the second frame moves focus into the list anyway
-///     if no row claimed it, so the invariant holds even when the estimate was
-///     wide enough to miss the cache.
+/// actually run, so a list opened far down its range leaves focus on the
+/// enclosing route scope, which the panel's key sink cannot see. So the list
+/// opens already scrolled near the anchor, from [estimatedRowExtent], so the
+/// anchor row is built and its `autofocus` fires; it re-centres on the
+/// anchor's laid-out rect after the first frame, because autofocus only
+/// requests focus and only D-pad traversal scrolls; and on the second frame it
+/// moves focus into the list itself if no row claimed it.
 ///
 /// The anchor is decided once, at open. A later [anchorIndex] never scrolls or
-/// refocuses — live data must not move the list under the viewer's thumb — but
-/// a shrinking [itemCount] that unmounts the focused row is caught and focus is
-/// put back inside the list.
+/// refocuses, but a shrinking [itemCount] that unmounts the focused row is
+/// caught and focus is put back inside the list.
 class PanelAnchoredList extends StatefulWidget {
   const PanelAnchoredList({
     required this.itemCount,
@@ -62,15 +49,11 @@ class PanelAnchoredList extends StatefulWidget {
 }
 
 class _PanelAnchoredListState extends State<PanelAnchoredList> {
-  /// Where the anchor row sits mid-viewport: dead centre. The alternative,
-  /// one row of context above it, was considered and centre chosen so the
-  /// row reads the same from either end of the list.
+  /// Viewport alignment for the anchor row: dead centre.
   static const double _kAnchorAlignment = 0.5;
 
-  /// The anchor as it was when the list opened. Read once: a live
-  /// [PanelAnchoredList.anchorIndex] must neither scroll nor move the key,
-  /// because a [GlobalKey] that hops rows would carry the old row's element —
-  /// and its focus — to the new position.
+  /// The anchor as it was when the list opened. Read once: moving [_anchorKey]
+  /// to another row would carry the old row's element, and its focus, with it.
   late final int _anchor = widget.anchorIndex;
 
   late final ScrollController _controller = ScrollController(
@@ -84,16 +67,13 @@ class _PanelAnchoredListState extends State<PanelAnchoredList> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Frame one: the anchor row has geometry but nothing holds focus yet — a
-      // row's `autofocus` is a request the focus manager applies after this
-      // frame — so the jump sees no focus and cannot move it. A zero-duration
-      // ensureVisible is a jumpTo that keeps the anchor mounted, so its pending
-      // autofocus stays valid.
+      // Frame one: the anchor row has geometry but nothing holds focus yet, so
+      // the jump cannot move focus. A zero-duration ensureVisible keeps the
+      // anchor mounted and its pending autofocus valid.
       _centreAnchor();
       if (widget.autofocus) {
-        // Frame two, not one: checking on the frame that mounted the rows
-        // always sees an empty scope and would steal focus from the anchor
-        // row onto row zero.
+        // Frame two, not one: the frame that mounted the rows still sees an
+        // empty scope and would steal focus from the anchor onto row zero.
         WidgetsBinding.instance.addPostFrameCallback((_) => _rescueFocus());
       }
     });
@@ -102,10 +82,9 @@ class _PanelAnchoredListState extends State<PanelAnchoredList> {
   @override
   void didUpdateWidget(PanelAnchoredList oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // A changed anchorIndex is deliberately ignored: the anchor is an
-    // open-time decision. Only a list that shrank while one of its rows held
-    // focus needs attention, because that row may be about to unmount and
-    // focus would fall to the root scope, where no key reaches the panel.
+    // A changed anchorIndex is ignored: the anchor is an open-time decision.
+    // A list that shrank may be about to unmount the focused row, dropping
+    // focus to the root scope, where no key reaches the panel.
     if (widget.itemCount < oldWidget.itemCount && _ownsPrimaryFocus) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _rescueFocus());
     }
@@ -118,10 +97,9 @@ class _PanelAnchoredListState extends State<PanelAnchoredList> {
     return focused.findAncestorStateOfType<_PanelAnchoredListState>() == this;
   }
 
-  /// Puts the anchor row mid-viewport using its laid-out size.
+  /// Puts the anchor row mid-viewport using its laid-out size, correcting the
+  /// estimate the opening offset was seeded from.
   ///
-  /// The seed from [PanelAnchoredList.estimatedRowExtent] only had to land the
-  /// row inside the cache extent; this corrects it against the real geometry.
   /// [ScrollPosition.ensureVisible] clamps to the scroll extents, so a short
   /// list or an anchor near an end pins to that edge instead of overscrolling
   /// and springing back.
@@ -129,7 +107,7 @@ class _PanelAnchoredListState extends State<PanelAnchoredList> {
     if (!mounted || _anchor <= 0) return;
     final anchor = _anchorKey.currentContext;
     // The estimate missed by more than a viewport plus the cache: keep the
-    // seed, the focus rescue still runs.
+    // seed; the focus rescue still runs.
     if (anchor == null) return;
     Scrollable.ensureVisible(
       anchor,
@@ -140,18 +118,15 @@ class _PanelAnchoredListState extends State<PanelAnchoredList> {
 
   /// Puts focus in the list if nothing in the panel's scope holds it.
   ///
-  /// Reached when the seeded offset missed the anchor — a list of unusually
-  /// tall rows, or one clamped short by [ScrollPosition.maxScrollExtent] —
-  /// and when a shrinking list unmounted the focused row. In both cases the
-  /// focus manager has either left primary focus on the enclosing scope
-  /// itself or dropped it to the root, and neither can see a key. Focus that
-  /// is genuinely somewhere else — a sheet pushed over the panel — is left
-  /// alone.
+  /// Reached when the seeded offset missed the anchor and when a shrinking
+  /// list unmounted the focused row. In both cases focus sits on the enclosing
+  /// scope or on the root, and neither can see a key. Focus that is genuinely
+  /// somewhere else, such as a sheet pushed over the panel, is left alone.
   ///
   /// The row chosen is the one nearest the middle of the viewport, and it is
   /// brought fully on screen: directional traversal from an empty scope picks
-  /// the topmost focusable node, which in a panel is a tab button and in a
-  /// list with an 800 px cache is a row well above the fold.
+  /// the topmost focusable node, which is a tab button or a row well above the
+  /// fold.
   void _rescueFocus() {
     if (!mounted) return;
     final scope = FocusScope.of(context);
@@ -163,8 +138,7 @@ class _PanelAnchoredListState extends State<PanelAnchoredList> {
         primary != FocusManager.instance.rootScope) {
       return;
     }
-    // The scope remembers the row focused before the one that vanished; going
-    // back there is the least surprising place for the highlight to reappear.
+    // The scope remembers the row focused before the one that vanished.
     final remembered = scope.focusedChild;
     final target = remembered != null && _isRowOfThisList(remembered)
         ? remembered

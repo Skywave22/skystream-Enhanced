@@ -99,9 +99,6 @@ class AppLocalizationsId extends AppLocalizations {
   String get seekDuration => 'Durasi Lompatan';
 
   @override
-  String get bufferDepth => 'Kedalaman Buffer';
-
-  @override
   String get defaultResizeMode => 'Mode Ukuran Default';
 
   @override
@@ -465,9 +462,6 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Pilih Durasi Lompatan';
-
-  @override
-  String get selectBufferDepth => 'Pilih Kedalaman Buffer';
 
   @override
   String get subtitleSettings => 'Pengaturan Terjemahan';
@@ -931,6 +925,11 @@ class AppLocalizationsId extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName tidak terdeteksi. Memulai pemutar internal.';
   }
@@ -1201,7 +1200,10 @@ class AppLocalizationsId extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Preferensi kualitas Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Preferensi kualitas seluler';
@@ -1656,4 +1658,18 @@ class AppLocalizationsId extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Tidak ada scraper Anda yang punya judul ini.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

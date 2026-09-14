@@ -25,13 +25,12 @@ struct VlcFrameFormat {
 // One implementation per presentation strategy: VlcPixelBufferSink keeps CPU
 // buffers for Flutter's pixel-buffer textures on Windows and Linux, and the
 // Darwin sink fills CVPixelBuffers out of a pool. Splitting this out of
-// VlcPlayerCore is what lets a platform choose its own presentation without
-// forking the player.
+// VlcPlayerCore lets a platform choose its own presentation without forking
+// the player.
 //
 // The five entry points are libVLC 3's video callbacks under names that also
-// fit libVLC 4's GPU output callbacks, which is the next thing to plug in
-// here: Configure/Cleanup are 4's setup/cleanup, Commit is its swap, and a GPU
-// sink simply refuses to hand out CPU planes from Acquire.
+// fit libVLC 4's GPU output callbacks: Configure/Cleanup are 4's
+// setup/cleanup, and Commit is its swap.
 //
 // Threading: every method is called on libVLC's video output thread, one
 // picture at a time. The sink is responsible for whatever locking its
@@ -53,10 +52,10 @@ class VlcFrameSink {
 
   // Marks `picture` as the frame that should become visible.
   //
-  // libVLC calls this only for pictures it actually displays, and — with the
-  // single-picture pool that libVLC 3's vmem output uses — it may arrive
-  // either side of Release. A sink that has work to do at both points must
-  // tolerate both orders.
+  // libVLC calls this only for pictures it actually displays, and with the
+  // single-picture pool that libVLC 3's vmem output uses it may arrive either
+  // side of Release. A sink with work to do at both points must tolerate both
+  // orders.
   virtual void Commit(void* picture) = 0;
 
   // libVLC has finished writing `picture`.

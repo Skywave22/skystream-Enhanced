@@ -100,9 +100,6 @@ class AppLocalizationsKn extends AppLocalizations {
   String get seekDuration => 'ಸೀಕ್ ಅವಧಿ';
 
   @override
-  String get bufferDepth => 'ಬಫರ್ ಆಳ';
-
-  @override
   String get defaultResizeMode => 'ಡೀಫಾಲ್ಟ್ ರಿಸೈಜ್ ಮೋಡ್';
 
   @override
@@ -473,9 +470,6 @@ class AppLocalizationsKn extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'ಸೀಕ್ ಅವಧಿಯನ್ನು ಆರಿಸಿ';
-
-  @override
-  String get selectBufferDepth => 'ಬಫರ್ ಆಳವನ್ನು ಆರಿಸಿ';
 
   @override
   String get subtitleSettings => 'ಉಪಶೀರ್ಷಿಕೆ ಸೆಟ್ಟಿಂಗ್‌ಗಳು';
@@ -945,6 +939,11 @@ class AppLocalizationsKn extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName $headers ಕಳುಹಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ. ಆಂತರಿಕ ಪ್ಲೇಯರ್ ಅನ್ನು ಬಳಸಲಾಗುತ್ತಿದೆ.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName ಪತ್ತೆಯಾಗಿಲ್ಲ. ಆಂತರಿಕ ಪ್ಲೇಯರ್ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ.';
   }
@@ -1210,7 +1209,10 @@ class AppLocalizationsKn extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi ಗುಣಮಟ್ಟದ ಆದ್ಯತೆ';
+  String get unmeteredQualityPreference => 'Wi-Fi ಮತ್ತು ವೈರ್ಡ್ ಗುಣಮಟ್ಟದ ಆದ್ಯತೆ';
+
+  @override
+  String get playerNotOnThisDevice => 'ಈ ಸಾಧನದಲ್ಲಿ ಲಭ್ಯವಿಲ್ಲ';
 
   @override
   String get mobileQualityPreference => 'ಮೊಬೈಲ್ ಗುಣಮಟ್ಟದ ಆದ್ಯತೆ';
@@ -1667,4 +1669,18 @@ class AppLocalizationsKn extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'ನಿಮ್ಮ ಯಾವುದೇ ಸ್ಕ್ರೇಪರ್‌ನಲ್ಲಿ ಈ ಶೀರ್ಷಿಕೆ ಇಲ್ಲ.';
+
+  @override
+  String get subtitleDefault => 'ಪೂರ್ವನಿಯೋಜಿತವಾಗಿ ಉಪಶೀರ್ಷಿಕೆಗಳು';
+
+  @override
+  String get subtitleDefaultAuto => 'ಸ್ವಯಂ';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'ವೀಡಿಯೊ ಅದರ ಮೂಲವು ಆಯ್ಕೆ ಮಾಡುವ ಉಪಶೀರ್ಷಿಕೆಯೊಂದಿಗೆ ಪ್ರಾರಂಭವಾಗುತ್ತದೆ; ಮೂಲದಲ್ಲಿ ಲಭ್ಯವಿದ್ದರೆ ನಿಮ್ಮ ಉಪಶೀರ್ಷಿಕೆ ಭಾಷೆಗೆ ಆದ್ಯತೆ ನೀಡಲಾಗುತ್ತದೆ.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'ವೀಡಿಯೊ ಯಾವುದೇ ಉಪಶೀರ್ಷಿಕೆ ಇಲ್ಲದೆ ಪ್ರಾರಂಭವಾಗುತ್ತದೆ. ಪ್ಲೇಯರ್‌ನ ಉಪಶೀರ್ಷಿಕೆ ಮೆನುವಿನಿಂದ ನೀವು ಅದನ್ನು ಈಗಲೂ ಆನ್ ಮಾಡಬಹುದು.';
 }

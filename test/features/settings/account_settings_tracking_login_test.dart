@@ -28,6 +28,7 @@ void main() {
     WidgetTester tester, {
     SimklService? simkl,
     TraktService? trakt,
+    PlayerSettings player = const PlayerSettings(),
   }) async {
     final notifications = RecordingNotifications();
     await tester.pumpWidget(
@@ -36,9 +37,7 @@ void main() {
           notificationServiceProvider.overrideWithValue(notifications),
           secureTokenStorageProvider.overrideWithValue(NoTokens()),
           settingsRepositoryProvider.overrideWithValue(QuietSettings()),
-          playerSettingsProvider.overrideWithBuild(
-            (_, _) => const PlayerSettings(),
-          ),
+          playerSettingsProvider.overrideWithBuild((_, _) => player),
           trackingAuthProvider.overrideWith(SignedOutTrackers.new),
           if (simkl != null) simklServiceProvider.overrideWithValue(simkl),
           if (trakt != null) traktServiceProvider.overrideWithValue(trakt),
@@ -151,6 +150,45 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(notifications.shown.single.type, ToastType.success);
+  });
+
+  /// The OpenSubtitles row used to read the username straight back out of the
+  /// box: type a name, save, and the tile said "Logged in as ada" whether or
+  /// not anything had ever authenticated. Nothing can, without a key - the
+  /// provider returns an empty list before it sends a request - so the tile
+  /// has to say what is actually missing.
+  group('the OpenSubtitles row', () {
+    testWidgets('a username with no key does not claim a session', (
+      tester,
+    ) async {
+      await pumpAccounts(
+        tester,
+        player: const PlayerSettings(osUsername: 'ada'),
+      );
+
+      expect(find.text(l10n.loggedInAs('ada')), findsNothing);
+      expect(find.text(l10n.keyNotSet), findsWidgets);
+    });
+
+    testWidgets('a username with a key does', (tester) async {
+      await pumpAccounts(
+        tester,
+        player: const PlayerSettings(osUsername: 'ada', osApiKey: 'os-key'),
+      );
+
+      expect(find.text(l10n.loggedInAs('ada')), findsOneWidget);
+    });
+
+    testWidgets('a key with no username is not logged in either', (
+      tester,
+    ) async {
+      await pumpAccounts(
+        tester,
+        player: const PlayerSettings(osApiKey: 'os-key'),
+      );
+
+      expect(find.text(l10n.notLoggedIn), findsWidgets);
+    });
   });
 }
 

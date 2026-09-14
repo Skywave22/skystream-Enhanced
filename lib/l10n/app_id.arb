@@ -28,7 +28,6 @@
   "doubleTapToSeek": "Ketuk Dua Kali untuk Mencari",
   "swipeToSeek": "Geser untuk Mencari",
   "seekDuration": "Durasi Lompatan",
-  "bufferDepth": "Kedalaman Buffer",
   "defaultResizeMode": "Mode Ukuran Default",
   "hardwareDecoding": "Dekode Perangkat Keras",
   "network": "Jaringan",
@@ -180,7 +179,6 @@
   "left": "Kiri",
   "right": "Kanan",
   "selectSeekDuration": "Pilih Durasi Lompatan",
-  "selectBufferDepth": "Pilih Kedalaman Buffer",
   "subtitleSettings": "Pengaturan Terjemahan",
   "size": "Ukuran: {size}",
   "@size": {
@@ -549,7 +547,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Preferensi kualitas Wi-Fi",
   "mobileQualityPreference": "Preferensi kualitas seluler",
   "anyNoPreference": "Tanpa preferensi",
   "subtitleAccounts": "Akun subtitle",

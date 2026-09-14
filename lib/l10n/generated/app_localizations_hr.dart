@@ -99,9 +99,6 @@ class AppLocalizationsHr extends AppLocalizations {
   String get seekDuration => 'Trajanje traženja';
 
   @override
-  String get bufferDepth => 'Dubina međuspremnika';
-
-  @override
   String get defaultResizeMode => 'Zadani način promjene veličine';
 
   @override
@@ -467,9 +464,6 @@ class AppLocalizationsHr extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Odaberi trajanje traženja';
-
-  @override
-  String get selectBufferDepth => 'Odaberi dubinu međuspremnika';
 
   @override
   String get subtitleSettings => 'Postavke titlova';
@@ -922,6 +916,11 @@ class AppLocalizationsHr extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName nije pronađen.';
   }
@@ -1192,7 +1191,10 @@ class AppLocalizationsHr extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Kvaliteta na Wi-Fi mreži';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Kvaliteta na mobilnoj mreži';
@@ -1646,4 +1648,18 @@ class AppLocalizationsHr extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Nijedan vaš scraper nema ovaj naslov.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

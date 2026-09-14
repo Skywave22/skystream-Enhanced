@@ -99,9 +99,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get seekDuration => 'Duración de búsqueda';
 
   @override
-  String get bufferDepth => 'Profundidad del búfer';
-
-  @override
   String get defaultResizeMode => 'Modo de escalado predeterminado';
 
   @override
@@ -469,9 +466,6 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Seleccionar duración de búsqueda';
-
-  @override
-  String get selectBufferDepth => 'Seleccionar profundidad del búfer';
 
   @override
   String get subtitleSettings => 'Ajustes de subtítulos';
@@ -940,6 +934,11 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName no detectado. Iniciando reproductor interno.';
   }
@@ -1210,7 +1209,10 @@ class AppLocalizationsEs extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Preferencia de calidad Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Preferencia de calidad móvil';
@@ -1667,4 +1669,18 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Ninguno de tus scrapers tiene este título.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

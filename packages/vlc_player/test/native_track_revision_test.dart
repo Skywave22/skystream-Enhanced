@@ -6,18 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 /// that only the five native backends can honour, and none of them is
 /// reachable from a Dart test: macOS/iOS are Swift over VLCKit, Android is
 /// Kotlin over libvlc-android, Windows/Linux share the C++ core. What can be
-/// pinned here is the shape of the derivation, which is exactly where the two
-/// defects lived:
+/// pinned here is the shape of the derivation. The polling backends (macOS,
+/// iOS, Windows, Linux) diff the track set rather than the track count, so a
+/// same-size swap - an adaptive rendition change, or an MPEG-TS PMT update
+/// replacing the audio/spu ES - still moves the revision. Android bumps only
+/// for audio and subtitle streams, so a video-only ES change does not reload a
+/// list that has not changed.
 ///
-///  * the polling backends (macOS, iOS, Windows, Linux) derived the revision
-///    from the track COUNT, so a same-size swap - an adaptive rendition change
-///    or an MPEG-TS PMT update replacing the audio/spu ES - never moved it and
-///    left the panel drawing the old names with nothing ticked;
-///  * Android bumped on every ESAdded/ESDeleted including the video stream, so
-///    a video-only ES change reloaded a track list that had not changed and
-///    yanked the D-pad cursor back to the active row.
-///
-/// The C++ half of the first defect additionally has a behavioural test in
+/// The C++ core additionally has a behavioural test in
 /// `test/native/vlc_player_core_test_suite.h`
 /// (`VlcPlayerCore.TrackSetFingerprintMovesOnASameSizeSwap`).
 void main() {
@@ -57,8 +53,7 @@ void main() {
             'notice a replaced track list.',
       );
       expect(sendSnapshot, contains('lastTrackFingerprint'));
-      // The pre-fix derivation, verbatim: a swap that keeps the size cannot be
-      // seen through either count.
+      // A swap that keeps the size cannot be seen through either count.
       expect(sendSnapshot, isNot(contains('audioTrackIndexes.count')));
       expect(sendSnapshot, isNot(contains('videoSubTitlesIndexes.count')));
       expect(sendSnapshot, isNot(contains('lastTrackCount')));

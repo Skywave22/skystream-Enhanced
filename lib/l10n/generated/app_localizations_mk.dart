@@ -99,9 +99,6 @@ class AppLocalizationsMk extends AppLocalizations {
   String get seekDuration => 'Времетраење на пребарувањето';
 
   @override
-  String get bufferDepth => 'Длабочина на баферот';
-
-  @override
   String get defaultResizeMode => 'Стандарден режим за големина';
 
   @override
@@ -467,9 +464,6 @@ class AppLocalizationsMk extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Избери времетраење на пребарувањето';
-
-  @override
-  String get selectBufferDepth => 'Избери длабочина на баферот';
 
   @override
   String get subtitleSettings => 'Поставки за титлови';
@@ -927,6 +921,11 @@ class AppLocalizationsMk extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName не е пронајден. Се стартува внатрешниот плеер.';
   }
@@ -1196,7 +1195,10 @@ class AppLocalizationsMk extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Преференца за Wi-Fi квалитет';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Преференца за мобилен квалитет';
@@ -1650,4 +1652,18 @@ class AppLocalizationsMk extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Ниту еден од вашите скрејпери го нема овој наслов.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

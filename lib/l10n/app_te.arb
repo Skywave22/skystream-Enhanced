@@ -25,7 +25,6 @@
   "doubleTapToSeek": "సీక్ చేయడానికి రెండుసార్లు నొక్కండి",
   "swipeToSeek": "సీక్ చేయడానికి స్వైప్ చేయండి",
   "seekDuration": "సీక్ వ్యవధి",
-  "bufferDepth": "బఫర్ లోతు",
   "defaultResizeMode": "డిఫాల్ట్ రీసైజ్ మోడ్",
   "hardwareDecoding": "హార్డ్‌వేర్ డీకోడింగ్",
   "network": "నెట్‌వర్క్",
@@ -177,7 +176,6 @@
   "left": "ఎడమ",
   "right": "కుడి",
   "selectSeekDuration": "సీక్ వ్యవధిని ఎంచుకోండి",
-  "selectBufferDepth": "బఫర్ లోతును ఎంచుకోండి",
   "subtitleSettings": "సబ్‌టైటిల్ సెట్టింగ్‌లు",
   "size": "పరిమాణం: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi నాణ్యత ప్రాధాన్యత",
   "mobileQualityPreference": "మొబైల్ నాణ్యత ప్రాధాన్యత",
   "anyNoPreference": "ఎటువంటి ప్రాధాನ್ಯత లేదు",
   "subtitleAccounts": "సబ్‌టైటిల్ ఖాతాలు",

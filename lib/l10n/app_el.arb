@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Διπλό πάτημα για αναζήτηση",
   "swipeToSeek": "Σύρετε για αναζήτηση",
   "seekDuration": "Διάρκεια αναζήτησης",
-  "bufferDepth": "Βάθος προσωρινής μνήμης",
   "defaultResizeMode": "Προεπιλεγμένη λειτουργία μεγέθους",
   "hardwareDecoding": "Αποκωδικοποίηση υλικού",
   "network": "Δίκτυο",
@@ -177,7 +176,6 @@
   "left": "αριστερή",
   "right": "δεξιά",
   "selectSeekDuration": "Επιλογή διάρκειας αναζήτησης",
-  "selectBufferDepth": "Επιλογή βάθους προσωρινής μνήμης",
   "subtitleSettings": "Ρυθμίσεις υπότιτλων",
   "size": "Μέγεθος: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Προτίμηση ποιότητας Wi-Fi",
   "mobileQualityPreference": "Προτίμηση ποιότητας κινητής",
   "anyNoPreference": "Καμία προτίμηση",
   "subtitleAccounts": "Λογαριασμοί υποτίτλων",

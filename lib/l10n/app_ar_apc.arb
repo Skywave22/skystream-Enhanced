@@ -25,7 +25,6 @@
   "doubleTapToSeek": "نقر مزدوج للتقديم/التأخير",
   "swipeToSeek": "سحب للتقديم/التأخير",
   "seekDuration": "مدة القفز",
-  "bufferDepth": "عمق البفر",
   "defaultResizeMode": "وضع القياس الافتراضي",
   "hardwareDecoding": "فك التشفير العتادي",
   "network": "الشبكة",
@@ -177,7 +176,6 @@
   "left": "يسار",
   "right": "يمين",
   "selectSeekDuration": "اختار مدة القفز",
-  "selectBufferDepth": "اختار عمق البفر",
   "subtitleSettings": "إعدادات الترجمة",
   "size": "الحجم: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "تفضيل جودة الواي فاي",
   "mobileQualityPreference": "تفضيل جودة الهاتف المحمول",
   "anyNoPreference": "أي نوع (لا يوجد تفضيل)",
   "subtitleAccounts": "حسابات الترجمة",

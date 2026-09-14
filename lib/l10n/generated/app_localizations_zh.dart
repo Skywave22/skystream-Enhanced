@@ -99,9 +99,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get seekDuration => '快进/快退秒数';
 
   @override
-  String get bufferDepth => '缓冲深度';
-
-  @override
   String get defaultResizeMode => '默认填充模式';
 
   @override
@@ -458,9 +455,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get selectSeekDuration => '选择快进/快退秒数';
-
-  @override
-  String get selectBufferDepth => '选择缓冲深度';
 
   @override
   String get subtitleSettings => '字幕设置';
@@ -907,6 +901,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '未检测到 $playerName。正在启动内置播放器。';
   }
@@ -1162,7 +1161,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi 视频质量偏好';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => '移动网络视频质量偏好';
@@ -1608,6 +1610,20 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get sourcesEmptyNothingFound => '你的刮削器都没有此片。';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -1703,9 +1719,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get seekDuration => '快進/快退秒數';
-
-  @override
-  String get bufferDepth => '緩衝深度';
 
   @override
   String get defaultResizeMode => '預設填充模式';
@@ -2064,9 +2077,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get selectSeekDuration => '選擇快進/快退秒數';
-
-  @override
-  String get selectBufferDepth => '選擇緩衝深度';
 
   @override
   String get subtitleSettings => '字幕設定';
@@ -2766,9 +2776,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get subSource => 'SubSource';
-
-  @override
-  String get wifiQualityPreference => 'Wi-Fi 视频质量偏好';
 
   @override
   String get mobileQualityPreference => '移动网络视频质量偏好';

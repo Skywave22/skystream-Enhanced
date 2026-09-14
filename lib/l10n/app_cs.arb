@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Poklepáním posunout",
   "swipeToSeek": "Přejetím posunout",
   "seekDuration": "Délka posunu",
-  "bufferDepth": "Hloubka vyrovnávací paměti",
   "defaultResizeMode": "Výchozí režim velikosti",
   "hardwareDecoding": "Hardwarové dekódování",
   "network": "Síť",
@@ -177,7 +176,6 @@
   "left": "levé",
   "right": "pravé",
   "selectSeekDuration": "Vybrat délku posunu",
-  "selectBufferDepth": "Vybrat hloubku vyrovnávací paměti",
   "subtitleSettings": "Nastavení titulků",
   "size": "Velikost: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Preference kvality Wi-Fi",
   "mobileQualityPreference": "Preference kvality mobilních dat",
   "anyNoPreference": "Žádná preference",
   "subtitleAccounts": "Účty titulků",

@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Dubbelklicka för att spola",
   "swipeToSeek": "Svep för att spola",
   "seekDuration": "Spolningstid",
-  "bufferDepth": "Buffertdjup",
   "defaultResizeMode": "Standardvisningsläge",
   "hardwareDecoding": "Hårdvaruavkodning",
   "network": "Nätverk",
@@ -177,7 +176,6 @@
   "left": "vänster",
   "right": "höger",
   "selectSeekDuration": "Välj spolningstid",
-  "selectBufferDepth": "Välj buffertdjup",
   "subtitleSettings": "Undertextinställningar",
   "size": "Storlek: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Kvalitetsinställning för Wi-Fi",
   "mobileQualityPreference": "Kvalitetsinställning för mobilnät",
   "anyNoPreference": "Inget val",
   "subtitleAccounts": "Undertextkonton",

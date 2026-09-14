@@ -28,15 +28,15 @@ const _mCancelInvoke = 'ci'; // {ci:1, id:int}
 const _mCancelTag = 'ct'; // {ct:String}
 const _mBridgeResp = 'br'; // {br:1, bid:int, jsId:String, rv:Object?, err:bool}
 // The bridge result arrives unencoded and is serialised here rather than on
-// the main isolate — see buildBridgeResponse in js_engine.dart. Audit W24.
+// the main isolate - see buildBridgeResponse in js_engine.dart.
 const _kBridgeRespValue = 'rv';
 const _mDispose = 'dp';
 const _mGc = 'gc';
 const _mUnload = 'ul'; // {ul: String namespace}
 
-// Hard cap on a single JSON payload the worker will decode synchronously
-// (audit M24). jsonDecode is sync; a 10 MB blob was freezing this isolate
-// for ~1 s when a misbehaving plugin returned an oversized response.
+// Hard cap on a single JSON payload the worker will decode synchronously.
+// jsonDecode is sync, so a 10 MB blob from a misbehaving plugin freezes this
+// isolate for about a second.
 const int _kMaxJsonInputBytes = 10 * 1024 * 1024;
 
 // Worker → Main
@@ -91,8 +91,8 @@ class JsWorkerRunner {
 
   Timer? _pump;
   // Mirrors the mode of the live [_pump] timer. Never assigned outside
-  // [_startPump] — the pump's *desired* mode is derived from [_inv], never
-  // tracked by hand. Audit W11.
+  // [_startPump]: the pump's desired mode is derived from [_inv], never
+  // tracked by hand.
   bool _pumpFast = false;
   int _pumpTicks = 0;
   bool _disposed = false;
@@ -112,10 +112,10 @@ class JsWorkerRunner {
   String? _latestJsCbId;
 
   JsWorkerRunner(this._tx) {
-    // xhr: false skips enableFetch() which loads assets via rootBundle — that
-    // call requires ServicesBinding.instance which is not available in background
-    // isolates even with BackgroundIsolateBinaryMessenger. Our own HTTP bridge
-    // handles all network requests so the fetch polyfill is not needed.
+    // xhr: false skips enableFetch(), which loads assets via rootBundle and so
+    // needs ServicesBinding.instance - not available in a background isolate
+    // even with BackgroundIsolateBinaryMessenger. The HTTP bridge below covers
+    // every network request, so the fetch polyfill is not needed.
     _rt = getJavascriptRuntime(
       xhr: false,
       extraArgs: {
@@ -131,10 +131,9 @@ class JsWorkerRunner {
 
   void handle(dynamic msg) {
     if (msg is! Map<dynamic, dynamic>) return;
-    // Once torn down, stay torn down. A late message used to be able to
-    // restart the job pump — and, through the eval queue, make flutter_js
-    // resurrect a fresh runtime — after the main isolate had already
-    // decided this worker was finished. Audit W11.
+    // Once torn down, stay torn down: a late message would restart the job
+    // pump and, through the eval queue, make flutter_js resurrect a fresh
+    // runtime after the main isolate had decided this worker was finished.
     if (_disposed) return;
     final m = msg;
     if (m.containsKey(_mLoadScript)) {
@@ -166,11 +165,9 @@ class JsWorkerRunner {
   //
   // Drops the plugin's exports off `globalThis` and runs GC. Each plugin's
   // IIFE wrapper assigns its API to `globalThis[namespace]` (see
-  // js_based_provider._buildIife); deleting that slot releases the closure
-  // references the plugin held on its sandboxed scope. The runtime itself
-  // is shared, so this isn't a full sandbox teardown — but it does free
-  // the per-plugin script bytecode + closures for the next GC pass.
-  // Audit H9.
+  // js_based_provider._buildIife), so deleting that slot releases the closures
+  // the plugin held. The runtime is shared, so this is not a full sandbox
+  // teardown; it frees the per-plugin bytecode and closures for the next GC.
   void _unload(String namespace) {
     if (namespace.isEmpty) return;
     try {
@@ -253,9 +250,9 @@ class JsWorkerRunner {
     final jsCbId = _inv.remove(id);
     if (jsCbId != null) _cbInv.remove(jsCbId);
     // The invoke is gone whether or not its JS callback ever fires, so the
-    // pump must be re-derived here too: this is the path the main isolate's
-    // 90 s timeout takes, and it used to leave the 16 ms pump running for
-    // the life of the process. Audit W11.
+    // pump must be re-derived here too. This is the path the main isolate's
+    // 90 s timeout takes; without it the 16 ms pump runs for the life of the
+    // process.
     _syncPump();
   }
 
@@ -273,9 +270,8 @@ class JsWorkerRunner {
     final jsId = m['jsId'] as String?;
     if (jsId == null) return;
     final isError = m['err'] as bool? ?? false;
-    // jsonEncode runs here, on the worker isolate. A plugin that scrapes a
-    // multi-MB page used to have that encode charged to the UI isolate.
-    // Audit W24.
+    // jsonEncode runs here, on the worker isolate: a plugin that scrapes a
+    // multi-MB page must not charge that encode to the UI isolate.
     String resultJson;
     try {
       resultJson = jsonEncode(m[_kBridgeRespValue]);
@@ -343,17 +339,11 @@ class JsWorkerRunner {
   /// Re-derives the pump mode from the set of in-flight invokes.
   ///
   /// The pump runs fast (16 ms × 8 jobs) exactly while at least one invoke is
-  /// waiting on its JS callback, and idles at 1 Hz otherwise. This used to be
-  /// a hand-maintained `_activeCnt` incremented in [_invoke] and decremented
-  /// in exactly one place, which leaked in both directions: a cancelled
-  /// invoke never decremented (fast pump pinned forever — ~500 FFI calls a
-  /// second on a device that should be idle), and a double dispatch of the
-  /// same callback id decremented twice (counter negative, `== 1` never true
-  /// again, every later invoke advancing its promise chain at 1 Hz).
-  ///
-  /// Deriving the mode from [_inv] instead of counting makes both impossible:
-  /// the pump is a pure function of state that already has to be correct for
-  /// results to route at all, and calling this twice is a no-op. Audit W11.
+  /// waiting on its JS callback, and idles at 1 Hz otherwise. Deriving the
+  /// mode from [_inv] rather than from a hand-maintained counter is what keeps
+  /// it honest in both directions: a cancelled invoke cannot pin the fast pump
+  /// forever, a callback dispatched twice cannot strand every later invoke at
+  /// 1 Hz, and calling this twice is a no-op.
   void _syncPump() {
     final fast = _inv.isNotEmpty;
     if (_pump != null && fast == _pumpFast) return;
@@ -366,8 +356,7 @@ class JsWorkerRunner {
   int get inFlightInvokes => _inv.length;
 
   /// Pump ticks since the worker started. Each fast tick is eight
-  /// `executePendingJob` FFI calls, so this is the wasted-work meter a test
-  /// reads to prove the pump really stopped. See [_syncPump].
+  /// `executePendingJob` FFI calls, so this measures wasted work.
   @visibleForTesting
   int get pumpTicks => _pumpTicks;
 
@@ -402,11 +391,10 @@ class JsWorkerRunner {
         final data = _toMap(args);
         final jsCbId = data['callbackId'] as String?;
         if (jsCbId == null) return null;
-        // A callback id can be dispatched twice — the invoke wrapper both
-        // passes dart_cb as the last argument AND chains it onto a returned
-        // promise, so a plugin that uses both conventions fires it twice.
-        // The second dispatch finds nothing to retire; _syncPump only ever
-        // reads the map, so it stays correct. Audit W11.
+        // A callback id can be dispatched twice: the invoke wrapper passes
+        // dart_cb as the last argument and also chains it onto a returned
+        // promise, so a plugin using both conventions fires it twice. The
+        // second dispatch finds nothing to retire.
         final invId = _cbInv.remove(jsCbId);
         if (invId != null) {
           _inv.remove(invId);
@@ -609,8 +597,7 @@ class JsWorkerRunner {
         final data = _toMap(args);
         final jsonStr = (data['json'] as String?) ?? '{}';
         final paths = (data['paths'] as List?) ?? [];
-        // Bound input — jsonDecode is synchronous on this isolate. Audit
-        // M24: a 10 MB string was freezing the worker ~1 s.
+        // Bound input: jsonDecode is synchronous on this isolate.
         if (jsonStr.length > _kMaxJsonInputBytes) {
           return null;
         }
@@ -790,9 +777,9 @@ class JsWorkerRunner {
   static Map<String, dynamic> _toMap(dynamic args) {
     if (args is Map) return Map<String, dynamic>.from(args);
     final s = args.toString();
-    // Audit M24 — bound bridge-call payloads. Returns an empty map so
-    // downstream handlers fail gracefully via missing-key fallbacks
-    // rather than freezing the isolate on jsonDecode.
+    // Bound bridge-call payloads. An empty map lets downstream handlers fall
+    // back on their missing-key paths rather than freezing the isolate on
+    // jsonDecode.
     if (s.length > _kMaxJsonInputBytes) {
       return const <String, dynamic>{};
     }
@@ -935,7 +922,6 @@ class JsWorkerRunner {
 }
 
 // ── Static JS polyfill strings ────────────────────────────────────────────────
-// These are identical to what was previously inlined in JsEngineService._initPolyfills().
 
 const _kPolyfillJs = r"""
   var global = globalThis;
@@ -1013,44 +999,40 @@ const _kPolyfillJs = r"""
 
 /// Seals the shared-realm primitives a plugin's bridge calls pass through.
 ///
-/// Every installed plugin evals into ONE [JavascriptRuntime] — one realm, one
-/// `globalThis` (see [JsWorkerRunner._rt]). A plugin is attributed by a
-/// capability token that Dart mints per plugin and hands to that plugin's
-/// wrapper closure (`JsBasedProvider._installBridgeToken`); the bridge
-/// consults the token and nothing else (`JsEngineService._identityFor`). The
-/// token stays private to the closure, but every bridge call hands it to
-/// shared primitives on the way out:
+/// Every installed plugin evals into one [JavascriptRuntime]: one realm, one
+/// `globalThis`. A plugin is attributed by a capability token that Dart mints
+/// per plugin and hands to that plugin's wrapper closure
+/// (`JsBasedProvider._installBridgeToken`), and the bridge consults that token
+/// and nothing else (`JsEngineService._identityFor`). The token stays private
+/// to the closure, but every bridge call hands it to shared primitives on the
+/// way out:
 ///
 ///     params.__ssTok = __ssTok;                     // Object.prototype
 ///     sendMessage(channel, JSON.stringify(params)); // two globals
 ///
-/// So a plugin that loads first can read every later plugin's token by
+/// So a plugin that loads first could read every later plugin's token by
 /// replacing `sendMessage` or `JSON.stringify`, or by installing an
 /// `Object.prototype` setter for the token field or an `Object.prototype`
-/// `toJSON` hook. With a stolen token it *is* that plugin at the bridge: it
-/// reads and overwrites the victim's stored credentials, session tokens and
-/// user-configured settings, and the victim keeps working, so nothing shows.
-/// Third-party plugins from an untrusted repository are the threat model, so
-/// "no plugin does that" is not an answer. Audit W12.
+/// `toJSON` hook, and with a stolen token it is that plugin at the bridge.
+/// Third-party plugins from an untrusted repository are the threat model.
 ///
 /// This runs once, after the polyfills and before any plugin script, and
-/// makes those four interception points unavailable:
+/// closes those four interception points:
 ///
 ///  * the bridge entry points (`sendMessage`, `_dartAsyncCall`) and the two
-///    functions that carry bridge *results* back into a plugin
-///    (`_resolveDartAsync`, `executeCallback` — hijacking those reads another
-///    plugin's stored data straight off the wire) become non-writable and
+///    functions that carry bridge results back into a plugin
+///    (`_resolveDartAsync`, `executeCallback`) become non-writable,
 ///    non-configurable globals. A plugin's `globalThis.sendMessage = ...` is
 ///    then a silent no-op in sloppy mode, which is how plugin scripts run;
 ///  * `JSON` and `JSON.stringify` likewise, since the token is serialised
 ///    through them. `JSON.parse` is deliberately left alone: nothing on the
 ///    token path calls it, and it is the more commonly re-polyfilled of the
 ///    two;
-///  * `__ssTok` is pre-defined on `Object.prototype` as a NON-CONFIGURABLE
+///  * `__ssTok` is pre-defined on `Object.prototype` as a non-configurable
 ///    data property, so it cannot be redefined as an accessor. It stays
 ///    writable, so `params.__ssTok = ...` still creates an own property on
-///    the payload exactly as before, and it is non-enumerable so it never
-///    appears in anyone's serialised output;
+///    the payload, and it is non-enumerable so it never appears in anyone's
+///    serialised output;
 ///  * `toJSON` is pre-defined on `Object.prototype` as a non-configurable
 ///    accessor whose getter answers `undefined` (so `JSON.stringify` behaves
 ///    as if it were absent) and whose setter still installs an own `toJSON`
@@ -1064,7 +1046,7 @@ const _kPolyfillJs = r"""
 ///
 /// The `'__ssTok'` literal below must stay equal to
 /// `JsEngineService.kBridgeTokenField`; the worker cannot import js_engine.dart
-/// (that would be an import cycle), so a test asserts the two agree.
+/// without an import cycle, so a test asserts the two agree.
 @visibleForTesting
 const String kBridgeHardeningJs = r"""
 (function () {

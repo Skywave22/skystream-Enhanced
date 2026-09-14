@@ -152,7 +152,7 @@ Future<void> _down(WidgetTester tester) async {
 /// `subtitleAccountsNotConfigured` told a fresh install to go to Settings and
 /// add an OpenSubtitles, SubDL or SubSource key before it could search online.
 /// That was untrue on a default install - OpenSubtitles runs on the bundled
-/// `_defaultApiKey` and SubSource takes a keyless path - so the call site went
+/// `buildTimeApiKey` and SubSource takes a keyless path - so the call site went
 /// first and the key has now followed it out of all 44 ARBs.
 ///
 /// The three cases below exist to keep that claim out of the empty state, and
@@ -455,7 +455,7 @@ void main() {
         'that nothing is set up', (tester) async {
       // `const PlayerSettings()` is the shipping default: every key empty
       // (player_settings_provider.dart). Searching does not need one -
-      // OpenSubtitles runs on the bundled `_defaultApiKey` and SubSource
+      // OpenSubtitles runs on the bundled `buildTimeApiKey` and SubSource
       // takes its keyless path - so the search really ran, three passes
       // deep, and came back empty. Blaming the viewer's configuration for
       // that sent them out of the player to Settings for nothing and hid

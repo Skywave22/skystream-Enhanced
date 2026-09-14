@@ -1,24 +1,15 @@
 /// Registering a stream's side-car subtitles with the engine without letting
 /// arrival order decide which language the viewer gets.
 ///
-/// [VlcPlayerController.addSubtitle] maps onto libVLC's *add slave* with the
-/// select flag hardcoded `true` in all five native backends (Kotlin's
-/// `addSlave(..., true)`, `enforce: true` on both Swift plugins, and the same
-/// in the two C++ ones). Every call therefore enables what it just added, so a
-/// source shipping English, Spanish and Portuguese side-cars plays Portuguese
-/// — and because the adds are fired off unawaited, "last" really means
-/// "whichever platform round-trip finished last", which is not even stable
-/// between runs.
+/// [VlcPlayerController.addSubtitle] maps onto libVLC's add-slave with the
+/// select flag hardcoded `true` in every native backend, so each call enables
+/// what it just added and a source shipping several side-cars ends up on
+/// whichever add finished last.
 ///
-/// Turning that flag into a parameter is a five-backend change. The engine
-/// does now report which SPU track is on
-/// (`VlcPlayerValue.activeSubtitleTrackId`, re-sent after every add), so the
-/// previous selection *could* be read back and restored afterwards - but that
-/// is a select-then-unselect on every side-car, each one a flash of the wrong
-/// language on screen. Better to stop leaving the choice to chance in the first
-/// place: add them in a known order, then state once, explicitly, which one
-/// should be on. The panel's tick then follows that final `setSubtitleTrack`
-/// through the engine's own snapshot.
+/// Turning that flag into a parameter is a five-backend change, and restoring
+/// the previous selection after each add would flash the wrong language on
+/// screen, so instead the adds go out in a known order and the wanted track is
+/// selected once, explicitly, at the end.
 library;
 
 import 'package:vlc_player/vlc_player.dart';
@@ -26,12 +17,12 @@ import 'package:vlc_player/vlc_player.dart';
 /// Adds [uris] to [controller] in order and leaves the [enable]-th of them
 /// selected.
 ///
-/// The adds are sequential on purpose — that is what makes "which subtitle is
-/// on when this returns" answerable at all.
+/// The adds are sequential on purpose: that is what makes the subtitle in
+/// effect when this returns predictable at all.
 ///
 /// [enable] indexes into [uris], not into the engine's track list. `null` means
 /// the caller has no preference, and the last side-car stays on because the
-/// select flag gives us no way to ask for otherwise.
+/// select flag gives no way to ask otherwise.
 ///
 /// New side-car tracks are identified by diffing the engine's subtitle list
 /// around the batch: libVLC hands each slave a fresh id, so the ids that were
@@ -43,10 +34,22 @@ Future<void> addSideCarSubtitles(
 }) async {
   if (uris.isEmpty) return;
 
-  // Only worth a round-trip when the answer can change what we do next: if the
-  // last one is wanted, VLC's select flag has already delivered it.
+  // Only worth a round-trip when the answer changes anything: if the last one
+  // is wanted, VLC's select flag has already delivered it.
+  //
+  // The round trip also has to be possible at all. Until a VlcPlayer is built
+  // the controller has no view id, and every call needing one throws - so on
+  // the first open of a session this read escaped the function, failed the
+  // open, and left the viewer looking at "Playback failed" for a video whose
+  // only problem was which subtitle to preselect. The adds below are queued
+  // and replayed on attach regardless, so refusing here costs the reorder and
+  // nothing else: the last side-car stays selected rather than the preferred
+  // language.
   final wantsEarlier =
-      enable != null && enable >= 0 && enable < uris.length - 1;
+      enable != null &&
+      enable >= 0 &&
+      enable < uris.length - 1 &&
+      controller.isAttached;
   final before = wantsEarlier
       ? (await controller.getSubtitleTracks()).map((t) => t.id).toSet()
       : const <int>{};
@@ -69,9 +72,8 @@ Future<void> addSideCarSubtitles(
 ///
 /// Tags are compared on their primary subtag only, so a `pt-BR` side-car
 /// satisfies a `pt` preference. Three-letter ISO 639-2 tags are deliberately
-/// *not* folded into their two-letter forms: the mapping is not derivable and a
-/// hand-written table here would quietly rot. Source metadata should be
-/// normalised where it is parsed, not guessed at here.
+/// not folded into their two-letter forms: the mapping is not derivable, so
+/// source metadata has to be normalised where it is parsed instead.
 int? preferredSubtitleIndex(List<String?> languages, String? preferred) {
   final want = _primarySubtag(preferred);
   if (want == null) return null;
@@ -82,7 +84,7 @@ int? preferredSubtitleIndex(List<String?> languages, String? preferred) {
 }
 
 /// Lowercased language part of a BCP 47-ish tag, or `null` when the tag says
-/// nothing — `und` is what sources emit when they mean "no idea".
+/// nothing; `und` is what sources emit for an unknown language.
 String? _primarySubtag(String? tag) {
   if (tag == null) return null;
   final primary = tag.trim().toLowerCase().split(RegExp('[-_]')).first;

@@ -91,11 +91,10 @@ void main() {
     });
 
     test('the retired --big-picture spellings are still honoured', () {
-      // The rename off Steam's branding is a rename of the app, not of
-      // somebody's desktop shortcut or launcher script. Both old spellings
-      // stay as aliases; both new ones are the ones to document. Named one by
-      // one rather than by iterating the set, so that dropping an alias fails
-      // here instead of quietly shrinking what the loop above covers.
+      // Both retired spellings stay as aliases so an existing shortcut or
+      // launcher script keeps working. Named one by one rather than by
+      // iterating the set, so dropping an alias fails here instead of quietly
+      // shrinking what the loop above covers.
       expect(
         kFullScreenModeLaunchArgs,
         containsAll(<String>['--big-picture', '--bigpicture']),
@@ -179,9 +178,7 @@ void main() {
       tester,
     ) async {
       // The subtitle promises a window to leave and a computer plugged into a
-      // television. Both of the touch platforms are checked, because a
-      // half-true promise on a handset is exactly what the wording could not
-      // be honest about if the row were reachable there.
+      // television, so the row must not reach either touch platform.
       for (final platform in <TargetPlatform>[
         TargetPlatform.android,
         TargetPlatform.iOS,
@@ -218,13 +215,10 @@ void main() {
     testWidgets('the row names both states and what full screen costs', (
       tester,
     ) async {
-      // The three things the wording has to do, asserted as three separate
-      // properties rather than as one string equality, so the copy can be
-      // improved without this test becoming a spelling checker:
-      //  * it names full screen,
-      //  * it names windowed as the other state, and
-      //  * it says the ten-foot TV layout comes with full screen, which is the
-      //    actual behaviour and the whole reason the setting exists.
+      // The wording names full screen, names windowed as the other state and
+      // says the ten-foot layout comes with it. Asserted as three properties
+      // rather than one string equality, so the copy can be improved without
+      // this test becoming a spelling checker.
       await pumpSettings(tester, platform: TargetPlatform.macOS);
       final l10n = await AppLocalizations.delegate.load(const Locale('en'));
       final String row = '${l10n.fullScreenMode} ${l10n.fullScreenModeSubtitle}'
@@ -247,9 +241,8 @@ void main() {
     });
 
     test('hi and kn say it in their own words, not in English', () async {
-      // The ratchet only checks that a key is present. These two are new
-      // strings in the founding locales, so check they were translated rather
-      // than pasted.
+      // The l10n ratchet only checks that a key is present, so check these
+      // two were translated rather than pasted.
       final en = await AppLocalizations.delegate.load(const Locale('en'));
       for (final code in <String>['hi', 'kn']) {
         final l10n = await AppLocalizations.delegate.load(Locale(code));
@@ -265,13 +258,13 @@ void main() {
   });
 
   test('the Steam name survives only where it has to', () {
-    // "Big Picture" is Steam's branding and the owner asked for it gone. A
-    // source guard rather than a naming convention, because the name is the
-    // sort of thing that comes back in a doc comment nobody re-reads.
+    // "Big Picture" is Steam's branding and is retired. A source guard rather
+    // than a naming convention, because the name is the sort of thing that
+    // comes back in a doc comment nobody re-reads.
     //
     // The one thing that may still say it is the launch-argument alias in
-    // full_screen_mode_provider.dart, which exists precisely so an existing
-    // shortcut keeps working, and the doc comment that explains why.
+    // full_screen_mode_provider.dart, which exists so an existing shortcut
+    // keeps working, and the doc comment that explains why.
     final Set<String> allowed = <String>{
       'lib/features/settings/presentation/full_screen_mode_provider.dart',
     };

@@ -8,37 +8,24 @@ import 'package:skystream/features/player/presentation/widgets/player_control_co
 
 import 'vlc_screen_harness.dart';
 
-/// DEFECT 4 — the player's orientation follows the video, and only the video.
+/// The player's orientation follows the video, and only the video. Each rule
+/// is pinned on the real screen over the real engine channel.
 ///
-/// The owner's words: "auto set the player orientation, no need of
-/// portrait/landscape switch, set the orientation based on video type." Four
-/// separate things were wrong, and each of them is pinned below on the real
-/// screen over the real engine channel rather than on the service alone:
+/// The decision comes off `displayVideoSize`, not `videoSize`: the latter is
+/// the elementary stream's declared width and height on every backend, so a
+/// clip shot in portrait reports 1920x1080. Android forwards the track's own
+/// orientation field and the texture platforms report a coded buffer libVLC
+/// has already rotated; a backend that offers neither pins nothing rather than
+/// guessing.
 ///
-///  1. **The shape was read off a measurement that has no idea which way up
-///     the picture is.** `videoSize` is the elementary stream's declared width
-///     and height on every backend — the rotation a phone camera writes sits
-///     in a field next to it that nothing forwards — so a clip shot in
-///     portrait reports 1920x1080 and would have turned the handset the wrong
-///     way. The decision comes off `codedVideoSize` now: the buffer libVLC
-///     decodes into, which is the upright picture because the rotation has
-///     already been applied to it.
-///  2. **The settle was a two-*event* rule.** It waited for two consecutive
-///     matching snapshots, but the natives drop a snapshot identical to the
-///     one before it and a paused engine sends none at all, so a player paused
-///     on its first frame never settled. A shape now has to *hold* for
-///     [PlayerPlatformService.shapeSettleDelay], which one reading can do.
-///  3. `restoreOrientation` pinned `portraitUp` on the way out whether or not
-///     anything had been pinned on the way in. A player closed before the
-///     first frame decoded therefore froze rotation for the rest of the
-///     process, since nothing else in the app calls `setPreferredOrientations`
-///     at all.
-///  4. A manual rotate button sat in the action strip, and pressing it latched
-///     the automatic behaviour off for the rest of the session.
+/// A shape has to hold for [PlayerPlatformService.shapeSettleDelay] rather
+/// than arrive twice, because the natives drop a snapshot identical to the one
+/// before it and a paused engine sends none at all. `restoreOrientation`
+/// unpins only what was pinned, since nothing else in the app calls
+/// `setPreferredOrientations`. There is no manual rotate button.
 ///
-/// The pin is a *pair* — landscapeLeft and landscapeRight, portraitUp and
-/// portraitDown — so the viewer can still turn the handset end for end; what
-/// they cannot do any more is ask for the orientation the video is not.
+/// The pin is a pair — landscapeLeft and landscapeRight, portraitUp and
+/// portraitDown — so the viewer can still turn the handset end for end.
 void main() {
   late List<List<String>> pinned;
 
@@ -79,6 +66,7 @@ void main() {
     Size? track,
     Size? buffer,
     String state = 'playing',
+    int? orientation,
   }) => <String, Object?>{
     ...snapshot(position: position, state: state),
     if (track != null)
@@ -91,6 +79,9 @@ void main() {
         'width': buffer.width.round(),
         'height': buffer.height.round(),
       },
+    // libVLC's raw `libvlc_video_orient_t`. Android's route to the same answer
+    // the texture platforms reach through the coded buffer.
+    'videoOrientation': ?orientation,
   };
 
   /// The ordinary case: the track and the buffer agree about which way up the
@@ -174,16 +165,12 @@ void main() {
       await settle(tester);
       pinned.clear();
 
-      // What a handset camera actually writes, and what the engine actually
-      // reports for it: landscape frames plus a 90-degree rotation matrix. The
-      // media track therefore declares 1920x1080 - `libvlc_video_get_size`
-      // reads `libvlc_media_get_tracks_info`, a struct with no orientation
-      // member, and Android reads the same declared numbers off
-      // `currentVideoTrack` - while the buffer libVLC decodes into is 1088x1920,
-      // because `vmem.c` runs `video_format_ApplyRotation` before it hands the
-      // format to the sink.
-      //
-      // Only one of those two is the picture the viewer sees.
+      // What a handset camera writes: landscape frames plus a 90-degree
+      // rotation matrix. The media track therefore declares 1920x1080 -
+      // `libvlc_video_get_size` reads `libvlc_media_get_tracks_info`, a struct
+      // with no orientation member - while the buffer libVLC decodes into is
+      // 1088x1920, because `vmem.c` runs `video_format_ApplyRotation` before
+      // it hands the format to the sink.
       await sendEvent(
         tester,
         event(
@@ -215,11 +202,10 @@ void main() {
     await settle(tester);
     pinned.clear();
 
-    // Android's shipping path: an AndroidView platform view, which sends
-    // `videoSize` and no `codedSize` at all. The one size it does send cannot
-    // tell a landscape film from a portrait clip shot on a phone, so the
-    // player declines to guess and leaves the device wherever the viewer's own
-    // rotation setting has it.
+    // Android's shipping path is an AndroidView platform view, which sends
+    // `videoSize` and no `codedSize`. That one size cannot tell a landscape
+    // film from a portrait clip shot on a phone, so the player leaves the
+    // device wherever the viewer's own rotation setting has it.
     await sendEvent(
       tester,
       event(position: 1500, track: const Size(1920, 1080)),
@@ -235,10 +221,57 @@ void main() {
       pinned,
       isEmpty,
       reason:
-          'a rotation-blind size is not evidence. Forwarding the track\'s '
-          'orientation field from the plugin is what earns this platform the '
-          'feature back',
+          'a rotation-blind size is not evidence, and a coin flip behind a '
+          'device rotation is worse than leaving the handset alone',
     );
+
+    await tester.pumpWidget(const SizedBox());
+  }, variant: texturePlatform);
+
+  testWidgets('Android turns the handset from the track\'s own rotation', (
+    tester,
+  ) async {
+    await pumpPhone(tester);
+    await settle(tester);
+    pinned.clear();
+
+    // Android sends no coded buffer, so its route to the upright shape is the
+    // rotation field beside the size. Shot in portrait on a handset, and
+    // therefore stored as landscape frames plus a quarter turn: orientation 6,
+    // RightTop, is what an MP4 tkhd matrix of 270 degrees becomes.
+    await sendEvent(
+      tester,
+      event(position: 1500, track: const Size(1920, 1080), orientation: 6),
+    );
+    await waitOutSettle(tester);
+
+    expect(
+      pinned,
+      [portrait],
+      reason:
+          'the stored frames are landscape; the picture is not. Android has '
+          'the rotation in the same track read as the size, so there is '
+          'nothing to guess at here',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  }, variant: texturePlatform);
+
+  testWidgets('Android leaves a genuinely landscape film in landscape', (
+    tester,
+  ) async {
+    await pumpPhone(tester);
+    await settle(tester);
+    pinned.clear();
+
+    // The same stored dimensions with no rotation on them at all.
+    await sendEvent(
+      tester,
+      event(position: 1500, track: const Size(1920, 1080), orientation: 0),
+    );
+    await waitOutSettle(tester);
+
+    expect(pinned, [landscape]);
 
     await tester.pumpWidget(const SizedBox());
   }, variant: texturePlatform);
@@ -250,9 +283,9 @@ void main() {
     await settle(tester);
     pinned.clear();
 
-    // The reading the old code acted on immediately, replaced a tick later by
-    // the one that sticks. Only the shape that stuck may reach the OS: the
-    // viewer must not watch the device swing landscape and back.
+    // A first reading, replaced a tick later by the one that sticks. Only the
+    // shape that stuck may reach the OS: the viewer must not watch the device
+    // swing landscape and back.
     await sendEvent(tester, upright(1920, 1080, position: 1500));
     await sendEvent(tester, upright(1080, 1920, position: 2500));
     await waitOutSettle(tester);
@@ -269,16 +302,10 @@ void main() {
     await settle(tester);
     pinned.clear();
 
-    // One snapshot, and then silence - which is not a contrived case. Every
-    // native side drops a snapshot identical to the one before it, so a paused
-    // engine, having said "paused, 1920x1080" once, has nothing further to
-    // say. Nothing downstream covers for it either: the controller's own stall
-    // clock, which does re-publish a stalled value while playback is running,
-    // is explicitly inert while the state is paused.
-    //
-    // The rule this replaced counted EVENTS, so it sat waiting for a second
-    // one that was never coming and left the handset unrotated for as long as
-    // the viewer stayed paused.
+    // One snapshot, and then silence. Every native side drops a snapshot
+    // identical to the one before it, so a paused engine has nothing further
+    // to say, and the controller's stall clock - which does re-publish while
+    // playback is running - is inert while the state is paused.
     await sendEvent(
       tester,
       event(
@@ -320,8 +347,8 @@ void main() {
 
     // No size ever arrived - an unresolvable stream, or a viewer who changed
     // their mind while the spinner was up. Nothing was pinned, so nothing may
-    // be handed back: pinning portraitUp here killed rotation app-wide for the
-    // rest of the process.
+    // be handed back: pinning portraitUp here would kill rotation app-wide for
+    // the rest of the process.
     await tester.pumpWidget(const SizedBox());
 
     expect(pinned, isEmpty);

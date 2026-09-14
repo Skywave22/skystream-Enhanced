@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Doble toque para buscar",
   "swipeToSeek": "Deslizar para buscar",
   "seekDuration": "Duración de búsqueda",
-  "bufferDepth": "Profundidad del búfer",
   "defaultResizeMode": "Modo de escalado predeterminado",
   "hardwareDecoding": "Decodificación por hardware",
   "network": "Red",
@@ -177,7 +176,6 @@
   "left": "Izquierdo",
   "right": "Derecho",
   "selectSeekDuration": "Seleccionar duración de búsqueda",
-  "selectBufferDepth": "Seleccionar profundidad del búfer",
   "subtitleSettings": "Ajustes de subtítulos",
   "size": "Tamaño: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Preferencia de calidad Wi-Fi",
   "mobileQualityPreference": "Preferencia de calidad móvil",
   "anyNoPreference": "Cualquiera (sin preferencia)",
   "subtitleAccounts": "Cuentas de subtítulos",

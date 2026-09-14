@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Двойное касание для перемотки",
   "swipeToSeek": "Свайп для перемотки",
   "seekDuration": "Длительность перемотки",
-  "bufferDepth": "Глубина буфера",
   "defaultResizeMode": "Режим масштабирования по умолчанию",
   "hardwareDecoding": "Аппаратное декодирование",
   "network": "Сеть",
@@ -177,7 +176,6 @@
   "left": "слева",
   "right": "справа",
   "selectSeekDuration": "Выберите длительность перемотки",
-  "selectBufferDepth": "Выберите глубину буфера",
   "subtitleSettings": "Настройки субтитров",
   "size": "Размер: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Качество при Wi-Fi",
   "mobileQualityPreference": "Качество при мобильной сети",
   "anyNoPreference": "Любое (без предпочтений)",
   "subtitleAccounts": "Аккаунты субтитров",

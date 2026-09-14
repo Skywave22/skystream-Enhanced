@@ -229,25 +229,19 @@ class _VlcPlayerState extends State<VlcPlayer> {
 
   /// Wraps the platform view so it never participates in focus traversal.
   ///
-  /// Flutter inserts a `Focus` node around every platform view — see
-  /// `flutter/lib/src/widgets/platform_view.dart`, which declares `_focusNode`,
-  /// builds `Focus(focusNode: _focusNode, ...)` and installs an `onFocus`
-  /// callback that calls `requestFocus()`. That node exists regardless of what
-  /// the native view does, and it defaults to `canRequestFocus: true` /
-  /// `skipTraversal: false`.
-  ///
-  /// On a TV that is a real bug, not a nicety. A full-screen video surface is a
-  /// focusable candidate covering the whole screen, so when a host hides its
-  /// controls (and with them their focus nodes) the video node is the only
-  /// thing left to take focus. Hosts that detect "nothing is focused" by
-  /// comparing `FocusManager.instance.primaryFocus` against their own root then
-  /// see something focused, stand aside, and no one handles the remote's
-  /// Play/Pause. Focus also becomes invisible.
+  /// Flutter inserts a `Focus` node around every platform view
+  /// (`flutter/lib/src/widgets/platform_view.dart`), defaulting to
+  /// `canRequestFocus: true` and `skipTraversal: false`. On a TV that makes the
+  /// full-screen video surface a focusable candidate covering the whole screen,
+  /// so once a host hides its controls the video node is the only thing left to
+  /// take focus, and a host checking `FocusManager.instance.primaryFocus`
+  /// against its own root sees something focused and stands aside - nothing
+  /// then handles the remote's Play/Pause.
   ///
   /// `ExcludeFocus` sets `descendantsAreFocusable: false`, drops the node from
-  /// `traversalDescendants`, and neutralises the engine's `requestFocus`.
-  /// Texture-backed platforms do not need this — a `Texture` contributes no
-  /// focus node — which is why this only wraps the platform-view branches.
+  /// `traversalDescendants` and neutralises the engine's `requestFocus`.
+  /// Texture-backed platforms do not need it: a `Texture` contributes no focus
+  /// node.
   Widget _excludeFromFocus(Widget platformView) =>
       ExcludeFocus(child: platformView);
 
@@ -256,12 +250,10 @@ class _VlcPlayerState extends State<VlcPlayer> {
     unawaited(_attachPlatformView(widget.controller, viewId));
   }
 
-  /// Deliberately excludes `fit`.
-  ///
-  /// It used to be part of this key, which meant every change of video fit
-  /// tore down and rebuilt the platform view — recreating the entire LibVLC
-  /// instance and stalling playback. Fit is now pushed to the running player
-  /// via setFit() in didUpdateWidget.
+  /// Deliberately excludes `fit`: keying on it would tear down and rebuild the
+  /// platform view, and with it the whole LibVLC instance, on every change of
+  /// video fit. Fit is pushed to the running player by setFit() in
+  /// didUpdateWidget.
   String get _platformViewKey => '${identityHashCode(widget.controller)}';
 
   Future<int> _attachTexturePlayer(VlcPlayerController controller) async {
@@ -296,43 +288,22 @@ class _VlcPlayerState extends State<VlcPlayer> {
   /// of [_fitTexture]'s `picture` box is, since that box is laid out at the
   /// coded size.
   ///
-  /// A clip is geometry, but the compositor SAMPLES the texture, and it
-  /// samples bilinearly: the destination pixel sitting on the clip boundary
-  /// has a filter footprint reaching half a texel past its own centre, so it
-  /// blends the last written row with the first padding row. Unwritten NV12 is
-  /// green; a partially written or differently initialised buffer gives the
-  /// magenta the other chroma extreme produces. Either way it is one blended
-  /// destination row - the thin coloured band along the bottom edge, visible
-  /// only where the coded size differs from the visible one and only at the
-  /// scale factors where the boundary lands off a physical pixel edge, which
-  /// is why it is both video- and device-dependent.
+  /// The compositor samples the texture bilinearly, so a destination pixel
+  /// sitting on the clip boundary blends the last written row with the first
+  /// padding row: one thin coloured band along the bottom edge, green for
+  /// unwritten NV12. Half a texel would clear luma but not chroma - NV12
+  /// carries CbCr at half height - so one whole luma row is the smallest inset
+  /// that keeps both planes clear.
   ///
-  /// Half a texel would clear the luma plane. It does not clear chroma: NV12
-  /// carries CbCr at half height, so half a luma row is only a quarter of a
-  /// chroma texel and the chroma tap still reaches the padding. One whole luma
-  /// row is half a chroma texel, and that is the smallest inset that keeps
-  /// both planes clear at any scale.
-  ///
-  /// "At any scale" carries a precondition, and it is the one thing here that
-  /// a later edit could quietly take away: the clip must not be antialiased.
-  /// With [Clip.hardEdge] the boundary is rounded to a whole device pixel, so
-  /// the last device row actually drawn has its centre at `round(D) - 0.5`,
-  /// never past the boundary `D`; map that back and the bilinear tap reaches
-  /// no further than source row `shown`, which this guard has already pulled
-  /// off the padding. [Clip.antiAlias] instead draws the boundary pixel at
-  /// partial coverage, and it is still sampled at its own centre, so the tap
-  /// reaches `shown + 0.5 / m` where `m` is device rows per source row - the
-  /// `FittedBox` scale times the device pixel ratio. Below `m = 0.5` that is
-  /// more than the single row bought here and the band returns: a 1080p
-  /// picture drawn into fewer than 540 device rows, which is picture-in-
-  /// picture, or a small window on a 1x display.
-  ///
-  /// The guard cannot defend itself. `m` is a paint-time property of an
-  /// ancestor and is not knowable at the point the inset is chosen, so making
-  /// this robust to antialiasing would mean insetting for the worst case and
-  /// throwing away real picture at every ordinary scale. The clip behaviour is
-  /// named explicitly at the [ClipRect] below and pinned by the test
-  /// 'clips with a hard edge, which the one-row sampling guard depends on'.
+  /// That holds only while the clip is not antialiased. [Clip.hardEdge] rounds
+  /// the boundary to a whole device pixel, so the bilinear tap reaches no
+  /// further than source row `shown`. [Clip.antiAlias] draws a partially
+  /// covered boundary pixel and still samples it at its own centre, so the tap
+  /// reaches `shown + 0.5 / m`, where `m` is device rows per source row, and
+  /// the band returns below `m = 0.5`. `m` is a paint-time property of an
+  /// ancestor and cannot be known here, so the clip behaviour is named
+  /// explicitly at the [ClipRect] below and pinned by the test 'clips with a
+  /// hard edge, which the one-row sampling guard depends on'.
   static const double _samplingGuard = 1;
 
   /// The texture's own size.
@@ -357,10 +328,9 @@ class _VlcPlayerState extends State<VlcPlayer> {
   /// still the old one's, and a bigger new video then makes the visible size
   /// exceed the texture.
   ///
-  /// A factor above 1 does not clip. `Align` grows past its child and pins the
-  /// picture top-left, so the `FittedBox` fits a box larger than the picture
-  /// and draws the video small inside dead space - the video shrinking instead
-  /// of zooming.
+  /// A factor above 1 does not clip: `Align` grows past its child, so the
+  /// `FittedBox` fits a box larger than the picture and draws the video small
+  /// inside dead space instead of zooming it.
   static double _shownExtent(double visible, double coded) {
     if (visible >= coded) {
       return coded;

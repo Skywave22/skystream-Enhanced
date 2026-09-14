@@ -25,7 +25,6 @@
   "doubleTapToSeek": "খুঁজতে ডবল ট্যাপ করুন",
   "swipeToSeek": "খুঁজতে সোয়াইপ করুন",
   "seekDuration": "সিক ডিউরেশন",
-  "bufferDepth": "বাফার ডেপথ",
   "defaultResizeMode": "ডিফল্ট রিসাইজ মোড",
   "hardwareDecoding": "হার্ডওয়্যার ডিকোডিং",
   "network": "নেটওয়ার্ক",
@@ -177,7 +176,6 @@
   "left": "বাম",
   "right": "ডান",
   "selectSeekDuration": "সিক ডিউরেশন নির্বাচন করুন",
-  "selectBufferDepth": "বাফার ডেপথ নির্বাচন করুন",
   "subtitleSettings": "সাবটাইটেল সেটিংস",
   "size": "সাইজ: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "ওয়াই-ফাই মানের পছন্দ",
   "mobileQualityPreference": "মোবাইল ডেটা মানের পছন্দ",
   "anyNoPreference": "যেকোনো (কোনো পছন্দ নেই)",
   "subtitleAccounts": "সাবটাইটেল অ্যাকাউন্ট",

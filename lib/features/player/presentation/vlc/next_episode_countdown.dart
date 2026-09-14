@@ -12,51 +12,24 @@ import '../widgets/player_control_components.dart';
 
 /// The "up next" card shown in the closing seconds of an episode.
 ///
-/// Engine-agnostic and stateless about playback, exactly like [PlayerRail]:
-/// every value it renders and both outcomes are handed in. The old
-/// NextEpisodeOverlay was armed from player_controller.dart:2122-2157 and then
-/// read the controller back for `isPlaying`, so the countdown had two owners.
-/// Here [paused] is a plain bool in, which is why this file imports nothing of
-/// the engine or its controller - only the chrome's shared tokens and metrics -
-/// and can be tested without one.
+/// Engine-agnostic: every value it renders and both outcomes are handed in, so
+/// it can be tested without a player.
 ///
-/// Contract, because auto-advance is destructive and a double fire skips two
-/// episodes: **exactly one of [onPlayNext] and [onCancel] is ever called, and
-/// it is called at most once.** The parent unmounts the card in response to
-/// either. After [onCancel] it must not be shown again for this episode —
-/// "cancel" means the viewer declined the advance, not "ask again in a second".
+/// Exactly one of [onPlayNext] and [onCancel] is ever called, and it is called
+/// at most once — auto-advance is destructive and a double fire skips two
+/// episodes. The parent unmounts the card in response to either, and must not
+/// show it again for this episode after [onCancel].
 ///
-/// ## Composition
+/// Two layouts: stacked (TV, desktop, tablet), a full-width still above a panel
+/// above the two actions; and compact (a phone held sideways), a thumbnail
+/// beside the text. See [_kCompactWidth] for why the stacked shape does not fit
+/// a phone's landscape height.
 ///
-/// Two layouts, chosen by form factor and *measured*, not guessed:
-///
-/// * **Stacked** (TV, desktop, tablet). The reference design's shape: a
-///   full-width still across the top of the card - 16:9 where the viewport
-///   has the height for it and a `BoxFit.cover` crop of the same frame where
-///   it does not, see [_NextEpisodeCountdownState._stacked] - then a dark panel
-///   carrying the `S1 E2` pill, the title and a two-line synopsis, then the two
-///   actions. The countdown ring — which the reference has no equivalent for,
-///   and which is the only thing telling the viewer this will happen by itself
-///   — rides in the UP NEXT badge floated over the still's top-left corner,
-///   or, when there is no still, as the panel's first row.
-/// * **Compact** (a phone held sideways). Stays the row it was, thumbnail
-///   beside the text. See [_kCompactWidth] for the arithmetic: the stacked
-///   shape does not fit in a phone's landscape height.
-///
-/// ## The three numbers the layout is solved against
-///
-/// Everything below is measured on the 960x540 dp canvas a 1080p television
-/// reports, which is the tightest of the three form factors by a wide margin:
-///
-/// * [_bottomClearance] — the card is anchored above the scrubber.
-/// * [_kTopChromeHeight] — and below the running title, see [_available].
-/// * The widest action label in the shipped locales, which is what fixes the
-///   card's *width*: see [_kTvWidth] and [_actions].
-///
-/// The still is what gives when those three do not leave room: it is the one
-/// [Flexible] child of the stacked column, so the card's height is bounded by
-/// construction rather than by an arithmetic budget that a longer string or a
-/// larger text scale can silently blow past.
+/// The still is the stacked column's one [Flexible] child, so the card's height
+/// is bounded by construction rather than by an arithmetic budget a longer
+/// string or a larger text scale could silently blow past. The layout is solved
+/// on the 960x540 dp canvas a 1080p television reports, the tightest of the
+/// three form factors.
 class NextEpisodeCountdown extends StatefulWidget {
   const NextEpisodeCountdown({
     required this.title,
@@ -78,8 +51,7 @@ class NextEpisodeCountdown extends StatefulWidget {
   final String title;
 
   /// Episode still or series poster. Null is a real case — a series with no
-  /// episode art — and the two layouts answer it differently; see
-  /// [_stacked] and [_Thumbnail].
+  /// episode art — and the two layouts answer it differently.
   final String? posterUrl;
 
   final int? season;
@@ -94,19 +66,16 @@ class NextEpisodeCountdown extends StatefulWidget {
 
   final String? description;
 
-  /// How long before the advance happens on its own. Matches the old
-  /// overlay's 15 s.
+  /// How long before the advance happens on its own.
   final Duration countdown;
 
-  /// Holds the countdown where it is. Playback pausing must not burn the
-  /// timer down: the viewer who pauses at the credits is the one most likely
-  /// to be reading this card.
+  /// Holds the countdown where it is. Pausing playback must not burn the timer
+  /// down: the viewer who pauses at the credits is the one reading this card.
   final bool paused;
 
   final bool isTv;
 
-  /// Fired by "Play now" and by the countdown reaching zero. The card does not
-  /// distinguish them because the outcome is identical.
+  /// Fired by "Play now" and by the countdown reaching zero.
   final VoidCallback onPlayNext;
 
   /// The viewer declined. Nothing else happens — the episode plays out.
@@ -116,95 +85,57 @@ class NextEpisodeCountdown extends StatefulWidget {
   State<NextEpisodeCountdown> createState() => _NextEpisodeCountdownState();
 }
 
-/// Card width on a television, and the one number in this file that is a
-/// *derivation* rather than a taste call.
+/// Card width on a television, derived from the longest action label.
 ///
-/// It is derived from the **longest action label**, not from the height budget
-/// it used to be solved against. A clipped primary action is not shippable,
-/// and the widest of the three shipped locales is Kannada: `playNow` is
-/// "ಈಗಲೇ ಪ್ಲೇ ಮಾಡಿ", which lays out at **224 dp** at the ten-foot 16 sp
-/// (`RenderParagraph.maxIntrinsicWidth`, measured — Hindi is 144 and English
-/// 128). The two actions are stacked rather than side by side precisely so
-/// each of them gets the card's whole width; splitting 272 dp in half left
-/// 97 dp for a 224 dp string and every locale ellipsised, English included.
+/// The widest shipped locale is Kannada, whose `playNow` lays out at 224 dp at
+/// the ten-foot 16 sp (`RenderParagraph.maxIntrinsicWidth`; Hindi is 144 and
+/// English 128). `224 label + 2 x 10 button padding + 2 x 14 card padding` is
+/// 272, rounded up to 300 for slack.
 ///
-/// So: `224 label + 2 x 10 button padding + 2 x 14 card padding = 272` exactly,
-/// rounded up to 300 for a tenth of slack over the longest string we ship.
-/// 300 dp is 31 % of a 960 dp canvas — the reference's "roughly a third".
-///
-/// The height is *not* solved here any more. See [_available] and [_stacked]:
-/// the panel takes what it needs and the still takes what is left, capped at
-/// 16:9. On a 960x540 set with full catalogue data that leaves the still 78 dp
-/// of the card's 304 — measured, and the reason the synopsis is still two
-/// lines while the title is one.
+/// The height is not solved here: see [_available] and [_stacked], where the
+/// panel takes what it needs and the still takes what is left.
 const double _kTvWidth = 300;
 
-/// Desktop and tablet. Height is not the binding constraint here: the layout
-/// is only reached when the shortest side is >= 600 dp. 400 - 28 - 20 = 352 dp
-/// of label per action against Kannada's 182 dp at 13 sp.
+/// Desktop and tablet, only reached when the shortest side is >= 600 dp.
+/// `400 - 28 - 20` leaves 352 dp of label per action against Kannada's 182 dp
+/// at 13 sp.
 const double _kWideWidth = 400;
 
-/// A phone held sideways is ~390 dp tall, of which the card may use
-/// `390 - 144 - 92 = 154` once it is held clear of both the 123 dp bottom bar
-/// and the title above — which is under the floor, so what it actually gets is
-/// [_kMinCardHeight] and the clearance over the *title* is what gives.
-/// The stacked shape does not fit in that, and this is measured rather than
-/// argued: forced down that branch the panel alone wants 237 dp - its two
-/// title lines, two synopsis lines and two stacked actions are width-
-/// independent - and the framework reports "A RenderFlex overflowed by 77
-/// pixels on the bottom" before the still has taken a single dp.
+/// Compact card width, for a phone held sideways.
 ///
-/// So compact keeps the row it had: a thumbnail beside the text, and it lays
-/// out at 218 dp with 8 to spare. A full-bleed still over a 149 dp-tall video
-/// is not a card, it is a takeover. The width answers the same label question
-/// [_kTvWidth] does: `300 - 24 - 20 = 256` dp per stacked action, against
-/// Kannada's 185.5 dp at the touch 13 sp.
+/// A landscape phone is ~390 dp tall and the stacked shape does not fit: forced
+/// down that branch the panel alone wants 237 dp — its two title lines, two
+/// synopsis lines and two stacked actions are width-independent — and overflows
+/// before the still has taken a single dp. The compact row lays out at 218.
+///
+/// The width answers the same label question [_kTvWidth] does:
+/// `300 - 24 - 20 = 256` dp per stacked action, against Kannada's 185.5 dp at
+/// the touch 13 sp.
 const double _kCompactWidth = 300;
 
 /// The band the player's top bar occupies, which the card is held clear of.
 ///
-/// Measured through the real screen at 960x540: `PlayerTopBar` lays out
-/// 0..92 dp and its title — an `Expanded` with `maxLines: 1`, so a real series
-/// title does fill it to the overscan inset at x = 912 — paints 34..65. The
-/// card is bottom-right and 272 dp wide, so it shares those columns; before
-/// this it topped out at 47 dp and ate the lower 18 dp of the running title.
+/// `PlayerTopBar` lays out 0..92 dp at 960x540 and its title fills the width
+/// the bottom-right card shares. One constant for all three form factors: the
+/// ten-foot bar is the tallest of them, so 92 is conservative elsewhere.
 ///
-/// One constant for all three form factors rather than three: the ten-foot bar
-/// is the tallest of them (the touch bar sets its title at 18 sp, not 22), so
-/// 92 is conservative everywhere else. It is deliberately *not* conditional on
-/// the chrome being visible — the card can be up with the bars hidden, and a
-/// card whose size depends on whether the bars happen to be up would resize
+/// Deliberately not conditional on the chrome being visible. The card can be up
+/// with the bars hidden, and a card that sized itself off them would resize
 /// under the viewer every time they tapped.
 const double _kTopChromeHeight = 92;
 
 /// Clearance over the scrubber, from the shared chrome token so the card
 /// follows the bottom bar instead of repeating its metrics.
 ///
-/// ONE number for the flat bar, on every form factor, and that is the fix.
-/// The compact branch used to carry a second, smaller estimate of its own —
-/// 60 dp, on the theory that a phone's bar is much shorter than a
-/// television's — and it was wrong by more than half. Measured through the
-/// real [PlayerBottomBar], whose height is content-driven and so has to be
-/// read off the widget rather than argued from its parts:
+/// One number on every form factor. [PlayerBottomBar]'s height is
+/// content-driven and measures 137 dp on the ten-foot bar, 123 for one flat
+/// control row and 171 when the touch action strip takes a run of its own, so
+/// `bottomChromeHeight + 12` clears both flat bars.
 ///
-/// | bar                                   | height |
-/// | ------------------------------------- | ------ |
-/// | ten-foot                              | 137    |
-/// | one flat control row (touch, tablet, desktop) | 123 (124 live) |
-/// | touch, action strip on its own run    | 171 (172 live) |
-///
-/// `60 + 12` put the card's last 51 dp *over* the scrubber on every phone —
-/// and the card is a later child of the player's Stack than the controls
-/// (vlc_player_screen.dart builds `VlcPlayerControls` and then
-/// `_nextEpisodeCard`), so it did not merely cover the right third of the seek
-/// bar, it hit-tested in front of it and ate the drags aimed at it. The last
-/// fifteen seconds of an episode is exactly when a viewer reaches for that end
-/// of the bar to get back into the scene.
-///
-/// `bottomChromeHeight + 12` = 144 clears the two flat bars — 7 dp over the
-/// taller — which is what a shared chrome token is for. Measured through the
-/// real screen at 960x540: `PlayerBottomBar` starts at 403 dp and this puts
-/// the card's last pixel on 396.
+/// Too small a clearance is worse than it looks: the card is a later child of
+/// the player's Stack than the controls, so it does not merely cover the right
+/// end of the seek bar, it hit-tests in front of it and eats the drags aimed
+/// at it.
 const double _kBottomClearance = HotstarPlayerStyle.bottomChromeHeight + 12;
 
 /// What the bar grows by when its action strip takes a run of its own, which
@@ -212,33 +143,23 @@ const double _kBottomClearance = HotstarPlayerStyle.bottomChromeHeight + 12;
 /// See [PlayerBottomBar.narrowTouchWidth] for when.
 const double _kActionRunHeight = 48;
 
-/// The clearance the card actually gets.
+/// The clearance the card actually gets: [_kBottomClearance] with two
+/// corrections, in this order.
 ///
-/// Two corrections to the flat [_kBottomClearance], in this order.
+/// Up by [_kActionRunHeight] below [PlayerBottomBar.narrowTouchWidth] of inner
+/// width, where the bar puts its action strip on a run of its own and stands
+/// that much taller. The threshold is read off the bar's own constant and
+/// applied to the same inner width the bar measures, so the card cannot
+/// disagree with the bar about which shape the bar is in. No `isTouch` is
+/// needed: every viewport narrow enough to reach the split is a handset held
+/// upright, since desktop windows are floored at 800x600 and no phone in
+/// landscape is under 568 dp.
 ///
-/// **Up, for the two-row bar.** Below [PlayerBottomBar.narrowTouchWidth] of
-/// *inner* width the bar puts its action strip on a run above the transport
-/// row and stands 48 dp taller, so the card has to stand 48 dp higher. The
-/// threshold is read off the bar's own constant and applied to the same inner
-/// width the bar measures — the viewport less the two edge insets it pads by —
-/// so the card cannot disagree with the bar about which shape the bar is in.
-/// It needs no `isTouch` of its own to do it: the split is a touch behaviour,
-/// and every viewport narrow enough to reach it is a handset held upright.
-/// A desktop window cannot be one (macOS `contentMinSize`, the Win32
-/// `ptMinTrackSize` and GTK's `size_request` all floor the window at 800x600),
-/// and no phone in landscape is under 568 dp.
-///
-/// **Down, when there is no room.** The clearance is a *preference*, and on a
-/// viewport too short to hold the card above the bar at all it is the first
-/// thing that gives — before the card breaks. [_kMinCardHeight] is reserved
-/// out of the viewport and what is left over is the clearance: a 390 dp-tall
-/// phone affords all 144, a 360 dp one 136, a 320 dp one 96, where 218 of card
-/// and 123 of bar want 341 dp of a 320 dp screen and something has to overlap.
-/// Without this the fix for the overlap would trade it for a worse defect —
-/// the [Padding] in [build] hands the card `size.height - clearance`, so a
-/// flat 144 on a 360 dp-tall phone leaves 216 for a card that measures 218 and
-/// the framework reports "A RenderFlex overflowed by 2.0 pixels on the
-/// bottom", 34 at 320.
+/// Down when there is no room. The clearance is a preference and gives before
+/// the card breaks: [_kMinCardHeight] is reserved out of the viewport and what
+/// is left over is the clearance. [build] hands the card
+/// `size.height - clearance`, so a flat clearance overflows a 360 dp-tall
+/// phone by 2 dp and a 320 dp one by 34.
 double _bottomClearance(
   Size size,
   EdgeInsets padding, {
@@ -258,52 +179,37 @@ double _bottomClearance(
 
 /// The largest text scale the card honours.
 ///
-/// The card cannot scroll and cannot grow: it is pinned between the running
-/// title above it and the scrubber below it, and on the branch that matters
-/// most it has 304 dp to work with. Left to honour the full accessibility
-/// range it overflowed — measured at 1000x600 with full catalogue data, scale
-/// 1.6 printed "A RenderFlex overflowed by 7.0 pixels on the bottom", 1.75
-/// gave 20 and 2.0 gave 39.
+/// The card cannot scroll and cannot grow — it is pinned between the running
+/// title and the scrubber — and honouring the full accessibility range
+/// overflowed it from scale 1.6 up. 1.3 is the top of Android's Display
+/// font-size setting, so every scale reachable without opening Accessibility is
+/// honoured in full and the card keeps its geometry past that.
 ///
-/// 1.3 is not an arbitrary retreat: it is the top of Android's *Display*
-/// font-size setting, so every scale a viewer can reach without opening
-/// Accessibility is honoured in full. Past that the card holds its type and
-/// keeps its geometry rather than clipping the action the countdown is about
-/// to take. TV never reaches this — main.dart pins `TextScaler.noScaling`
-/// there — so this is a touch and desktop rule.
+/// A touch and desktop rule: main.dart pins `TextScaler.noScaling` on TV.
 const double _kMaxTextScale = 1.3;
 
-/// The clearance over the *title* is a preference; this is the card's floor,
-/// and on a short enough viewport the floor wins.
+/// The card's floor. The clearance over the title is only a preference, and on
+/// a short enough viewport the floor wins.
 ///
-/// A 360 dp-wide phone - which is the commonest Android width there is - is
-/// 360 dp tall held sideways, and `360 - 144 chrome - 92 title` is 124 against
-/// a compact card that measures 218 at every scale it honours. Measured:
-/// without this the framework reports "A RenderFlex overflowed by 94 pixels on
-/// the bottom" there. Given the choice between a card that overlaps the top
-/// bar on a small phone and a card that is broken on one, the overlap is the
-/// right answer - and it is the branch where the overlap is least serious,
-/// because the touch title paints at 18 sp and ends well above the 92 the
-/// ten-foot bar occupies, and because the only *control* in the top bar is
-/// Back, which is at the far left of a bar this right-anchored card never
-/// reaches.
+/// A 360 dp-wide phone is 360 dp tall held sideways, leaving 124 dp for a
+/// compact card that measures 218 at every scale it honours. An overlap with
+/// the top bar beats a broken card, and it is least serious on that branch: the
+/// touch title paints at 18 sp, and the bar's only control, Back, is at the far
+/// left of a bar this right-anchored card never reaches.
 ///
-/// It is also the reserve [_bottomClearance] hands back to the viewport, so
-/// the two rules cannot fight: the clearance over the scrubber is given up a
-/// dp at a time to keep this whole, and the card breaks only when the bar and
-/// the floor together do not fit on the screen at all.
+/// It is also the reserve [_bottomClearance] hands back to the viewport, so the
+/// two rules cannot fight — the clearance over the scrubber is given up a dp at
+/// a time to keep this whole.
 ///
-/// 224 rather than 218 exactly: the six spare dp are for a locale whose
-/// two-line action label would push a slab past 44 dp.
+/// 224 rather than 218: the spare six dp are for a locale whose two-line action
+/// label would push a slab past 44 dp.
 const double _kMinCardHeight = 224;
 
 class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
     with SingleTickerProviderStateMixin {
-  /// One clock, not a timer plus an animation. The old overlay ran a [Timer]
-  /// for the deadline alongside an [AnimationController] for the ring and had
-  /// to reconcile them by hand across pause and resume (`_elapsedFraction`);
-  /// driving the deadline off the controller's own completion means the ring
-  /// cannot disagree with the moment it fires.
+  /// One clock, not a timer plus an animation: driving the deadline off the
+  /// ring's own controller means the ring cannot disagree with the moment it
+  /// fires.
   late final AnimationController _clock;
 
   /// Latches on the first outcome so neither callback can fire twice — a
@@ -314,52 +220,41 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
   ///
   /// Flutter applies a pending autofocus only while the target scope has no
   /// focused child (`_Autofocus.applyIfValid` in focus_manager.dart). The card
-  /// is a *sibling* of the controls in the player's Stack, and the controls
-  /// guarantee the route scope always has a focused child — a chrome button,
-  /// or their key sink, which exists for exactly that reason. So an autofocus
-  /// resolved against the route scope was discarded every single time and
-  /// "Play now" never took the remote: on a television the countdown ran down
-  /// to a destructive auto-advance with no focus ring anywhere to aim at.
+  /// is a sibling of the controls in the player's Stack and the controls
+  /// guarantee the route scope always has a focused child, so an autofocus
+  /// resolved against the route scope is discarded and the remote never reaches
+  /// the card. A scope of the card's own is empty by definition, so the
+  /// autofocus on the Play-now button lands, and applying it makes this scope
+  /// the route's focused child on the way.
   ///
-  /// A scope of the card's own is empty by definition, so the autofocus on the
-  /// Play-now button lands: applying it walks the scope chain and makes this
-  /// scope the route's focused child on the way. That is the whole mechanism —
-  /// verified by ablation, the scope alone carries tv_overlay_focus_test. The
-  /// post-frame [FocusScopeNode.requestFocus] in [_grabRemoteAfterFrame] is a
-  /// rescue for the one case the autofocus cannot cover: an autofocus is
-  /// discarded, permanently, if anything has already been focused inside this
-  /// scope by the time the manager gets to it, whereas a request is not gated
-  /// on `focusedChild`. It cannot fight the autofocus — a request on a scope
-  /// with no focused child only marks the scope, and the autofocus then
-  /// resolves it onto Play now in the same pass.
+  /// The post-frame [FocusScopeNode.requestFocus] in [_grabRemoteAfterFrame]
+  /// covers the one case the autofocus cannot: an autofocus is discarded
+  /// permanently if anything was already focused inside this scope, whereas a
+  /// request is not gated on `focusedChild`. It cannot fight the autofocus — a
+  /// request on a scope with no focused child only marks the scope, and the
+  /// autofocus resolves it onto Play now in the same pass.
   ///
-  /// The controls cannot take the focus back. Their sink only reclaims when
-  /// primary focus is a [FocusScopeNode] that is an *ancestor* of the sink,
-  /// and this scope is a sibling.
+  /// The controls cannot take the focus back: their sink only reclaims when
+  /// primary focus is a [FocusScopeNode] that is an ancestor of the sink, and
+  /// this scope is a sibling.
   final FocusScopeNode _cardScope = FocusScopeNode(
     debugLabel: 'next-episode-card',
   );
 
   /// Whether the player route is the one the remote belongs to.
   ///
-  /// The card is raised off a position sample, so it can mount while a panel
-  /// is open over the player. That panel is a [PopupRoute]
-  /// (panel/player_panel.dart), so the player route underneath stays built and
-  /// focusable — Flutter only stops a route taking focus while it is animating
-  /// out or under a user gesture, never merely because something was pushed
-  /// over it. Both of the grabs below therefore reach *across* the modal:
-  /// [FocusScopeNode.requestFocus] on an empty scope re-points every ancestor
-  /// scope, the navigator's included, and the autofocus on Play now then lands
-  /// because this scope is empty by construction. The panel is left on screen
-  /// with the remote on a control underneath the barrier, and the first Back
-  /// is eaten by [_onCardKey] instead of popping it.
+  /// The card is raised off a position sample, so it can mount while a panel is
+  /// open over the player. The panel is a [PopupRoute], so the player route
+  /// underneath stays built and focusable and both of the focus grabs below
+  /// would otherwise reach across the modal: the remote would land on a control
+  /// underneath the barrier and the first Back would be eaten by [_onCardKey]
+  /// instead of popping the panel. Both are gated on this.
   ///
-  /// So both are gated on this. `_ModalScopeStatus` is an [InheritedModel]
-  /// keyed on exactly this aspect, so depending on it in [build] rebuilds the
-  /// card when a route is pushed over the player or popped off it — which is
-  /// what hands the remote to a card that has been waiting behind a panel: the
-  /// `autofocus` flips true and `Focus.didUpdateWidget` re-arms it (it was
-  /// never spent), and [didChangeDependencies] re-runs the scope rescue.
+  /// `_ModalScopeStatus` is an [InheritedModel] keyed on exactly this aspect,
+  /// so depending on it in [build] rebuilds the card when a route is pushed
+  /// over the player or popped off it. That is what hands the remote to a card
+  /// waiting behind a panel: `autofocus` flips true, `Focus.didUpdateWidget`
+  /// re-arms it, and [didChangeDependencies] re-runs the scope rescue.
   bool _routeIsCurrent = true;
 
   @override
@@ -369,8 +264,7 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
       ..addStatusListener(_onClockStatus);
     if (!widget.paused) _clock.forward();
     // Safe to schedule before the route is looked up: didChangeDependencies
-    // and the first build both run before a post-frame callback does, so
-    // [_routeIsCurrent] is already true to the tree by the time it fires.
+    // and the first build both run before a post-frame callback does.
     _grabRemoteAfterFrame();
   }
 
@@ -384,9 +278,8 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
     if (_routeIsCurrent && !wasCurrent) _grabRemoteAfterFrame();
   }
 
-  /// See [_cardScope]. After the frame, because the scope has no parent - and
-  /// so nothing to be focused within - until the first build has attached it;
-  /// this is the rescue for a frame in which the autofocus was already spent.
+  /// See [_cardScope]. After the frame, because the scope has no parent — and
+  /// so nothing to be focused within — until the first build has attached it.
   void _grabRemoteAfterFrame() {
     if (!widget.isTv) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -436,9 +329,8 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
 
   /// The height the card is allowed to occupy: the viewport, less the band the
   /// running title is in ([_kTopChromeHeight]) and the band the scrubber is in
-  /// ([_bottomClearance]). Handed to the card as a hard `maxHeight`, which is
-  /// what makes the top-bar clearance a *guarantee* rather than the outcome of
-  /// an arithmetic height budget — the still gives instead.
+  /// ([_bottomClearance]). Handed down as a hard `maxHeight`, so the clearances
+  /// are a guarantee and the still gives instead.
   double _available(Size size, EdgeInsets padding, {required double edge}) {
     final free =
         size.height -
@@ -452,12 +344,10 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    // isTv first, compact only as the non-TV fallback — the shape ended_card
-    // uses. A 1080p television reports 960x540 dp (a Shield, a Google TV and a
-    // Fire TV all present 1920x1080 at devicePixelRatio 2), so a bare
-    // `shortestSide < 600` is TRUE on every set and would shadow every branch
-    // below: the ten-foot card would be laid out as a 300 dp phone card and
-    // floated only 72 dp up, over the bottom bar it is written to clear.
+    // isTv first, compact only as the non-TV fallback. A 1080p television
+    // reports 960x540 dp, so a bare `shortestSide < 600` is true on every set
+    // and would lay the ten-foot card out as a phone card floated over the
+    // bottom bar it is written to clear.
     final size = MediaQuery.sizeOf(context);
     final compact = !widget.isTv && size.shortestSide < 600;
     final padding = MediaQuery.viewPaddingOf(context);
@@ -471,7 +361,7 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
 
     return MediaQuery.withClampedTextScaling(
       // See [_kMaxTextScale]: the card has no room to grow into and nowhere to
-      // scroll, so it honours the Display range and holds past it.
+      // scroll.
       maxScaleFactor: _kMaxTextScale,
       child: Align(
         alignment: Alignment.bottomRight,
@@ -498,18 +388,15 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
                     // A solid translucent panel, not a BackdropFilter. The card is
                     // composited over the native video surface, and a blur forces
                     // a readback of that surface on every repaint — every frame
-                    // here, because the ring is driven by an AnimationController
-                    // and so repaints on each vsync, not once per counted second.
+                    // here, because the ring repaints on each vsync.
                     decoration: BoxDecoration(
                       color: HotstarPlayerStyle.panel.withValues(alpha: 0.94),
                       borderRadius: BorderRadius.circular(_kRadius),
                     ),
-                    // The border paints in *front* of the content, which the
-                    // default [DecorationPosition.background] does not: the still
-                    // is flush to the card's top and both sides, so a background
-                    // border was overpainted by the image along the whole top edge
-                    // and the top of the sides. Against a bright frame the card
-                    // then had no outline where it needed one most.
+                    // The border paints in front of the content, which the
+                    // default [DecorationPosition.background] does not: the
+                    // still is flush to the card's top and both sides, so a
+                    // background border is overpainted along the top edge.
                     child: DecoratedBox(
                       position: DecorationPosition.foreground,
                       decoration: BoxDecoration(
@@ -531,25 +418,20 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
     );
   }
 
-  /// The reference composition: still, then panel, then the two actions.
+  /// The still, then the panel, then the two actions.
   ///
   /// The still is the column's one [Flexible] child, which is the whole shape
   /// of the height contract. The panel is inflexible and lays out at whatever
-  /// its text needs; the still then takes what is left, capped at 16:9 by the
+  /// its text needs; the still takes what is left, capped at 16:9 by the
   /// [AspectRatio] and cropped by `BoxFit.cover` below that. So the card is
-  /// bounded by the box [build] hands it — it clears the running title above
-  /// and the scrubber below by construction, at any text scale the card
-  /// honours, in any locale — instead of by a height budget that a longer
-  /// string could silently blow past. Measured on a 960x540 set with full
-  /// catalogue data: panel 226, still 78, card 304.
+  /// bounded by the box [build] hands it, at any text scale it honours and in
+  /// any locale.
   ///
-  /// A missing still is *not* rendered as a full-width placeholder. That is a
-  /// 300x78 dp letterbox with a broken-image glyph floating in the middle of
-  /// it, which is worse than no still at all; the badge simply becomes the
-  /// panel's first row instead and the card gives the 78 dp back. The
-  /// on-device placeholder still backs the case that matters — a still that is
-  /// *offered* and fails to load, where the box is already laid out
-  /// (see [_Still]).
+  /// A missing still is not rendered as a full-width placeholder: that is a
+  /// letterbox with a broken-image glyph floating in it. The badge becomes the
+  /// panel's first row instead and the card gives the height back. [_Still]
+  /// keeps the placeholder for the case that matters, a still that is offered
+  /// and fails to load with the box already laid out.
   Widget _stacked(AppLocalizations l10n, double width) {
     final url = widget.posterUrl;
     final hasStill = url != null && url.isNotEmpty;
@@ -595,10 +477,9 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
                   style: TextStyle(
                     color: HotstarPlayerStyle.mutedText,
                     fontSize: widget.isTv ? 14 : 13,
-                    // Explicit, so the panel's height is arithmetic rather than
-                    // a property of whichever font the platform resolves —
-                    // Hindi and Kannada glyphs are taller than Latin, and the
-                    // still's share is whatever this leaves.
+                    // Explicit, so the panel's height does not depend on
+                    // whichever font the platform resolves — Hindi and Kannada
+                    // glyphs are taller than Latin.
                     height: 1.3,
                   ),
                 ),
@@ -612,7 +493,7 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
     );
   }
 
-  /// A phone held sideways: the row, kept. See [_kCompactWidth].
+  /// A phone held sideways: a thumbnail beside the text. See [_kCompactWidth].
   Widget _compact(AppLocalizations l10n) {
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -625,8 +506,8 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 96x54 dp of placeholder is a chip, not the hole the stacked
-              // layout refuses; the row would otherwise reflow around nothing.
+              // At 96x54 dp a placeholder reads as a chip rather than the hole
+              // the stacked layout refuses, so a missing still keeps the row.
               _Thumbnail(url: widget.posterUrl, width: 96),
               const SizedBox(width: 10),
               Expanded(
@@ -651,12 +532,9 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
     );
   }
 
-  /// One line on every branch but the desktop one.
-  ///
-  /// The reference's own card sets the episode title on a single line, and on
-  /// the two branches that are short of height it is the cheapest 21.6 dp
-  /// there is: on a television the second line came straight out of the still,
-  /// and on a phone out of the clearance over the scrubber.
+  /// One line on every branch but the desktop one. On the two branches short of
+  /// height a second line costs 21.6 dp out of the still on a television and
+  /// out of the clearance over the scrubber on a phone.
   Widget _title({required bool compact}) {
     return Text(
       widget.title,
@@ -671,23 +549,18 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
     );
   }
 
-  /// UP NEXT and the countdown ring, together.
-  ///
-  /// The label survives from the old card and the ring has no counterpart in
-  /// the reference at all — it is the only thing on screen saying the advance
-  /// will happen by itself — so they are one unit and travel together. Over a
-  /// still they ride in a scrim-backed chip in its top-left corner; with no
-  /// still they are the panel's first row.
+  /// UP NEXT and the countdown ring, together — the ring is the only thing on
+  /// screen saying the advance will happen by itself. Over a still they ride in
+  /// a scrim-backed chip in its top-left corner; with no still they are the
+  /// panel's first row.
   Widget _badge(AppLocalizations l10n, {required bool onStill}) {
     final row = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           l10n.upNext.toUpperCase(),
-          // 14 on TV, not the 12 it was. The eyebrow could have been argued
-          // as a graphic mark rather than a string and left under the floor,
-          // but it costs nothing to clear it: the badge's height is the 30 dp
-          // ring's, not the label's, so this is 2 sp for free.
+          // The ten-foot 14 sp costs no height: the badge is as tall as the
+          // 30 dp ring, not as tall as the label.
           style: TextStyle(
             color: HotstarPlayerStyle.accent,
             fontSize: widget.isTv ? 14 : 10,
@@ -707,9 +580,8 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
 
     if (!onStill) return row;
     return DecoratedBox(
-      // A flat translucent fill, not a blur: this sits over the still, and the
-      // ring under it repaints every vsync. Opaque enough that the label holds
-      // against a bright frame.
+      // A flat translucent fill, not a blur: this sits over the still and the
+      // ring under it repaints every vsync.
       decoration: BoxDecoration(
         color: HotstarPlayerStyle.panel.withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(999),
@@ -721,9 +593,8 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
     );
   }
 
-  /// The `S1 E2` pill, with the episode number carrying the emphasis, followed
-  /// by whatever else the catalogue knows. Null when it knows nothing — a row
-  /// of empty separators looks broken.
+  /// The `S1 E2` pill followed by whatever else the catalogue knows. Null when
+  /// it knows nothing — a row of empty separators looks broken.
   Widget? _metaRow({required bool compact}) {
     final pill = _pill(compact: compact);
     final meta = _meta;
@@ -744,10 +615,7 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: HotstarPlayerStyle.secondaryText,
-                // 14 on TV, not the 12 it was: 12 sp is 24 real pixels on a
-                // 1080p set and this row carries the runtime and the rating,
-                // which are the two things a viewer actually reads off it.
-                // The ten-foot floor is 14 (panel/player_panel_metrics.dart)
+                // 14 is the ten-foot floor (panel/player_panel_metrics.dart),
                 // and the 2 dp it costs comes out of the still.
                 fontSize: widget.isTv ? 14 : 11,
                 fontWeight: FontWeight.w600,
@@ -764,8 +632,7 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
     final episode = widget.episode;
     if (episode == null) return null;
 
-    // See [_metaRow]: 14 is the ten-foot floor, and the season/episode number
-    // is the single most-read string on the card after the title.
+    // See [_metaRow]: 14 is the ten-foot floor.
     final double size = compact ? 10 : (widget.isTv ? 14 : 11);
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -825,24 +692,18 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
     return parts.isEmpty ? null : parts.join('  ·  ');
   }
 
-  /// Two actions of equal prominence, **stacked**, each the card's full width.
+  /// Two actions of equal prominence, stacked, each the card's full width.
   ///
-  /// Side by side they were 117 dp each on a 272 dp television card, of which
-  /// 97 dp was label. Measured against that budget at the ten-foot 16 sp:
-  /// English "Play Now" wants 128 dp, Hindi "अभी चलाएं" 144 and Kannada
-  /// "ಈಗಲೇ ಪ್ಲೇ ಮಾಡಿ" 224 — every locale we ship reported
-  /// `didExceedMaxLines`, and the primary action of a destructive
-  /// auto-advance was ellipsised in all three. Widening the card until a *row*
-  /// held Kannada needs 526 dp, over half the screen.
+  /// Side by side each label had 97 dp on a television card, and every shipped
+  /// locale ellipsised: at the ten-foot 16 sp English wants 128 dp, Hindi 144
+  /// and Kannada 224. A row wide enough for Kannada needs 526 dp, over half the
+  /// screen. Stacking hands each label the whole card instead — 240 dp on TV,
+  /// 352 on desktop, 256 on the compact strip — for 52 dp of height that comes
+  /// out of the still, and the D-pad walks Play now to Cancel with Down rather
+  /// than Right.
   ///
-  /// Stacking hands each label the whole card instead: 240 dp at 300 dp of TV
-  /// card, 352 on desktop, 256 on the compact phone strip. It costs 52 dp of
-  /// height, which comes out of the still (see [_stacked]) rather than out of
-  /// the viewport, and it costs the row's left/right traversal — the D-pad
-  /// walks Play now → Cancel with Down now, not Right.
-  ///
-  /// Play now stays first in the tree, so native traversal reaches it first
-  /// and the autofocus lands on the one the timeout is about to take anyway.
+  /// Play now stays first in the tree, so native traversal reaches it first and
+  /// the autofocus lands on the outcome the timeout is about to take anyway.
   Widget _actions(AppLocalizations l10n) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -852,12 +713,10 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
           label: l10n.playNow,
           filled: true,
           isTv: widget.isTv,
-          // The remote lands here because activating it is what the countdown
-          // is about to do anyway — an accidental select costs nothing, while
-          // landing on Cancel would make the common case the slow one. This
-          // only resolves the card's scope onto a child; what brings the
-          // remote into the scope at all is [_cardScope], and [_routeIsCurrent]
-          // is why neither reaches over an open panel.
+          // Activating this is what the countdown is about to do anyway, so an
+          // accidental select costs nothing. This only resolves the card's
+          // scope onto a child; [_cardScope] is what brings the remote into the
+          // scope at all.
           autofocus: widget.isTv && _routeIsCurrent,
           debugLabel: kPlayNextFocusLabel,
           onPressed: () => _settle(widget.onPlayNext),
@@ -875,10 +734,9 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
   }
 }
 
-/// Focus node labels. Public so the integration and the tests can assert where
-/// the remote is without either of them owning a [FocusNode] — the card's only
-/// node is the scope that carries the remote into it, so traversal *between*
-/// its two controls stays entirely native.
+/// Focus node labels, public so tests can assert where the remote is without
+/// owning a [FocusNode]: traversal between the card's two controls stays
+/// entirely native.
 const String kPlayNextFocusLabel = 'next_episode_play_now';
 const String kCancelFocusLabel = 'next_episode_cancel';
 
@@ -892,19 +750,16 @@ const double _kRadius = 14;
 const double _kBorderWidth = 1;
 const double _kInnerRadius = _kRadius - _kBorderWidth;
 
-/// The gap between the two stacked actions. See [_NextEpisodeCountdownState.
-/// _actions]: two 44 dp slabs and this is 96 dp of the card's height.
+/// The gap between the two stacked actions.
 const double _kActionGap = 8;
 
-/// The minimum height a rendered action slab may report, and the one number
-/// the focus ring needs: a 44 dp target is the shared chrome's rule.
+/// The minimum height a rendered action slab may report; 44 dp is the shared
+/// chrome's target rule.
 const double _kActionHeight = 44;
 
-/// Ring plus remaining seconds, repainting in isolation.
-///
-/// Its own [RepaintBoundary] because it is the only part of the card that
-/// changes: without one, every frame of the ring would repaint the still,
-/// the text and the buttons on a layer sitting over the video surface.
+/// Ring plus remaining seconds, in its own [RepaintBoundary] because it is the
+/// only part of the card that changes: without one every frame of the ring
+/// would repaint the still, the text and the buttons over the video surface.
 class _CountdownRing extends StatelessWidget {
   const _CountdownRing({
     required this.clock,
@@ -941,13 +796,10 @@ class _CountdownRing extends StatelessWidget {
                 ),
                 Text(
                   '$seconds',
-                  // 13 sp inside a 30 dp ring: the card's *only* string
-                  // under the 14 sp ten-foot floor
-                  // (vlc/panel/player_panel_metrics.dart), and declared here
-                  // the same way that file declares its own 13. Two digits at
-                  // 14 sp measure 28 dp against 26 dp of clear space inside
-                  // the stroke, and the number is redundant with the arc it
-                  // sits in - the arc, not the digits, is what says the
+                  // The card's only string under the 14 sp ten-foot floor
+                  // (vlc/panel/player_panel_metrics.dart): two digits at 14 sp
+                  // measure 28 dp against 26 dp of clear space inside the
+                  // stroke, and the arc, not the digits, is what says the
                   // advance is coming.
                   style: TextStyle(
                     color: Colors.white,
@@ -970,12 +822,11 @@ class _CountdownRing extends StatelessWidget {
 ///
 /// The InkWell is deliberately not focusable. Left to its default it creates a
 /// second focus node at the same geometry as the wrapper, and directional
-/// traversal then has two indistinguishable targets per button — one of which
+/// traversal then has two indistinguishable targets per button, one of which
 /// handles no keys.
 ///
-/// No gamepad glyph on either of them. The reference badges its actions with
-/// controller faces; a badge for a device that may not be attached is a lie,
-/// and the card is reached by focus, not by a fixed button.
+/// No gamepad glyph on either: the card is reached by focus, not by a fixed
+/// button, and a badge for a device that may not be attached is a lie.
 class _CardButton extends StatefulWidget {
   const _CardButton({
     required this.label,
@@ -1035,9 +886,7 @@ class _CardButtonState extends State<_CardButton> {
               duration: HotstarPlayerStyle.fastMotionDuration,
               constraints: const BoxConstraints(minHeight: _kActionHeight),
               // The slab spans the card, so this is clearance rather than a
-              // width budget - but it is still the whole of the label's
-              // budget, and [_NextEpisodeCountdownState._actions] is the
-              // derivation that keeps 10 affordable.
+              // width budget. See [_NextEpisodeCountdownState._actions].
               padding: const EdgeInsets.symmetric(horizontal: 10),
               alignment: Alignment.center,
               decoration: BoxDecoration(
@@ -1082,15 +931,12 @@ class _CardButtonState extends State<_CardButton> {
 }
 
 /// The full-width still across the top of the stacked card, with the UP NEXT
-/// badge floated over it.
-///
-/// It is 16:9 when the card has the height for it and a `BoxFit.cover` crop of
-/// the same frame when it does not — see [_NextEpisodeCountdownState._stacked],
-/// where the [AspectRatio] above this is the column's only [Flexible] child.
+/// badge floated over it. 16:9 when the card has the height for it and a
+/// `BoxFit.cover` crop of the same frame when it does not.
 ///
 /// The [ClipRRect] is a leaf around the image and nothing else. Wrapped any
 /// higher it would be a card-sized layer over the native video surface, which
-/// is the shape controls_layer_shape_test exists to forbid.
+/// controls_layer_shape_test forbids.
 class _Still extends StatelessWidget {
   const _Still({required this.url, required this.width, required this.badge});
 
@@ -1105,7 +951,7 @@ class _Still extends StatelessWidget {
         Positioned.fill(
           child: ClipRRect(
             // The inner radius, not the card's outer one: the border is
-            // painted over this, and at the outer radius the image corner sat
+            // painted over this, and at the outer radius the image corner sits
             // a pixel proud of the line.
             borderRadius: const BorderRadius.vertical(
               top: Radius.circular(_kInnerRadius),
@@ -1114,8 +960,8 @@ class _Still extends StatelessWidget {
               imageUrl: url,
               fit: BoxFit.cover,
               memCacheWidth: (width * 2).round(),
-              // The still is offered and failed: the box is already laid
-              // out, so the on-device placeholder is the honest fill.
+              // The still was offered and failed: the box is already laid
+              // out, so the placeholder is the honest fill.
               errorWidget: (_, _, _) => const ThumbnailErrorPlaceholder(),
               placeholder: (_, _) =>
                   const ColoredBox(color: HotstarPlayerStyle.panelElevated),

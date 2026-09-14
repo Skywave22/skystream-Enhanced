@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/features/player/domain/playback_recovery.dart';
@@ -197,7 +198,7 @@ void main() {
     }) => adaptiveMaxHeightFor(
       tier: tier,
       panelHeightPx: panel,
-      hardwareDecoding: hardware,
+      hardwareDecode: hardware,
     );
 
     // The headline case, and the one that has to hold: two devices behind the
@@ -241,6 +242,36 @@ void main() {
     test('never below the floor', () {
       expect(cap(tier: DeviceTier.low, panel: 240, hardware: false), 720);
       expect(cap(tier: DeviceTier.high, panel: 360), 720);
+    });
+  });
+
+  /// What the cap above has to be told, and the reason it is not the switch
+  /// on the settings screen.
+  group('hardwareDecodeAvailable', () {
+    bool on(TargetPlatform platform, {bool preference = true}) =>
+        hardwareDecodeAvailable(platform: platform, preference: preference);
+
+    // The one platform the option reaches a decoder on, so the one platform
+    // where the answer moves with it.
+    test('Android is the switch', () {
+      expect(on(TargetPlatform.android), isTrue);
+      expect(on(TargetPlatform.android, preference: false), isFalse);
+    });
+
+    // VideoToolbox is its own decoder module, not an avcodec accelerator, so
+    // turning the switch off costs a Mac or an Apple TV nothing - and must
+    // not cost it rungs either.
+    test('Darwin decodes in hardware whichever way the switch is set', () {
+      expect(on(TargetPlatform.macOS, preference: false), isTrue);
+      expect(on(TargetPlatform.iOS, preference: false), isTrue);
+    });
+
+    // vmem pins avcodec-hw to none and there is no hardware decoder outside
+    // avcodec, so the default-on switch would otherwise ask a pure software
+    // decoder for 4K.
+    test('the vmem platforms are software whichever way it is set', () {
+      expect(on(TargetPlatform.windows), isFalse);
+      expect(on(TargetPlatform.linux), isFalse);
     });
   });
 

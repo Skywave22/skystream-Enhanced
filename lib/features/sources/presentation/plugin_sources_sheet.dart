@@ -10,10 +10,11 @@ import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/network/link_probe_service.dart';
 import '../../../core/nuvio/data/nuvio_stream_service.dart';
 import '../../../core/nuvio/models/nuvio_models.dart';
-import '../../../core/router/app_router.dart';
 import '../../../core/services/download_service.dart';
 import '../../../core/utils/source_text.dart';
 import '../../../l10n/generated/app_localizations.dart';
+import '../../details/presentation/playback_launcher.dart';
+import '../../settings/presentation/player_settings_provider.dart';
 import 'source_sheet_widgets.dart';
 
 /// Why the source list came up empty, as far as the sheet can actually tell.
@@ -408,7 +409,7 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
     };
   }
 
-  void _play(_Row row) {
+  Future<void> _play(_Row row) async {
     final ordered = <_Row>[row, ..._visible.where((r) => r.key != row.key)];
     final streams = [for (final r in ordered) r.toStreamResult()];
 
@@ -418,16 +419,23 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
         ? widget.target.url
         : 'tmdb:${widget.target.tmdbId}';
 
+    // Which player opens this is a setting, so it is the launcher's call, not
+    // the sheet's. Resolved here rather than inside the launcher because the
+    // sheet is about to pop and a cold settings box would otherwise finish
+    // loading after its context is gone.
+    final launcher = ref.read(playbackLauncherProvider);
+    await ref.read(playerSettingsProvider.future);
+    if (!mounted) return;
+
     Navigator.of(context).pop();
     unawaited(
-      PlayerRoute(
-        $extra: PlayerRouteExtra(
-          item: item,
-          videoUrl: videoUrl,
-          episode: episode,
-          preloadedStreams: streams,
-        ),
-      ).push<void>(context),
+      launcher.playResolved(
+        context,
+        item: item,
+        videoUrl: videoUrl,
+        episode: episode,
+        streams: streams,
+      ),
     );
   }
 

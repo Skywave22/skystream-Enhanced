@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,16 +21,28 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory dir;
-  late Directory scratch;
+  late final Directory scratch;
   late StorageService service;
+
+  // Deliberately NOT `dir`. `clearPreferences` empties the temporary directory
+  // wholesale, and if path_provider pointed at the Hive directory the boxes
+  // would vanish with it and the assertions below would pass without the
+  // delete ever running.
+  //
+  // One directory for the whole file: the cache manager the reset empties is a
+  // singleton that keeps the path it was first built with, so a per-test
+  // directory leaves the second reset writing into a deleted one.
+  setUpAll(() {
+    scratch = Directory.systemTemp.createTempSync('hive_recovery_scratch');
+  });
+
+  tearDownAll(() {
+    if (scratch.existsSync()) scratch.deleteSync(recursive: true);
+  });
 
   setUp(() {
     dir = Directory.systemTemp.createTempSync('hive_recovery');
-    // Deliberately NOT `dir`. `clearPreferences` empties the temporary
-    // directory wholesale, and if path_provider pointed at the Hive directory
-    // the boxes would vanish with it and the assertions below would pass
-    // without the delete ever running.
-    scratch = Directory.systemTemp.createTempSync('hive_recovery_scratch');
+    if (!scratch.existsSync()) scratch.createSync(recursive: true);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
       const MethodChannel('plugins.flutter.io/path_provider'),
@@ -47,7 +60,6 @@ void main() {
     );
     await Hive.close();
     if (dir.existsSync()) dir.deleteSync(recursive: true);
-    if (scratch.existsSync()) scratch.deleteSync(recursive: true);
   });
 
   File boxFile(String name) =>
@@ -164,6 +176,32 @@ void main() {
             'identically and the user has no in-app way out.',
       );
     }
+  });
+
+  // The settings box holds both subtitle account usernames; the matching
+  // passwords are reusable account passwords in the platform secure store.
+  // Deleting the box alone leaves the accounts screen reading "Not logged in"
+  // on the next launch while the passwords are still on the device - and the
+  // startup error screen has no ProviderScope, so the settings notifier cannot
+  // be the one to remove them.
+  test('a reset takes the subtitle account passwords with the box', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final keychain = <String, String>{
+      kOsPasswordKey: 'hunter2',
+      kSubDlPasswordKey: 'correct-horse',
+      'trakt_access_token': 'oauth-token',
+    };
+    FlutterSecureStorage.setMockInitialValues(keychain);
+
+    await service.clearPreferences();
+
+    expect(keychain[kOsPasswordKey], isNull);
+    expect(keychain[kSubDlPasswordKey], isNull);
+    expect(
+      keychain['trakt_access_token'],
+      'oauth-token',
+      reason: 'the reset that keeps extensions keeps OAuth sessions too',
+    );
   });
 }
 

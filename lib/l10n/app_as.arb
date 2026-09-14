@@ -25,7 +25,6 @@
   "doubleTapToSeek": "খুঁজিবলৈ দুবাৰ টেপ কৰক",
   "swipeToSeek": "খুঁজিবলৈ সোয়াইপ কৰক",
   "seekDuration": "সিক ডিউৰেচন",
-  "bufferDepth": "বাফাৰ ডেপথ",
   "defaultResizeMode": "ডিফল্ট ৰিচাইজ মোড",
   "hardwareDecoding": "হাৰ্ডৱেৰ ডিকোডিং",
   "network": "নেটৱৰ্ক",
@@ -177,7 +176,6 @@
   "left": "বাওঁ",
   "right": "সোঁ",
   "selectSeekDuration": "সিক ডিউৰেচন বাছক",
-  "selectBufferDepth": "বাফাৰ ডেপথ বাছক",
   "subtitleSettings": "চাবটাইটল ছেটিংছ",
   "size": " আকাৰ: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi গুণগত অগ্ৰাধিকাৰ",
   "mobileQualityPreference": "মবাইল গুণগত অগ্ৰাধিকাৰ",
   "anyNoPreference": "যিকোনো (কোনো অগ্ৰাধিকাৰ নাই)",
   "subtitleAccounts": "চাবটাইটল একাউণ্ট",

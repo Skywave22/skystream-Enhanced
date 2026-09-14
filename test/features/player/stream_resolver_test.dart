@@ -1,8 +1,11 @@
+import 'package:dio/dio.dart' show CancelToken;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart'
     show ProviderListenable;
 import 'package:skystream/core/domain/entity/multimedia_item.dart';
+import 'package:skystream/core/extensions/base_provider.dart';
 import 'package:skystream/core/extensions/extension_manager.dart';
 import 'package:skystream/features/library/presentation/history_provider.dart';
 import 'package:skystream/features/player/domain/stream_resolver.dart';
@@ -30,7 +33,49 @@ MultimediaItem itemWith({String? provider}) => MultimediaItem(
 StreamResult streamAt(String url, String source) =>
     StreamResult(url: url, source: source, providerName: 'Plugin');
 
+/// A plugin that hands back a fixed list. The interface is small enough to
+/// satisfy outright, which keeps the fake honest about what the resolver calls.
+class FakePlugin implements SkyStreamProvider {
+  FakePlugin(this.streams);
+
+  final List<StreamResult> streams;
+
+  @override
+  Future<List<StreamResult>> loadStreams(String url) async => streams;
+
+  @override
+  String get packageName => 'com.skystream.fake';
+  @override
+  String get name => 'Fake';
+  @override
+  String get mainUrl => 'https://fake.test';
+  @override
+  String get version => '1.0.0';
+  @override
+  List<String> get languages => const ['en'];
+  @override
+  Set<ProviderType> get supportedTypes => const {ProviderType.movie};
+  @override
+  bool get hasSearch => false;
+  @override
+  bool get isDebug => false;
+  @override
+  void cancelInit() {}
+  @override
+  Future<List<MultimediaItem>> search(
+    String query, {
+    CancelToken? cancelToken,
+  }) async => const [];
+  @override
+  Future<Map<String, List<MultimediaItem>>> getHome() async => const {};
+  @override
+  Future<MultimediaItem> getDetails(String url) async =>
+      throw UnimplementedError();
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   final defaults = <(Object, Object?)>[
     (activeProviderProvider, null),
     (playerSettingsProvider, const AsyncValue<PlayerSettings>.data(
@@ -105,6 +150,143 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  // Both source sheets put the tapped row first and hand the whole list over.
+  // Ranking that list again opens whatever the settings prefer instead of what
+  // the viewer pressed.
+  group('a hand-picked source', () {
+    List<StreamResult> tapped720Beneath1080() => [
+      streamAt('https://cdn.example/720.mp4', '720p · 1.2 GB · 40 seeds'),
+      streamAt('https://cdn.example/1080.mp4', '1080p · 2.4 GB · 12 seeds'),
+    ];
+
+    ProviderReader readerWith(PlayerSettings settings, {
+      List<HistoryItem> history = const [],
+    }) => readerOf([
+      (playerSettingsProvider, AsyncValue<PlayerSettings>.data(settings)),
+      (watchHistoryProvider, history),
+      ...defaults,
+    ]);
+
+    test('opens the tapped source, not the preferred tier', () async {
+      final resolved = await resolvePlayback(
+        read: readerWith(const PlayerSettings()),
+        item: itemWith(),
+        videoUrl: 'https://example.com/episode/1',
+        preloadedStreams: tapped720Beneath1080(),
+        probeCandidates: 0,
+      );
+
+      expect(resolved.index, 0);
+      expect(resolved.selected.url, 'https://cdn.example/720.mp4');
+    });
+
+    // atOrAbove used to drop the tapped row out of the list altogether, so it
+    // was not even reachable from the player's Sources tab afterwards.
+    test('is not filtered out of its own candidate list', () async {
+      final resolved = await resolvePlayback(
+        read: readerWith(
+          const PlayerSettings(qualityFilterMode: QualityFilterMode.atOrAbove),
+        ),
+        item: itemWith(),
+        videoUrl: 'https://example.com/episode/1',
+        preloadedStreams: tapped720Beneath1080(),
+        probeCandidates: 0,
+      );
+
+      expect(resolved.streams.map((s) => s.url), [
+        'https://cdn.example/720.mp4',
+        'https://cdn.example/1080.mp4',
+      ]);
+      expect(resolved.qualityFilteredFallback, isFalse);
+    });
+
+    // Resuming on the last working source is for a list the resolver picked
+    // from. A tap is more recent evidence than the last thing watched.
+    test('outranks the source watch history remembers', () async {
+      final resolved = await resolvePlayback(
+        read: readerWith(
+          const PlayerSettings(
+            wifiQuality: QualityPreference.any,
+            mobileQuality: QualityPreference.any,
+          ),
+          history: [
+            HistoryItem(
+              item: itemWith(),
+              position: 60,
+              duration: 3600,
+              lastStreamUrl: 'https://cdn.example/1080.mp4',
+              timestamp: 0,
+            ),
+          ],
+        ),
+        item: itemWith(),
+        videoUrl: 'https://example.com/episode/1',
+        preloadedStreams: tapped720Beneath1080(),
+        probeCandidates: 0,
+      );
+
+      expect(resolved.selected.url, 'https://cdn.example/720.mp4');
+    });
+  });
+
+  // Ethernet-connected televisions and desktops are core targets, and asking
+  // for Wi-Fi specifically served every one of them the mobile-data
+  // preference.
+  group('the network the preference is chosen for', () {
+    const channel = MethodChannel('dev.fluttercommunity.plus/connectivity');
+
+    void connectedVia(String transport) {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            channel,
+            (call) async => call.method == 'check' ? <String>[transport] : null,
+          );
+    }
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    Future<String> sourceOpenedOn(String transport) async {
+      connectedVia(transport);
+      final resolved = await resolvePlayback(
+        read: readerOf([
+          (
+            activeProviderProvider,
+            FakePlugin([
+              streamAt('https://cdn.example/1080.mp4', '1080p'),
+              streamAt('https://cdn.example/480.mp4', '480p'),
+            ]),
+          ),
+          (playerSettingsProvider, const AsyncValue<PlayerSettings>.data(
+            PlayerSettings(
+              wifiQuality: QualityPreference.q480,
+              mobileQuality: QualityPreference.q1080,
+            ),
+          )),
+          (watchHistoryProvider, const <HistoryItem>[]),
+        ]),
+        item: itemWith(),
+        videoUrl: 'https://example.com/episode/1',
+        probeCandidates: 0,
+      );
+      return resolved.selected.source;
+    }
+
+    test('a wired link takes the unmetered preference', () async {
+      expect(await sourceOpenedOn('ethernet'), '480p');
+    });
+
+    test('wi-fi takes the unmetered preference', () async {
+      expect(await sourceOpenedOn('wifi'), '480p');
+    });
+
+    test('cellular takes the mobile preference', () async {
+      expect(await sourceOpenedOn('mobile'), '1080p');
     });
   });
 

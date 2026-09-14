@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Toque Duplo para Navegar",
   "swipeToSeek": "Deslizar para Navegar",
   "seekDuration": "Duração da Navegação",
-  "bufferDepth": "Profundidade do Buffer",
   "defaultResizeMode": "Modo de Redimensionamento",
   "hardwareDecoding": "Descodificação de Hardware",
   "network": "Rede",
@@ -177,7 +176,6 @@
   "left": "Esquerdo",
   "right": "Direito",
   "selectSeekDuration": "Selecionar Duração da Navegação",
-  "selectBufferDepth": "Selecionar Profundidade do Buffer",
   "subtitleSettings": "Definições de Legendas",
   "size": "Tamanho: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Preferência de qualidade Wi-Fi",
   "mobileQualityPreference": "Preferência de qualidade móvel",
   "anyNoPreference": "Qualquer (sem preferência)",
   "subtitleAccounts": "Contas de legendas",

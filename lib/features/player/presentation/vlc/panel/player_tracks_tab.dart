@@ -1,46 +1,32 @@
 /// The Audio and Subtitles tabs.
 ///
-/// The engine owns the track list — nothing here caches, mirrors or merges it,
-/// which is the decision that let the old controller's reload-reconciliation
-/// machinery be deleted rather than ported when the bottom sheets became this
-/// panel (see player_panel.dart).
+/// The engine owns both the track list and the selection: nothing here caches,
+/// mirrors or merges either. `VlcPlayerValue.activeAudioTrackId` and
+/// `activeSubtitleTrackId` say which track is rendering right now, every
+/// native re-sends its snapshot after a set/disable/add, and the tick is read
+/// straight off the controller, so a set the engine refuses never moves it.
+/// `null` is "none" - libVLC's `-1` is normalised in the package.
 ///
-/// The engine owns the *selection* too. `VlcPlayerValue.activeAudioTrackId`
-/// and `activeSubtitleTrackId` say which track is rendering right now, every
-/// native re-sends its snapshot after a set/disable/add, and so the tick is
-/// read straight off the controller: nothing is remembered optimistically, a
-/// tap is the bare engine call, and a set the engine refuses never moves the
-/// tick because the engine never said it did. `null` is "none" - libVLC's `-1`
-/// is normalised in the package, so it is never compared against here.
-///
-/// "Bare" stops at the error: a row's `onTap` is unawaited, so every engine
-/// call here goes through `_setTrack` or `_step`, which absorb the refusal
-/// rather than throw it into the zone. A refused *set* also re-reads the list,
-/// because a refusal is the engine saying the row should not have been there.
-///
-/// Adding a track is the one call whose result the engine cannot report in
-/// time, and the tab does not pretend otherwise: nothing re-reads the list
-/// after `addSubtitle`. See [PlayerTracksTab.onTracksChanged].
+/// A row's `onTap` is unawaited, so every engine call goes through `_setTrack`
+/// or `_step`, which absorb the refusal rather than throw it into the zone. A
+/// refused set also re-reads the list, because a refusal is the engine saying
+/// the row should not have been there. Nothing re-reads after `addSubtitle` -
+/// see [PlayerTracksTab.onTracksChanged].
 ///
 /// What this adds over the engine is naming. libVLC hands back `Track 3` far
-/// more often than it hands back anything a viewer could choose between, so the
-/// language and codec from `getMediaInfo` are folded in beside the description
-/// — see [trackLabel].
+/// more often than it hands back anything a viewer could choose between, so
+/// the language and codec from `getMediaInfo` are folded in beside the
+/// description — see [trackLabel].
 ///
-/// FOCUS lands once, on open, on the row that is active *then*: Flutter applies
-/// an autofocus only while the scope has no focused child, so a value that
-/// arrives after the first build - fresh media before its first snapshot -
-/// moves the tick and leaves focus where it landed. A row that autofocuses on
-/// a later rebuild is therefore harmless, and there is no bookkeeping for it.
-///
-/// That row also has to be *on screen*, and on a remux carrying a dozen
-/// subtitle tracks it is not: a lazily-inflated list only runs its builder for
-/// the rows near the top, so an `autofocus` twenty rows down never fires and
-/// nothing in the panel claims focus at all. Both lists therefore go through
-/// [PanelAnchoredList], like Sources, Episodes and Files, which seeds the
-/// opening offset from the anchor, centres it against real geometry a frame
-/// later and rescues focus into the list if no row took it. The tab's job is
-/// to say which flattened child index the anchor is - see `_list`.
+/// Focus lands once, on open, on the row that is active then: Flutter applies
+/// an autofocus only while the scope has no focused child, so a row that
+/// autofocuses on a later rebuild is harmless and needs no bookkeeping. That
+/// row also has to be on screen, and a lazily-inflated list never runs its
+/// builder for a row twenty down, so both lists go through
+/// [PanelAnchoredList], which seeds the opening offset from the anchor,
+/// centres it against real geometry a frame later and rescues focus into the
+/// list if no row took it. The tab's job is to say which flattened child index
+/// the anchor is - see `_list`.
 library;
 
 import 'dart:async';
@@ -62,16 +48,15 @@ import 'player_panel_row.dart';
 enum PlayerTrackKind { audio, subtitle }
 
 /// How far one press of a delay stepper moves. A tenth of a second is the
-/// finest a viewer can judge against the picture; the same step serves audio
-/// and subtitle delay alike.
+/// finest a viewer can judge against the picture, and the same step serves
+/// audio and subtitle delay alike.
 const Duration kSubtitleDelayStep = Duration(milliseconds: 100);
 
-/// How far a *held* key moves per repeat. Half a second is the largest step
+/// How far a held key moves per repeat. Half a second is the largest step
 /// that cannot overshoot a badly muxed track in one go, and at a remote's
-/// repeat rate it crosses two seconds in a lean rather than twenty presses.
+/// repeat rate it crosses two seconds in one lean.
 const Duration kSubtitleDelayCoarseStep = Duration(milliseconds: 500);
 
-/// The delay step a [PanelStep] asks for.
 Duration delayStepFor(PanelStep step) => switch (step) {
   PanelStep.fine => kSubtitleDelayStep,
   PanelStep.coarse => kSubtitleDelayCoarseStep,
@@ -116,19 +101,15 @@ class PlayerTracksTab extends StatelessWidget {
   /// Asks the panel to read both track lists from the engine again.
   ///
   /// Not fired after an add, which is the one moment it looks due. libVLC 3's
-  /// add-slave is *queued* to the input thread: `addSubtitle` returns once the
+  /// add-slave is queued to the input thread: `addSubtitle` returns once the
   /// request is posted, not once the ES exists, so a list read in the same
-  /// turn is still the pre-add one - the file the viewer just picked missing
-  /// from it, nothing ticked - while the subtitle is already on its way to the
-  /// screen. Publishing that as the engine's answer would also re-anchor the
-  /// list and the D-pad focus on it ([PanelAnchoredList] re-centres on every
-  /// reload), so the panel would land on the wrong row and stay there.
+  /// turn is still the pre-add one, and publishing it would re-anchor the list
+  /// and the D-pad focus on the wrong row ([PanelAnchoredList] re-centres on
+  /// every reload).
   ///
-  /// The reload waits for the engine to say so instead. Every native moves
-  /// `trackRevision` when the ES actually lands - ESAdded on Darwin and
-  /// Android, the next poll on Windows and Linux - and the panel re-reads on
-  /// that revision without being asked (player_panel.dart, `_onEngine`), which
-  /// re-anchors on the side-car that is by then playing.
+  /// The reload waits for the engine instead. Every native moves
+  /// `trackRevision` when the ES actually lands, and the panel re-reads on
+  /// that revision without being asked (player_panel.dart, `_onEngine`).
   ///
   /// What is left for this callback is Retry - the manual fallback for an
   /// engine that never said - and a refused set, which means the list on
@@ -170,16 +151,15 @@ class PlayerTracksTab extends StatelessWidget {
     List<VlcTrackDescription> listed,
     int? active,
   ) {
-    // Focus has to land somewhere. The engine says which track is on, and
-    // that row takes it; when it names nothing (no ES yet, subtitles off) it
-    // is Off for subtitles and the first row for audio - and when it names a
-    // track the list has not caught up with, the same fallback rather than
-    // nowhere at all. The tick is stricter: it follows the engine alone.
+    // Focus has to land somewhere: the active row, or - when the engine names
+    // nothing or names a track the list has not caught up with - Off for
+    // subtitles and the first row for audio. The tick is stricter and follows
+    // the engine alone.
     final known = active != null && listed.any((track) => track.id == active);
 
-    // The same three answers as positions in the flattened child list, because
-    // that is what [PanelAnchoredList] scrolls to. Only subtitles have an Off
-    // row ahead of the tracks, and an empty list puts a note where they were.
+    // The same answers as positions in the flattened child list, which is what
+    // [PanelAnchoredList] scrolls to. Only subtitles have an Off row ahead of
+    // the tracks, and an empty list puts a note where they were.
     final leading = _isAudio ? 0 : 1;
     final retryIndex = leading + (listed.isEmpty ? 1 : listed.length);
     final anchor = known
@@ -216,11 +196,9 @@ class PlayerTracksTab extends StatelessWidget {
               ),
             ),
           ),
-      // Tracks can arrive after the panel opened - a side-car still being
-      // fetched, a stream that has not announced its audio yet. The panel
-      // re-reads the list when the engine's revision moves; this is the
-      // manual fallback for an engine that did not say. It is also the only
-      // row an empty Audio tab has, so it takes focus there.
+      // Tracks can arrive after the panel opened. The panel re-reads the list
+      // when the engine's revision moves; this is the manual fallback for an
+      // engine that did not say, and the only row an empty Audio tab has.
       PanelRow(
         label: l10n.retry,
         icon: Icons.refresh_rounded,
@@ -233,15 +211,14 @@ class PlayerTracksTab extends StatelessWidget {
         ..._subtitleExtras(context, l10n),
     ];
 
-    // Building the widget objects eagerly is what this list already did and
-    // costs nothing; handing them to the builder keeps the *elements* lazy,
-    // which is the whole reason the anchor has to be scrolled to at all.
+    // The widget objects are built eagerly; handing them to the builder keeps
+    // the elements lazy, which is why the anchor has to be scrolled to.
     return PanelAnchoredList(
       anchorIndex: anchor,
       // A one-line row is ~46 px and one carrying a codec detail ~60; the
-      // middle keeps the anchor inside the viewport's 800 px cache for far
-      // longer a list than either end would, and the frame-one centring
-      // corrects it against the row's real geometry anyway.
+      // middle keeps the anchor inside the viewport's 800 px cache for a far
+      // longer list than either end would, and the frame-one centring corrects
+      // it against real geometry anyway.
       estimatedRowExtent: 53,
       autofocus: autofocus,
       itemCount: children.length,
@@ -254,19 +231,14 @@ class PlayerTracksTab extends StatelessWidget {
 
   /// Runs the engine call behind a row tap - a set, or Off.
   ///
-  /// Nothing in this tab is optimistic, so a refusal needs no rollback: the
-  /// tick is read off the engine's snapshot and never moved. What it does
-  /// need is somewhere to *land*. A row's `onTap` is unawaited, so a bare
-  /// `controller.setAudioTrack(id)` hands its failure to the zone, and the app
-  /// installs no `PlatformDispatcher.onError`: a `track_not_found` - what
-  /// Android returns when `setAudioTrack` comes back false, and what the
-  /// Darwin guards raise - would be a console trace and nothing else.
+  /// Nothing here is optimistic, so a refusal needs no rollback; what it needs
+  /// is somewhere to land. A row's `onTap` is unawaited and the app installs
+  /// no `PlatformDispatcher.onError`, so a bare `controller.setAudioTrack(id)`
+  /// hands its failure to the zone and it is a console trace and nothing else.
   ///
-  /// A refusal also *means* something. The id came from a list read once and
-  /// held since; the engine refusing it says the list has moved on - a stream
-  /// renegotiated, a language dropped. So the answer is to read it again: the
-  /// dead row goes, the tick stays on whatever is really playing, and the
-  /// viewer is not left pressing a row that cannot do anything.
+  /// A refusal also means the list has moved on - a stream renegotiated, a
+  /// language dropped - since the id came from a list read once and held
+  /// since. So the list is read again.
   Future<void> _setTrack(
     BuildContext context,
     Future<void> Function() call,
@@ -280,11 +252,10 @@ class PlayerTracksTab extends StatelessWidget {
     }
   }
 
-  /// Runs a delay call. Same absorption as [_setTrack] and for the same
-  /// reason - the stepper's handlers are unawaited - but no reload: the
-  /// stepper reads `value.audioDelay`/`value.subtitleDelay`, so a refused
-  /// delay is simply a read-out that does not move, and no track list is
-  /// stale because of it.
+  /// Runs a delay call. Same absorption as [_setTrack], and for the same
+  /// reason, but no reload: the stepper reads
+  /// `value.audioDelay`/`value.subtitleDelay`, so a refused delay is a
+  /// read-out that does not move.
   Future<void> _step(Future<void> Function() call) async {
     try {
       await call();
@@ -307,10 +278,10 @@ class PlayerTracksTab extends StatelessWidget {
   }
 
   /// The two ways a subtitle the stream does not carry gets into the engine,
-  /// and the one runtime adjustment libVLC genuinely exposes.
+  /// and the one runtime adjustment libVLC exposes.
   ///
-  /// Both entry points end at `addSubtitle`, which makes the file a real track,
-  /// so neither needs anywhere to put its result: it is simply in the list
+  /// Both entry points end at `addSubtitle`, which makes the file a real
+  /// track, so neither needs anywhere to put its result: it is in the list
   /// above the next time the list is read.
   List<Widget> _subtitleExtras(BuildContext context, AppLocalizations l10n) {
     return <Widget>[
@@ -333,9 +304,9 @@ class PlayerTracksTab extends StatelessWidget {
     ];
   }
 
-  /// A delay stepper that follows the engine's own value - the natives echo
-  /// a delay on the next snapshot - and rebuilds on that alone, not on every
-  /// position tick. Select resets, when there is anything to reset.
+  /// A delay stepper that follows the engine's own value - the natives echo a
+  /// delay on the next snapshot - and rebuilds on that alone, not on every
+  /// position tick.
   Widget _delayStepper({
     required String label,
     required Duration Function(VlcPlayerValue value) select,
@@ -369,9 +340,8 @@ class PlayerTracksTab extends StatelessWidget {
       await controller.addSubtitle(Uri.file(path));
     } on VlcPlayerException catch (_) {
       // A file the engine will not take. Absorbed like every other engine
-      // call here (see [_setTrack]): the handler is unawaited, the tab shows
-      // engine truth either way, and the list is about to say the track is
-      // not there - which is the honest answer.
+      // call here (see [_setTrack]): the handler is unawaited, and the list is
+      // about to say the track is not there.
     }
     // Deliberately no reload here - see the note on [onTracksChanged].
   }
@@ -381,9 +351,8 @@ class PlayerTracksTab extends StatelessWidget {
     if (!context.mounted) return;
     // The panel stays up either way: a viewer who backed out of the search
     // still wants the track list they opened it from. What the sheet returns
-    // - whether it downloaded and added one - is not acted on: the sheet ends
-    // at the same queued `addSubtitle`, so re-reading on its word has exactly
-    // the problem described on [onTracksChanged].
+    // is not acted on: it ends at the same queued `addSubtitle`, so re-reading
+    // on its word has the problem described on [onTracksChanged].
     await VlcSubtitleSearchSheet.show(
       context,
       controller,

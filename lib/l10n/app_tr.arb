@@ -25,7 +25,6 @@
   "doubleTapToSeek": "İleri/Geri Sarmak İçin Çift Tıkla",
   "swipeToSeek": "İleri/Geri Sarmak İçin Kaydır",
   "seekDuration": "Atlama Süresi",
-  "bufferDepth": "Tampon Derinliği",
   "defaultResizeMode": "Varsayılan Boyutlandırma Modu",
   "hardwareDecoding": "Donanım Dekoderi",
   "network": "Ağ",
@@ -177,7 +176,6 @@
   "left": "Sol",
   "right": "Sağ",
   "selectSeekDuration": "Atlama Süresini Seç",
-  "selectBufferDepth": "Tampon Derinliğini Seç",
   "subtitleSettings": "Altyazı Ayarları",
   "size": "Boyut: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi kalite tercihi",
   "mobileQualityPreference": "Mobil kalite tercihi",
   "anyNoPreference": "Fark etmez",
   "subtitleAccounts": "Altyazı hesapları",

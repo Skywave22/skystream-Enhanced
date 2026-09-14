@@ -1,34 +1,31 @@
 /// One stateful engine fake for every app-side player test.
 ///
 /// `VlcPlayerController` has a private constructor, so a test cannot hand the
-/// widgets a stub controller; the real one is attached to a fake *engine*
-/// instead - a mock 'vlc_player' method channel plus a mock event stream - and
-/// the argument shapes stay honest as a side effect.
+/// widgets a stub controller; the real one is attached to a fake engine
+/// instead - a mock 'vlc_player' method channel plus a mock event stream.
 ///
-/// Unlike a handler that answers null to everything, this fake keeps the
-/// engine's state: the track lists, which audio and subtitle track is on, and
-/// a revision that ticks whenever the list changes. That is what makes the
-/// assertions about the *active* track - "the panel opens focused on the row
-/// that is playing" - writable at all: `emit` stamps the state into every
-/// snapshot the way the natives do, so the controller's value follows it.
+/// The fake keeps the engine's state: the track lists, which audio and
+/// subtitle track is on, and a revision that ticks whenever the list changes.
+/// `emit` stamps that state into every snapshot the way the natives do, so the
+/// controller's value follows it and assertions about the active track can be
+/// written.
 ///
-/// Hygiene, learned the hard way:
+/// Rules a test has to respect:
 ///  * A playing controller keeps a 1 s stall watchdog armed and flutter_test
-///    checks for pending timers *before* `addTearDown` runs. A test that ends
+///    checks for pending timers before `addTearDown` runs. A test that ends
 ///    in healthy playback must `dispose()` its controller in the body or emit a
 ///    `{'state': 'paused'}` snapshot first.
 ///  * Dispose the controller before the fake: `controller.dispose()` still
 ///    sends `dispose` to the engine, and a channel with no handler throws.
-///  * Call [attach] *inside* the `testWidgets` body, never in `setUp`, when
+///  * Call [attach] inside the `testWidgets` body, never in `setUp`, when
 ///    an `eventThrottleInterval` is given: the controller's throttle timer is
 ///    created in whatever zone the first throttled snapshot arrives in, and
 ///    a controller built outside the test body owns a timer flutter_test's
 ///    fake async cannot see or drive.
 ///  * `onListen`/`onCancel` on the event stream are block-bodied on purpose.
-///    flutter_test hands `onListen`'s return value back as the `listen` reply
-///    (test_default_binary_messenger.dart), and an arrow that returns the
-///    assigned sink is a reply the codec cannot encode - a failure only a
-///    widget test reports, which is how it went unnoticed under `test()`.
+///    flutter_test hands `onListen`'s return value back as the `listen` reply,
+///    and an arrow that returns the assigned sink is a reply the codec cannot
+///    encode.
 library;
 
 import 'package:flutter/services.dart';
@@ -58,9 +55,9 @@ class FakeVlcEngine {
   Map<String, Object?>? mediaInfo;
 
   /// What `getMediaStats` returns, in the engine's own shape. Null is what an
-  /// engine with nothing to say answers, and [VlcMediaStats.isAvailable] is
-  /// then false - which is the default because a fake that claimed available
-  /// counters of zero would look exactly like a decoder producing no picture.
+  /// engine with nothing to say answers and leaves [VlcMediaStats.isAvailable]
+  /// false, which is the default because available counters of zero look
+  /// exactly like a decoder producing no picture.
   ///
   /// Use [decodedPictures] for the common shape rather than writing the map.
   Map<String, Object?>? mediaStats;
@@ -88,7 +85,7 @@ class FakeVlcEngine {
   int trackRevision = 0;
 
   /// Whether `addSubtitle` behaves the way libVLC 3 does on a running player:
-  /// the slave is *queued* to the input thread, so the call returns before the
+  /// the slave is queued to the input thread, so the call returns before the
   /// ES exists. While this is on, the lists and [trackRevision] do not move
   /// until [landQueuedSlaves] plays the natives' ESAdded forward.
   ///
@@ -98,10 +95,9 @@ class FakeVlcEngine {
 
   /// Methods the engine refuses: every call to one throws a
   /// [PlatformException] instead of answering, which the controller surfaces
-  /// as a `VlcPlayerException`. Empty by default. Track *selection* refuses
-  /// an unknown id on its own (see [_knownId]); this is for the calls that
-  /// have no other way to say no - a delay, an add-slave the demuxer will not
-  /// take. The call is still recorded in [calls].
+  /// as a `VlcPlayerException`. Empty by default. Track selection refuses an
+  /// unknown id on its own (see [_knownId]); this is for the calls that have
+  /// no other way to say no. The call is still recorded in [calls].
   Set<String> refusedMethods = const <String>{};
 
   /// The delays the engine holds, in microseconds - what `setAudioDelay` and
@@ -126,12 +122,10 @@ class FakeVlcEngine {
 
   EventChannel get events => EventChannel('vlc_player/events/$viewId');
 
-  /// Method names in call order, for the assertions that only care *what* was
-  /// asked.
+  /// Method names in call order.
   List<String> get methods =>
       calls.map((call) => call.method).toList(growable: false);
 
-  /// The calls made to [method], for the ones that care with what.
   List<MethodCall> callsTo(String method) =>
       calls.where((call) => call.method == method).toList(growable: false);
 
@@ -153,7 +147,7 @@ class FakeVlcEngine {
     );
   }
 
-  /// A controller attached to this engine, the platform-view way: the view
+  /// A controller attached to this engine the platform-view way: the view
   /// already exists under [viewId], so nothing is created.
   ///
   /// No throttle by default, so a snapshot lands on the very next microtask;
@@ -266,9 +260,9 @@ class FakeVlcEngine {
         return null;
       default:
         // play, pause, stop, seekTo, setVolume, setPlaybackSpeed, setFit,
-        // setSource, takeSnapshot, dispose: recorded above,
-        // answered the way a void method is. The controller's `_invokeFor<T>`
-        // is `Future<T?>`.
+        // setSource, takeSnapshot and dispose are recorded above and answered
+        // the way a void method is: the controller's `_invokeFor<T>` returns
+        // `Future<T?>`.
         return null;
     }
   }
@@ -286,9 +280,8 @@ class FakeVlcEngine {
 
   /// The input thread got to the queued add-slaves: each becomes a track, the
   /// last one is on, [trackRevision] moves once per slave and the snapshot the
-  /// natives send on ESAdded is delivered - the notification a consumer keyed
-  /// on the revision re-reads the lists from. [partial] rides on it as in
-  /// [emit] (`{'state': 'paused'}` keeps the stall watchdog unarmed).
+  /// natives send on ESAdded is delivered. [partial] rides on it as in [emit]
+  /// (`{'state': 'paused'}` keeps the stall watchdog unarmed).
   ///
   /// Safe to call with nothing queued: it is then a plain [emit], which is
   /// what an engine that announced nothing new looks like.

@@ -14,24 +14,18 @@ class ImageUtils {
   /// The `memCacheWidth` for artwork painted with [BoxFit.cover] into a box of
   /// [width] x [height] LOGICAL pixels.
   ///
-  /// Two things this gets right that a bare `size.width` does not:
+  /// The raster scale is read off [View.of], not off [MediaQuery]: the scale
+  /// the compositor rasterises at comes from `ViewConfiguration.fromView`, so
+  /// a `MediaQuery` shim cannot change it, and `main.dart` clamps the
+  /// MediaQuery ratio to 1.0 on television — anything sizing a decode off
+  /// `MediaQuery.devicePixelRatioOf` there asks for 960 px against a panel
+  /// rasterising at 1920 px and gets upscaled 2x.
   ///
-  /// 1. **The raster scale is read off the view, not off [MediaQuery].**
-  ///    `MediaQueryData.devicePixelRatio` is widget-facing data; the scale the
-  ///    compositor actually rasterises at comes from
-  ///    `ViewConfiguration.fromView(view)`, so a `MediaQuery` shim cannot
-  ///    change it — `main.dart` clamps it to 1.0 on television, which leaves
-  ///    the panel rasterising at 1920 px while anything sizing a decode off
-  ///    `MediaQuery.devicePixelRatioOf` asks for 960 px and gets upscaled 2x.
-  ///    Reading [View.of] means this bound is immune to that shim (and to any
-  ///    other) without having to touch it.
-  ///
-  /// 2. **Cover crops, so the box width alone can under-ask.** Cover scales by
-  ///    `max(boxW/srcW, boxH/srcH)`; when the box is taller in aspect than the
-  ///    source — a 16:9 backdrop behind a 411x400 dp phone hero — the height
-  ///    is what drives the scale and the decode has to be `boxH * srcAspect`
-  ///    wide, not `boxW` wide. [sourceAspectRatio] is the artwork's own
-  ///    width/height ([posterAspectRatio] or [backdropAspectRatio]).
+  /// Cover crops, so the box width alone can under-ask. Cover scales by
+  /// `max(boxW/srcW, boxH/srcH)`; when the box is taller in aspect than the
+  /// source, the height drives the scale and the decode has to be
+  /// `boxH * srcAspect` wide. [sourceAspectRatio] is the artwork's own
+  /// width/height ([posterAspectRatio] or [backdropAspectRatio]).
   ///
   /// Over-asking is safe and under-asking is not: `memCacheWidth` reaches the
   /// decoder through [ResizeImage], which preserves aspect ratio and does not
@@ -57,13 +51,13 @@ class ImageUtils {
     return physicalWidth.round();
   }
 
-  /// Decode width of the [isImagePortrait] probe. The answer is one boolean,
-  /// so the full-size decode this used to do — 3.65 MB for a `w780` poster —
-  /// bought nothing. 64 px keeps the aspect readable to ~1.5%, which is inside
-  /// the band where "portrait or landscape" is not a meaningful question.
+  /// Decode width of the [isImagePortrait] probe. The answer is one boolean
+  /// and 64 px keeps the aspect ratio readable to ~1.5%, so a full-size decode
+  /// would buy nothing.
   static const int _probeDecodeWidth = 64;
 
-  /// Resolves the image from the given URL and determines if it is portrait (height >= width).
+  /// Whether the image at [url] is portrait (height >= width).
+  ///
   /// Returns `true` by default if the URL is empty, the image fails to load,
   /// or nothing has arrived within [timeout].
   ///
@@ -94,7 +88,6 @@ class ImageUtils {
 
     listener = ImageStreamListener(
       (ImageInfo info, bool _) {
-        // It's portrait if height is greater than or equal to width
         finish(info.image.height >= info.image.width);
       },
       onError: (dynamic exception, StackTrace? stackTrace) {
@@ -103,9 +96,9 @@ class ImageUtils {
     );
 
     // A CDN that accepts the connection and then never answers neither
-    // completes nor errors, and the provider carries no timeout of its own:
-    // without this the listener stays attached and the ImageStreamCompleter,
-    // its bytes and this Future are retained for the life of the process.
+    // completes nor errors, and the provider carries no timeout of its own, so
+    // without this the listener, the ImageStreamCompleter, its bytes and this
+    // Future are retained for the life of the process.
     deadline = Timer(timeout, () => finish(true));
 
     stream.addListener(listener);

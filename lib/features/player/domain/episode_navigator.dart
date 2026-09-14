@@ -1,20 +1,17 @@
 /// Which episode plays after this one.
 ///
 /// A pure function of the item and the current episode — no engine, no
-/// storage, no providers — so the awkward parts are testable directly.
+/// storage, no providers.
 ///
-/// The awkward parts are real. `MultimediaItem` sorts episodes by
-/// (season, episode) only, so on an anime carrying both subbed and dubbed
-/// entries the two copies of episode 5 sit adjacent and a naive `index + 1`
-/// advances from subbed 5 to dubbed 5 — the same episode, in a language the
-/// viewer did not choose. That is why the dub filter is not optional.
+/// `MultimediaItem` sorts episodes by (season, episode) only, so on an anime
+/// carrying both subbed and dubbed entries the two copies of episode 5 sit
+/// adjacent and a naive `index + 1` advances from subbed 5 to dubbed 5 — the
+/// same episode, in a language the viewer did not choose. That is why the dub
+/// filter is not optional.
 ///
-/// The other subtlety is what "no next episode" means. The old controller's
-/// `getNextEpisode()` returns null both when the series genuinely ends and when
-/// it simply cannot locate the current episode in the list, and its caller
-/// treats null as "series finished" and deletes the series from history — a
-/// wipe that fires on a mid-series lookup failure. [NextEpisodeLookup] keeps
-/// those two cases apart so no caller can conflate them again.
+/// [NextEpisodeLookup] also keeps "the series ended" apart from "the current
+/// episode could not be located", because a caller that conflates the two
+/// deletes a series from history on a mid-series lookup failure.
 library;
 
 import '../../../core/domain/entity/multimedia_item.dart';

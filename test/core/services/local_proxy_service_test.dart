@@ -1,11 +1,10 @@
-// Hermetic tests for the local media proxy (audit W14).
+// Hermetic tests for the local media proxy.
 //
 // The proxy sits on the playback path for every header-gated stream and every
-// ClearKey DASH stream, and until now had no test that did not need the public
-// internet. Everything here runs against a loopback `HttpServer` standing in
-// for the CDN, so the assertions are about what the proxy actually puts on the
-// wire: how many connections it opens, and whether it will talk to a server
-// whose certificate does not validate.
+// ClearKey DASH stream. Everything here runs against a loopback `HttpServer`
+// standing in for the CDN, so the assertions are about what the proxy puts on
+// the wire: how many connections it opens, and whether it will talk to a
+// server whose certificate does not validate.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -15,9 +14,9 @@ import 'package:skystream/core/services/local_proxy_service.dart';
 
 /// A loopback stand-in for a CDN that records how it was reached.
 ///
-/// [connectionCount] is the point of the whole class: each TCP connection from
-/// the proxy arrives on a distinct ephemeral remote port, so counting distinct
-/// ports across N requests counts handshakes.
+/// [connectionCount] counts handshakes: each TCP connection from the proxy
+/// arrives on a distinct ephemeral remote port, so distinct ports across N
+/// requests are distinct connections.
 class _FakeOrigin {
   _FakeOrigin(this._server, this._handler) {
     _server.listen(
@@ -94,10 +93,9 @@ void main() {
   }
 
   group('connection pooling', () {
-    // The defect: an HttpClient was built per request, and Dart pools
-    // keep-alive connections per client instance, so every HLS segment paid a
-    // fresh TCP (and on https, TLS) handshake. A two-hour film at six-second
-    // segments is ~1200 handshakes.
+    // Dart pools keep-alive connections per HttpClient instance, so a client
+    // built per request makes every HLS segment pay a fresh TCP - and on
+    // https, TLS - handshake.
     test('20 segment fetches reuse a single upstream connection', () async {
       final cdn = await origin((request) {
         final body = utf8.encode('payload-for-${request.uri.path}');
@@ -130,9 +128,9 @@ void main() {
       );
     });
 
-    // The seam exists so this invariant can be asserted directly rather than
-    // inferred from socket behaviour: one client per autoUncompress mode for
-    // the life of the service, never one per request.
+    // One pooled client per autoUncompress mode for the life of the service,
+    // never one per request. The factory seam asserts that directly rather
+    // than inferring it from socket behaviour.
     test('builds one pooled client per content mode, not one per request',
         () async {
       final cdn = await origin((request) {
@@ -212,11 +210,10 @@ void main() {
   });
 
   group('TLS validation', () {
-    // The defect: `badCertificateCallback = (cert, host, port) => true` on the
-    // proxy client. The same request path replays the plugin's session cookies
-    // upstream, so on a hostile network an on-path attacker could present a
-    // self-signed certificate, harvest those cookies and substitute the video
-    // while playback simply worked.
+    // This request path replays the plugin's session cookies upstream, so a
+    // `badCertificateCallback` that returns true would let an on-path attacker
+    // present a self-signed certificate, harvest those cookies and substitute
+    // the video.
     test('refuses an upstream whose certificate does not validate', () async {
       final security = SecurityContext(withTrustedRoots: false)
         ..useCertificateChainBytes(utf8.encode(_selfSignedCert))
@@ -261,11 +258,9 @@ void main() {
   });
 
   group('ClearKey DASH path', () {
-    // The CENC handler shares the pooled client now, and it is the one caller
-    // that used to close its client in a finally block. These assert that the
-    // manifest rewrite still works across repeated fetches (a live manifest
-    // refreshes every minimumUpdatePeriod) and that those refreshes reuse the
-    // connection.
+    // The CENC handler shares the pooled client. A live manifest refreshes
+    // every minimumUpdatePeriod, so the rewrite has to hold across repeated
+    // fetches and those refreshes must reuse the connection.
     const manifest = '''
 <MPD type="dynamic" minimumUpdatePeriod="PT2S">
   <Period>
@@ -323,8 +318,7 @@ void main() {
 }
 
 // A throwaway self-signed certificate for 127.0.0.1, valid until 2126. It is
-// not in any trust store, which is exactly the point: a correct client must
-// refuse it.
+// in no trust store, so a correct client must refuse it.
 const String _selfSignedCert = '''
 -----BEGIN CERTIFICATE-----
 MIIDHDCCAgSgAwIBAgIUZwxDUHTdlfONWD3vF1XEbMJcghkwDQYJKoZIhvcNAQEL

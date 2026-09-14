@@ -6,11 +6,7 @@ import 'package:flutter/semantics.dart';
 /// Whether the player chrome is on screen, and the one clock that takes it
 /// away.
 ///
-/// The old overlay restarted its hide timer from sixteen call sites and the
-/// first VLC chrome from six, and both leaked the same two ways: a path that
-/// forgot let the bars vanish mid-interaction, and a path that cancelled the
-/// timer without re-arming - a D-pad seek - left them up for good. Here the
-/// timer has no public surface. Callers say what happened - a [poke], a
+/// The timer has no public surface. Callers say what happened - a [poke], a
 /// [toggle], a hold for as long as a sheet or a drag or a resting mouse lasts -
 /// and the clock is a consequence.
 ///
@@ -28,7 +24,6 @@ class ChromeVisibilityController extends ValueNotifier<bool> {
     _restart();
   }
 
-  /// The default matches the old overlay (skystream_player_controls.dart:689).
   final Duration hideAfter;
   final bool Function() _isPlaying;
 
@@ -39,12 +34,10 @@ class ChromeVisibilityController extends ValueNotifier<bool> {
   /// Whether an assistive technology is driving navigation - TalkBack,
   /// VoiceOver, Switch Access.
   ///
-  /// Exactly the bit `MediaQuery.accessibleNavigationOf` reports:
-  /// `MediaQueryData.fromView` copies it straight off
-  /// [PlatformDispatcher.accessibilityFeatures]. Read off the binding rather
-  /// than a context because this clock lives outside the widget tree, and read
-  /// live on every decision rather than cached at construction, because a
-  /// viewer can turn a screen reader on in the middle of a film.
+  /// The same bit `MediaQuery.accessibleNavigationOf` reports. Read off the
+  /// binding rather than a context because this clock lives outside the widget
+  /// tree, and read live on every decision rather than cached at construction,
+  /// because a viewer can turn a screen reader on in the middle of a film.
   static bool get _accessibleNavigation => SemanticsBinding
       .instance
       .platformDispatcher
@@ -110,24 +103,19 @@ class ChromeVisibilityController extends ValueNotifier<bool> {
     if (_disposed || !value || isHeld) return;
     // A screen reader explores by swiping or flicking between elements, which
     // dispatches no pointer event to Flutter, so nothing in that exploration
-    // pokes this clock. Left armed it takes the bars away mid-exploration -
-    // and not just visually: both bars hide behind an opacity-0
-    // AnimatedOpacity, and RenderAnimatedOpacityMixin drops a fully
-    // transparent subtree from the semantics tree, so all thirteen bottom-bar
-    // controls leave the accessibility tree and focus resets. Three seconds is
-    // two to four element stops; Subtitles and Audio are unreachable. So while
-    // an assistive technology is driving, the chrome stays - which is what
-    // Netflix and YouTube do too.
+    // pokes this clock. Hiding mid-exploration is not just visual: both bars
+    // hide behind an opacity-0 AnimatedOpacity, and RenderAnimatedOpacityMixin
+    // drops a fully transparent subtree from the semantics tree, so every
+    // bottom-bar control leaves the accessibility tree and focus resets. So
+    // while an assistive technology is driving, the chrome stays.
     if (_accessibleNavigation) return;
     _timer = Timer(hideAfter, _expire);
   }
 
   void _expire() {
-    // Paused means the viewer is looking at something - a still frame, the
-    // seek bar, the title. Hiding out from under them is the wrong call, so
-    // wait and re-check rather than hiding on a schedule. Same for a screen
-    // reader switched on after this timer was armed: [_restart] declines to
-    // re-arm, so the bars simply stay.
+    // Paused means the viewer is looking at something, so wait and re-check
+    // rather than hiding on a schedule. Same for a screen reader switched on
+    // after this timer was armed: [_restart] declines to re-arm.
     if (!_isPlaying() || _accessibleNavigation) {
       _restart();
       return;

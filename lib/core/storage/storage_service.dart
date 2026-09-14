@@ -12,6 +12,37 @@ import '../domain/entity/multimedia_item.dart';
 
 part 'storage_service.g.dart';
 
+/// Where the OpenSubtitles account password is kept.
+///
+/// The name is unchanged from the Hive key it used to be stored under, and
+/// that is load-bearing: `SecureTokenStorage.read` looks the same key up in
+/// the legacy box on a miss, so an existing user's password moves itself into
+/// the Keychain/Keystore on the first read after upgrading and the plaintext
+/// copy is deleted in the same step.
+///
+/// These are reusable *account passwords*, not revocable tokens. In the Hive
+/// settings box they were inside Android's cloud backup and inside iOS
+/// device-to-device transfer and iTunes/Finder backups, in the clear.
+///
+/// Named here rather than beside the settings that write them because
+/// [StorageService.clearPreferences] has to delete them, and that runs from
+/// the startup error screen, where there is no ProviderScope to reach the
+/// settings notifier through.
+const String kOsPasswordKey = 'player_os_pass';
+
+/// Where the SubDL account password is kept. See [kOsPasswordKey].
+const String kSubDlPasswordKey = 'player_subdl_pass';
+
+/// The secure-store keys a preferences reset owns.
+///
+/// Named individually rather than cleared wholesale: OAuth sessions for Trakt,
+/// Simkl, MAL and AniList live in the same store, and "Reset Data (Keep
+/// Extensions)" keeps those.
+const List<String> kAccountPasswordKeys = <String>[
+  kOsPasswordKey,
+  kSubDlPasswordKey,
+];
+
 @Riverpod(keepAlive: true)
 StorageService storageService(Ref ref) {
   throw UnimplementedError('StorageService must be initialized');
@@ -42,37 +73,22 @@ class StorageService {
     _extensionsBox = await _safeOpenBox(kExtensionsBox);
     await _safeOpenBox(
       kDownloadMetadataBox,
-    ); // Open but no need to keep late reference if we use Hive.box()
+    ); // Opened here; later reads go through Hive.box().
     await initHistory();
   }
 
   /// Opens a box, and if it will not open, preserves whatever is on disk
   /// rather than destroying it.
   ///
-  /// The previous implementation retried with `crashRecovery: true` and, when
-  /// that failed, deleted the box. Two things were wrong with it and both cost
-  /// the user everything in that box:
+  /// A failure that is not corruption is rethrown: a full disk, a permission
+  /// error or a second desktop instance holding the lock must not take the
+  /// same path as real corruption and cost the user a library. Genuine
+  /// corruption moves the file aside instead of unlinking it, so the data can
+  /// still be recovered by hand or by a later migration, and a fresh empty box
+  /// is returned so the app still starts.
   ///
-  ///   * `crashRecovery` already defaults to `true`
-  ///     (hive-2.2.3/lib/src/hive_impl.dart:133), so the "recovery" attempt was
-  ///     byte-identical to the call that had just thrown. It could never
-  ///     succeed, `salvaged` was always empty, and the delete always ran.
-  ///   * the `catch` was bare, so a transient failure - a full disk, a
-  ///     permission error, a second desktop instance holding the lock - took
-  ///     the same destructive path as real corruption.
-  ///
-  /// So one unclean kill during a write, or one full disk, silently wiped the
-  /// library, the watch history, the settings or the plugin data with nothing
-  /// shown to the user.
-  ///
-  /// Now: a failure that is not corruption is rethrown, because deleting a
-  /// user's library because a disk was momentarily full is never the right
-  /// answer. Genuine corruption moves the file aside instead of unlinking it,
-  /// so the data still exists and can be recovered by hand or by a later
-  /// migration, and returns a fresh empty box so the app still starts.
-  /// Exposed so the recovery contract can be tested against the real method
-  /// rather than against a re-description of it. [dir] stands in for the
-  /// directory [init] would have recorded.
+  /// Exposed so the recovery contract can be tested against the real method.
+  /// [dir] stands in for the directory [init] would have recorded.
   @visibleForTesting
   Future<Box<dynamic>> debugSafeOpenBox(String boxName, {required String dir}) {
     _hiveDir = dir;
@@ -100,9 +116,9 @@ class StorageService {
   ///
   /// Hive keeps `<name>.hive` and `<name>.lock` in the init directory. Moving
   /// them to `<name>.hive.corrupt-<millis>` keeps the bytes on disk: a box that
-  /// merely lost its tail to an unclean shutdown is often largely readable, and
-  /// a deleted file never is. Best effort - if the rename fails the open below
-  /// will fail too and the error reaches the caller rather than being buried.
+  /// merely lost its tail to an unclean shutdown is often largely readable.
+  /// Best effort - if the rename fails the open below fails too and the error
+  /// reaches the caller.
   Future<void> _quarantineBox(String boxName) async {
     final dir = _hiveDir;
     if (dir == null) return;
@@ -119,8 +135,8 @@ class StorageService {
     }
   }
 
-  /// Helper to ensure keys do not exceed Hive's 255 char limit.
-  /// Generates a stable hash for long URLs.
+  /// Hashes a url that would exceed Hive's 255-character key limit to a
+  /// stable md5.
   String _getKey(String url) {
     if (url.length <= 250) return url;
     return md5.convert(utf8.encode(url)).toString();
@@ -128,9 +144,8 @@ class StorageService {
 
   // --- Library (Favorites) ---
 
-  // We store items as JSON strings or Maps. Key is url.
+  // Stored as a map, keyed by the url, which is assumed to be unique.
   Future<void> addToLibrary(MultimediaItem item) async {
-    // We assume item.url is unique enough for now
     await _libraryBox.put(_getKey(item.url), {
       'title': item.title,
       'url': item.url,
@@ -193,12 +208,9 @@ class StorageService {
 
   // --- App update prompt ---
 
-  /// The release tag the user last dismissed the update dialog on.
-  ///
-  /// The dialog used to be re-offered on every single cold start until the
-  /// user actually updated, which is how a person learns to dismiss modals
-  /// without reading them. One "Later" now covers that release; the next one
-  /// published gets a fresh hearing because the tag no longer matches.
+  /// The release tag the user last dismissed the update dialog on. One
+  /// "Later" covers that release; the next one published gets a fresh hearing
+  /// because the tag no longer matches.
   Future<void> setDeclinedUpdateTag(String tag) async {
     await _settingsBox.put('declined_update_tag', tag);
   }
@@ -325,11 +337,9 @@ class StorageService {
   /// The UI language tag the user explicitly chose, or `null` when they have
   /// never chosen one.
   ///
-  /// This used to default to `'en'`, which collapsed "no preference recorded"
-  /// and "the user picked English" into the same value. The app could not
-  /// tell them apart, so it could never follow the device locale and 42 of
-  /// the 43 shipped translations were unreachable without a trip to Settings.
-  /// `null` now means "follow the device"; see `LocaleNotifier.build`.
+  /// `null` means "follow the device locale"; see `LocaleNotifier.build`. A
+  /// default of `'en'` here would collapse "no preference recorded" and "the
+  /// user picked English" into one value.
   String? getLanguage() {
     return _settingsBox.get('language') as String?;
   }
@@ -554,7 +564,6 @@ class StorageService {
       final map = Map<String, dynamic>.from(_historyBox.get(key) as Map);
       items.add(map);
     }
-    // Sort by timestamp descending (newest first)
     items.sort(
       (a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int),
     );
@@ -667,18 +676,14 @@ class StorageService {
   static const String _kExtensionRepoUrls = 'extension_repo_urls';
 
   /// Closes a box if we have one and then deletes it from disk. The delete is
-  /// deliberately NOT conditional on the close succeeding.
+  /// deliberately not conditional on the close succeeding.
   ///
-  /// [clearPreferences] is the only recovery the user has from the startup
-  /// error screen, and they reach that screen precisely because [init] threw
-  /// while opening a box. [init] assigns the four box fields in sequence, so
-  /// the field belonging to the box that failed is the one that was never
-  /// assigned - and these are bare `late` fields, so merely reading
-  /// `_libraryBox.isOpen` throws `LateInitializationError`. When the close and
-  /// the delete shared one `try`, that read aborted the block before
-  /// [Hive.deleteBoxFromDisk] ran, so the single box the user needed removed
-  /// was the single box the reset skipped and the next launch failed
-  /// identically, with no in-app way out.
+  /// [init] assigns the four box fields in sequence, so the field belonging to
+  /// a box that failed to open was never assigned; these are bare `late`
+  /// fields, so merely reading `_libraryBox.isOpen` throws
+  /// `LateInitializationError`. Sharing one `try` between the close and the
+  /// delete let that read skip the delete, which is exactly the box
+  /// [clearPreferences] was called to remove.
   ///
   /// The delete does not need the field: an open that failed never registered
   /// the box with Hive (hive-2.2.3/lib/src/hive_impl.dart:107), so
@@ -783,6 +788,21 @@ class StorageService {
       if (!keepRepos) {
         await _closeAndDeleteBox(kExtensionsBox, () => _extensionsBox);
       }
+
+      // The settings box took both subtitle account usernames with it. The
+      // matching passwords are in the platform secure store, so they have to
+      // be named to go with them - otherwise the accounts screen reads "Not
+      // logged in" on the next launch while the passwords are still on the
+      // device.
+      try {
+        const secure = FlutterSecureStorage(aOptions: AndroidOptions());
+        for (final key in kAccountPasswordKeys) {
+          await secure.delete(key: key);
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('Error clearing account passwords: $e');
+      }
+
       // Clear Cache Manager (Images)
       try {
         await DefaultCacheManager().emptyCache();

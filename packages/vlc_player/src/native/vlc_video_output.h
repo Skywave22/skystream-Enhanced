@@ -14,8 +14,7 @@ namespace vlc_player {
 //
 // Separate from VlcPlayerCore because the two owners of a media player differ:
 // Windows and Linux create theirs through the core, while Darwin's belongs to
-// VLCKit. Both need the same wiring, and neither should re-derive the
-// trampoline boilerplate or the teardown ordering.
+// VLCKit. Both need the same trampoline boilerplate and teardown ordering.
 class VlcVideoOutput {
  public:
   // `player` must outlive this object. `sink` must outlive it too, or Detach
@@ -36,14 +35,14 @@ class VlcVideoOutput {
   // libVLC 3 captures the callback pointers and their opaque when the video
   // output opens; clearing them on the media player only affects the next one
   // to open. A vout closing on its own thread therefore calls in after Detach
-  // has returned, which segfaults if the target has been freed - it is how
-  // this seam was found. So the target is not freed: the attachment outlives
-  // the VlcVideoOutput, learns under its mutex that the sink is gone, and
-  // turns every late callback into a no-op.
+  // has returned, which segfaults if the target has been freed. So the target
+  // is never freed: the attachment outlives the VlcVideoOutput, learns under
+  // its mutex that the sink is gone, and turns every late callback into a
+  // no-op.
   //
   // That is a deliberate leak of a few dozen bytes per media player ever
   // created. Reclaiming it would need a guarantee about vout teardown that
-  // libVLC 3 does not offer, and the alternative is a crash on shutdown.
+  // libVLC 3 does not offer.
   struct Attachment {
     std::mutex mutex;
     VlcFrameSink* sink = nullptr;

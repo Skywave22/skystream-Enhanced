@@ -25,7 +25,6 @@
   "doubleTapToSeek": "双击快进/快退",
   "swipeToSeek": "滑动快进/快退",
   "seekDuration": "快进/快退秒数",
-  "bufferDepth": "缓冲深度",
   "defaultResizeMode": "默认填充模式",
   "hardwareDecoding": "硬件解码",
   "network": "网络",
@@ -177,7 +176,6 @@
   "left": "左侧",
   "right": "右侧",
   "selectSeekDuration": "选择快进/快退秒数",
-  "selectBufferDepth": "选择缓冲深度",
   "subtitleSettings": "字幕设置",
   "size": "大小: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi 视频质量偏好",
   "mobileQualityPreference": "移动网络视频质量偏好",
   "anyNoPreference": "不限（无偏好）",
   "subtitleAccounts": "字幕账户",

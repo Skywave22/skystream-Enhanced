@@ -33,11 +33,10 @@ import 'package:vlc_player/vlc_player.dart';
 
 import 'fake_vlc_engine.dart';
 
-/// On a television focus *is* the pointer. If it ever lands on the route's own
-/// FocusScopeNode, every arrow is spent re-focusing that scope and the remote
-/// is dead, with no tap to recover by. So the invariant this file holds is:
-/// while the player is on screen, primary focus is either a chrome control or
-/// the player's own key sink. Never the scope.
+/// The invariant this file holds: while the player is on screen, primary focus
+/// is either a chrome control or the player's own key sink, never the route's
+/// FocusScopeNode. A focused scope spends every arrow re-focusing itself, and
+/// on a television there is no tap to recover by.
 ///
 /// The desktop half holds the mouse contract: motion reveals, rest does not
 /// re-arm, the bars never vanish under the cursor, and the cursor goes with
@@ -45,7 +44,7 @@ import 'fake_vlc_engine.dart';
 const Size _tv = Size(2560, 1440);
 
 /// The handset the touch-only affordances exist for, and the same frame
-/// controls_lock_test.dart:49 renders its phone at.
+/// controls_lock_test.dart renders its phone at.
 const Size _phone = Size(844, 390);
 const Duration _hideAfter = Duration(seconds: 3);
 const EventChannel _events = EventChannel('vlc_player/events/1');
@@ -60,8 +59,8 @@ const Set<PlayerPanelTab> _allTabs = <PlayerPanelTab>{
   PlayerPanelTab.files,
 };
 
-/// A panel that opens and closes at once. The default, so every list button
-/// renders in tests that are about something else.
+/// A panel that opens and closes at once, so every list button renders in
+/// tests that are about something else.
 Future<void> _noPanel(PlayerPanelTab _) async {}
 
 /// The hide timer refuses to fire until the engine reports playing, so every
@@ -106,9 +105,8 @@ List<int> _seeks(FakeVlcEngine engine) => engine
     .toList(growable: false);
 
 /// Every setVolume the engine received, as the percentage it was asked for.
-/// The fake never reports a volume back - its snapshot is a hardcoded 100 -
-/// so what the widget asked for is the only truth here, which is exactly the
-/// truth these tests are about.
+/// The fake never reports a volume back - its snapshot is a hardcoded 100 - so
+/// what the widget asked for is the only truth available.
 List<int> _volumes(FakeVlcEngine engine) => engine
     .callsTo('setVolume')
     .map((call) => (call.arguments as Map)['volume'] as int)
@@ -122,9 +120,8 @@ List<double> _speeds(FakeVlcEngine engine) => engine
 
 /// A game controller's shoulder button, down and up.
 ///
-/// flutter_test resolves a key code per platform and BUTTON_L1/R1 are in
-/// Android's table - which is the platform that has the controllers, exactly
-/// as for BUTTON_A below.
+/// flutter_test resolves a key code per platform, and BUTTON_L1/R1 are in
+/// Android's table.
 Future<void> _shoulder(WidgetTester tester, LogicalKeyboardKey key) async {
   final forward = key == LogicalKeyboardKey.gameButtonRight1;
   await tester.sendKeyEvent(
@@ -160,19 +157,16 @@ Widget _host(
   );
 }
 
-/// Desktop is whatever can toggle fullscreen; that is the file's own test.
+/// Pumps the controls. Desktop is whatever can toggle fullscreen.
 ///
 /// [engine] is the fake the controller talks to; pass one to read its
 /// `methods` back. [withoutPanel] stands in for `onOpenPanel: null`, which a
 /// default parameter cannot express.
 ///
-/// [size] is the viewport in logical pixels, and it defaults to [_tv] because
-/// that is what every test here was written against. Pass [_phone] for the
-/// touch-only affordances: they exist for a handset, and a 2560x1440 frame has
-/// sixteen times its pixel budget, so a geometry claim measured only there -
-/// "the toast clears the centre glyph", "the burst is on its own half" - holds
-/// for nudge values that would paint one control on top of the other on the
-/// device the feature is for.
+/// [size] is the viewport in logical pixels. Pass [_phone] for touch geometry
+/// claims: a 2560x1440 frame has sixteen times a handset's pixel budget, so a
+/// clearance measured only there holds for nudge values that would paint one
+/// control on top of another on the device the feature is for.
 Future<VlcPlayerController> _pumpControls(
   WidgetTester tester, {
   bool isTv = true,
@@ -182,8 +176,7 @@ Future<VlcPlayerController> _pumpControls(
   Set<PlayerPanelTab> panelTabs = _allTabs,
   VoidCallback? onNextEpisode,
 
-  /// The two a phone gets and a television does not. Null by default so
-  /// every test written before them sees the tree it was written against.
+  /// A phone gets these two and a television does not. Null by default.
   VoidCallback? onEnterPip,
   ValueNotifier<bool>? locked,
   ChromeVisibilityController? chrome,
@@ -252,21 +245,20 @@ FocusNode _button(WidgetTester tester, String tooltip) {
       .focusNode!;
 }
 
-/// The seek bar's own focus node. The controls hand it no node, so the bar
-/// makes its own - and labels it, which is the only way a focus test can name
-/// the one control that is not a button.
+/// The seek bar's own focus node. The controls hand it none, so the bar makes
+/// its own and labels it, which is the only way to name the one control here
+/// that is not a button.
 FocusNode _scrubber() => _byLabel('player-seek-bar');
 
 bool _inChrome(FocusNode node) =>
     node.ancestors.any((n) => n.debugLabel == 'player-chrome');
 
-/// The Skip chip's own focus node - the one carrying its key handler.
+/// The Skip chip's outer focus node, the one carrying its key handler.
 ///
-/// [PlayerActionButton] is a [Focus] over an [InkWell], and InkWell makes a
-/// focus node of its own, so the chip owns two. The one that matters is the
-/// outer wrapper, which is the first [Focus] inside the button in tree order;
-/// it is unlabelled, so it is resolved by matching a node's context to that
-/// element rather than by name.
+/// [PlayerActionButton] is a [Focus] over an [InkWell] and InkWell makes a node
+/// of its own, so the chip owns two. The wrapper is the first [Focus] inside
+/// the button in tree order and is unlabelled, so it is matched by element
+/// rather than by name.
 FocusNode _skipChipNode(WidgetTester tester) {
   final Element wrapper = tester.element(
     find
@@ -310,8 +302,7 @@ void _expectHidden(WidgetTester tester, {String? reason}) {
 /// A plain `tap(); pump();` is not enough anywhere in this player: the
 /// screen-wide detector owns a double-tap (seek on touch, fullscreen on
 /// desktop), so a button's own tap recogniser only wins the arena once that
-/// one has timed out. Measured: the seek button's `onPressed` had not run
-/// after a bare pump and had after 400 ms.
+/// one has timed out.
 Future<void> _tapControl(WidgetTester tester, Finder finder) async {
   await tester.tap(finder);
   await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
@@ -334,9 +325,8 @@ void main() {
     });
 
     // The panel is a route of its own, so the chrome underneath it keeps
-    // ticking. Without a hold the bars fade out behind the open panel, their
-    // ExcludeFocus makes the button that opened it unfocusable, and closing
-    // returns focus to nothing: the stranded remote.
+    // ticking. Without a hold the bars fade out behind it, their ExcludeFocus
+    // makes the button that opened it unfocusable, and closing focuses nothing.
     testWidgets('an open panel holds the chrome up for as long as it lives', (
       tester,
     ) async {
@@ -347,7 +337,7 @@ void main() {
       await tester.pump();
 
       // Well past the hide clock, and past the one re-arm _expire grants a
-      // player it thinks is paused: a poke-and-forget cannot survive this.
+      // player it thinks is paused.
       await _letHide(tester);
       await _letHide(tester);
       await _letHide(tester);
@@ -374,9 +364,8 @@ void main() {
 
     testWidgets('Back does not summon hidden chrome', (tester) async {
       // Android delivers Back as a key first and a popRoute second. If the key
-      // raised the bars, the screen's Back handler then found them up and put
-      // them away instead of leaving - the player could not be exited while
-      // playing. Back belongs to the screen; the sink must not touch it.
+      // raised the bars, the screen's Back handler would find them up and put
+      // them away instead of leaving. Back belongs to the screen.
       await _pumpControls(tester);
       await _letHide(tester);
       _expectHidden(tester);
@@ -437,12 +426,10 @@ void main() {
       }
     });
 
-    // The headline TV defect. Key dispatch runs the focused node first and
-    // stops at the first widget that claims the key, so while the seek bar
-    // answered Up and Down itself the player's sink - the only thing that
-    // restarts the hide clock - never saw them. Land on the scrubber at 2.9 s
-    // of a 3 s clock, press Up, and the bars went down 0.1 s later with the
-    // remote halfway through navigating.
+    // Key dispatch runs the focused node first and stops at the first widget
+    // that claims the key, so a seek bar that answers Up and Down itself hides
+    // them from the player's sink - the only thing that restarts the hide
+    // clock.
     testWidgets('moving the D-pad off the scrubber restarts the hide clock', (
       tester,
     ) async {
@@ -466,11 +453,9 @@ void main() {
       expect(_inChrome(_primary), isTrue);
     });
 
-    // The other half of the same rule: a press the bar cannot act on is not
-    // the bar's to swallow. At position 0 a Left step clamps to where the
-    // thumb already is, and the bar used to report that dead press handled -
-    // no seek, no poke, and the bars timing out under a viewer who is
-    // pressing a button.
+    // A press the bar cannot act on is not the bar's to swallow. At position 0
+    // a Left step clamps to where the thumb already is, and reporting that dead
+    // press handled means no poke and bars that time out under a live viewer.
     testWidgets('a clamped scrubber press seeks nothing but still pokes', (
       tester,
     ) async {
@@ -493,10 +478,9 @@ void main() {
       _expectShown(tester, reason: 'a dead press is still a press');
     });
 
-    // The arrows off the scrubber are now DirectionalFocusAction's, so the
-    // geometry has to work: Up crosses the Expanded spacer between the two
-    // bars to reach the top bar, and Down crosses the FocusTraversalGroup
-    // boundary around the button row underneath.
+    // The arrows off the scrubber are DirectionalFocusAction's, so the geometry
+    // has to work: Up crosses the Expanded spacer between the two bars, and
+    // Down crosses the FocusTraversalGroup boundary around the button row.
     testWidgets('every arrow from the scrubber stays on a chrome node, and '
         'Up and Down reach the bars', (tester) async {
       await _pumpControls(tester);
@@ -575,8 +559,8 @@ void main() {
       );
     });
 
-    // The last player control with no ten-foot treatment. isTv was declared on
-    // VlcProgressBar, passed by the controls, and read by nobody.
+    // isTv is declared on VlcProgressBar and passed by the controls; it has to
+    // be read as well.
     testWidgets('the scrubber is sized for a sofa on TV', (tester) async {
       await _pumpControls(tester);
       expect(tester.getSize(find.byType(PlayerSeekBar)).height, 48);
@@ -601,8 +585,8 @@ void main() {
       );
       expect(_primary.debugLabel, 'player-key-sink');
 
-      // Instead the courtesy is that nothing is lost: the next press brings
-      // the bars back with focus exactly where it was.
+      // Nothing is lost: the next press brings the bars back with focus where
+      // it was.
       await tester.sendKeyEvent(LogicalKeyboardKey.select);
       await tester.pump();
       _expectShown(tester);
@@ -623,10 +607,9 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
 
-      // The seek bar commits a burst 500 ms after the last press and only
-      // then may the clock restart, so at the old timeout the bars are still
-      // up - and a little later they are not, which is the half the old code
-      // got wrong: it cancelled the timer on seek start and nothing re-armed.
+      // The seek bar commits a burst 500 ms after the last press and only then
+      // may the clock restart, so at the old timeout the bars are still up and
+      // a little later they are not.
       await tester.pump(_hideAfter);
       _expectShown(tester, reason: 'the seek held the clock');
       await tester.pump(const Duration(seconds: 1));
@@ -634,13 +617,12 @@ void main() {
       _expectHidden(tester, reason: 'the seek ended; the clock re-armed');
     });
 
-    // The hold the bar takes on seek start is counted, and release() is the
-    // only thing that gives one back. Every way out of a burst has to reach
-    // one: here the media is reopened on the same controller mid-burst - a
-    // failover - the duration drops back to zero and the scrubber's own end
-    // callback is nulled before the burst's 500 ms commit fires. Nothing
-    // below can report the end, so the bar reports it itself; otherwise the
-    // bars stay up for the rest of the session.
+    // The hold the bar takes on seek start is counted and release() is the only
+    // thing that gives one back, so every way out of a burst has to reach one.
+    // Here the media is reopened on the same controller mid-burst: the duration
+    // drops to zero and the scrubber's end callback is nulled before the 500 ms
+    // commit fires, so nothing below can report the end and the bar reports it
+    // itself.
     testWidgets('a burst the bar can no longer commit still releases the '
         'chrome', (tester) async {
       final chrome = ChromeVisibilityController(isPlaying: () => true);
@@ -670,10 +652,9 @@ void main() {
       chrome.dispose();
     });
 
-    // The other way out: the player leaves - Back, a failover that rebuilds
-    // the tree - with a burst still in flight. The chrome is the screen's and
-    // outlives these controls, so a hold left behind pins the next media's
-    // bars up instead.
+    // The player can also leave with a burst still in flight. The chrome is the
+    // screen's and outlives these controls, so a hold left behind pins the next
+    // media's bars up.
     testWidgets('the controls going away mid-burst release the chrome', (
       tester,
     ) async {
@@ -741,8 +722,8 @@ void main() {
     }
 
     testWidgets('Subtitles opens the panel; no sheet remains', (tester) async {
-      // The track sheet is gone: the panel is the one surface for every list,
-      // so Back and focus obey one set of rules everywhere.
+      // The panel is the one surface for every list, so Back and focus obey one
+      // set of rules everywhere.
       final l10n = await AppLocalizations.delegate.load(const Locale('en'));
       final opened = <PlayerPanelTab>[];
       await _pumpControls(tester, onOpenPanel: (tab) async => opened.add(tab));
@@ -828,11 +809,10 @@ void main() {
   });
 
   group('VlcPlayerControls with an injected chrome controller', () {
-    // The screen needs to drop the chrome on Back before it pops and hold it
-    // while a panel is up. Both are its calls about a thing the controls
-    // own, so the controls must follow a controller they did not make - and
-    // must not kill it on the way out, since the screen outlives them across
-    // every failover and episode advance.
+    // The screen drops the chrome on Back before it pops and holds it while a
+    // panel is up, so the controls follow a controller they did not make - and
+    // must not dispose it, since the screen outlives them across every failover
+    // and episode advance.
     testWidgets('the bars follow it and it survives the controls', (
       tester,
     ) async {
@@ -850,8 +830,8 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
       // A disposed notifier refuses new listeners; a live one takes them, and
-      // its hide clock is still armed - which is why the owner, not a
-      // teardown, has to be the one to stop it.
+      // its hide clock is still armed, so the screen that made it has to be the
+      // one to stop it.
       expect(() => chrome.addListener(() {}), returnsNormally);
       expect(chrome.value, isTrue);
       chrome.dispose();
@@ -860,11 +840,10 @@ void main() {
 
   group('VlcPlayerControls during a stall', () {
     // Off Android, libVLC keeps reporting `playing` through a rebuffer, so a
-    // spinner keyed on the state never showed: a frozen frame under a pause
-    // glyph for up to 25 s. The controller raises isStalled from the position
-    // clock instead, and the chrome has to read it. On Android the engine
-    // does say `buffering`, and the film will resume on its own, so the glyph
-    // must keep offering pause rather than claim the player is stopped.
+    // spinner keyed on the state never shows. The controller raises isStalled
+    // from the position clock instead and the chrome has to read it. On Android
+    // the engine does say `buffering` and playback resumes on its own, so the
+    // glyph must keep offering pause rather than claim the player is stopped.
     testWidgets('a frozen clock shows the spinner; motion clears it', (
       tester,
     ) async {
@@ -928,8 +907,7 @@ void main() {
 
     // Space is the activation key for whatever is focused. Claiming it as a
     // global play/pause toggle means Space on a focused Next button toggles
-    // playback instead of pressing Next; the old player guarded exactly this
-    // on rootHasFocus. K and the media keys stay global by convention.
+    // playback instead of pressing Next. K and the media keys stay global.
     testWidgets('Space presses the focused button, and toggles playback only '
         'from the sink', (tester) async {
       final engine = FakeVlcEngine();
@@ -966,21 +944,12 @@ void main() {
       expect(nextPressed, 1);
     });
 
-    // Hold-to-2x existed on a touch long-press only, so the same gesture was
-    // missing from every keyboard. Space is the natural key and it is already
-    // the bare play/pause toggle, so the two share it the way tap and
-    // long-press share the video surface: the down press claims the key and
-    // commits to nothing, the first auto-repeat starts the boost, and the
+    // Space is both the bare play/pause toggle and the hold-to-2x key, the way
+    // tap and long-press share the video surface: the down press claims the key
+    // and commits to nothing, the first auto-repeat starts the boost, and the
     // release either gives the speed back or - never having repeated - is the
-    // toggle.
-    //
-    // The first expectation is the one that matters. Toggling on the down
-    // press instead - the wiring that looks right - pauses the film under a
-    // viewer who meant to skim, and it is still paused when they let go. (On
-    // a device it is inert as well, since _startSpeedBoost wants something
-    // playing and the engine has published the pause by the time the key
-    // repeats; the fake never echoes a pause back, so the pause itself is the
-    // half of that this can see.)
+    // toggle. Toggling on the down press instead pauses the film under a viewer
+    // who meant to skim, and it is still paused when they let go.
     testWidgets('holding Space runs at 2x, and the release gives it back', (
       tester,
     ) async {
@@ -1151,13 +1120,10 @@ void main() {
       expect(kinds.last, 'basic');
     });
 
-    // The hold a hovered bar takes is counted, and release() is the only
-    // thing that gives one back. Flutter deliberately does not deliver
-    // MouseRegion.onExit when the region is unmounted with the pointer still
-    // inside it, and the bar goes out from under the cursor every time the
-    // controls leave: a failover that clears the frame flag, an episode
-    // advance, Back, entering PiP. The chrome is the screen's and outlives
-    // them, so a stranded hold pins the next media's bars up for good.
+    // Flutter deliberately does not deliver MouseRegion.onExit when the region
+    // is unmounted with the pointer still inside it, and the bar goes out from
+    // under the cursor every time the controls leave. The chrome outlives them,
+    // so a stranded hold pins the next media's bars up for good.
     testWidgets('the controls going away under the cursor give the hover '
         'hold back', (tester) async {
       final chrome = ChromeVisibilityController(isPlaying: () => true);
@@ -1181,11 +1147,10 @@ void main() {
       chrome.dispose();
     });
 
-    // And the half a teardown backstop in the controls would not catch: the
-    // hovered subtree can go while the controls stay - hover exists only
-    // where a window can toggle fullscreen, so withdrawing that affordance
+    // The hovered subtree can also go while the controls stay: hover exists
+    // only where a window can toggle fullscreen, so withdrawing that affordance
     // takes the region out from under a pointer that is still there. The
-    // release belongs to whatever owns the region, not to the controls.
+    // release belongs to whatever owns the region.
     testWidgets('a hovered bar taken away on its own gives the hold back, '
         'and the clock re-arms', (tester) async {
       final chrome = ChromeVisibilityController(isPlaying: () => true);
@@ -1240,11 +1205,11 @@ void main() {
   });
 
   group('VlcPlayerControls relative seeks', () {
-    // The controller publishes only the engine's position, and the engine's
-    // read-back of a seek arrives a snapshot later. A second step in that
-    // window used to count from the stale position and undo the first; now
-    // it counts from the last target for as long as the progress bar would
-    // latch it - stallIndicatorDelay + 500 ms - and from the truth after.
+    // The engine's read-back of a seek arrives a snapshot later, so a second
+    // step inside that window counts from the last target rather than from the
+    // stale position it would otherwise undo. The window is as long as the
+    // progress bar latches, stallIndicatorDelay + 500 ms; after it the base is
+    // the controller's own position again.
     testWidgets('a second L before the engine answers counts from the first '
         'target, and from the truth once the window closes', (tester) async {
       final engine = FakeVlcEngine();
@@ -1298,11 +1263,9 @@ void main() {
       await _snapshot(tester, state: 'paused', position: 20000);
     });
 
-    // The pre-migration player showed a screen-centred pill here, byte for
-    // byte the same one the swipe, the 2x boost and the resize cycle use. It
-    // said nothing about which half had been tapped, so a viewer who hit the
-    // wrong side got a confirmation that looked exactly like a correct one -
-    // and it always printed the bare step, never the running total.
+    // A screen-centred pill says nothing about which half was tapped, so a
+    // viewer who hit the wrong side gets a confirmation that looks exactly like
+    // a correct one.
     testWidgets('a double-tap on the right half shows a forward burst, not '
         'the centre pill', (tester) async {
       final engine = FakeVlcEngine();
@@ -1326,17 +1289,16 @@ void main() {
       expect(burst.forward, isTrue, reason: 'the right half was tapped');
       expect(find.text('10s'), findsOneWidget);
 
-      // The burst is on the right of the frame, not in the middle of it -
-      // which is the whole point and the only part a viewer can see. Measured
-      // off the readout, not off PlayerSeekBurst: its outermost widget is an
-      // Align, which takes the whole viewport and is centred by definition.
+      // Measured off the readout, not off PlayerSeekBurst: its outermost widget
+      // is an Align, which takes the whole viewport and is centred by
+      // definition.
       expect(
         tester.getCenter(find.text('10s')).dx,
         greaterThan(centre.dx),
         reason: 'the readout says which half fired by being on it',
       );
-      // And it does not land on the centre play/pause, which is the other
-      // thing living in the middle of a touch frame.
+      // Nor on the centre play/pause, the other thing living in the middle of
+      // a touch frame.
       expect(
         tester
             .getRect(find.byType(PlayerCenterPlayButton))
@@ -1411,12 +1373,9 @@ void main() {
       await _snapshot(tester, state: 'paused');
     });
 
-    // On a pad the shoulder buttons are the whole seek affordance. Without
-    // them, seeking with a controller meant waking the chrome, walking the
-    // D-pad down to the scrubber and only then pressing Left or Right - four
-    // presses for what LB and RB do in one. They are routed through the same
-    // _seekBy as J and L rather than a parallel mechanism, so they inherit
-    // the chain window and the centred pill for free.
+    // On a pad the shoulder buttons are the whole seek affordance. They route
+    // through the same _seekBy as J and L rather than a parallel mechanism, so
+    // they inherit the chain window and the centred pill.
     testWidgets(
       'LB and RB seek by the configured step and chain like J and L',
       (tester) async {
@@ -1489,12 +1448,10 @@ void main() {
       await _snapshot(tester, state: 'paused', position: 10000);
     });
 
-    // The chain counts from its own target for a second and a half, and the
-    // scrubber is reachable throughout: a click on the track lands somewhere
-    // the chain knows nothing about, and the engine will not publish it for a
-    // round trip. The next arrow must step on from the click - not from the
-    // chain's stale target (the bug: back to where the arrows had got to) and
-    // not from the engine's pre-click position either.
+    // The scrubber is reachable throughout the chain window, and a click on the
+    // track lands somewhere the chain knows nothing about that the engine will
+    // not publish for a round trip. The next arrow must step on from the click,
+    // not from the chain's stale target and not from the pre-click position.
     testWidgets('a scrubber commit inside the window re-bases the chain, and '
         'the toast counts from there', (tester) async {
       final engine = FakeVlcEngine();
@@ -1564,12 +1521,9 @@ void main() {
     });
   });
 
-  // Two regressions against the pre-migration player, both touch-only. The
-  // primary control was a 40 px glyph in the bottom-left corner beside the
-  // scrubber, while the largest and emptiest part of the screen did nothing
-  // but toggle the bars. 38da335 had an 82 px centred play/pause and
-  // deliberately dropped the corner copy; the migration dropped the centre one
-  // instead and kept the corner.
+  // Touch gets a centred play/pause. The alternative is a 40 px glyph in the
+  // bottom-left corner beside the scrubber, with the largest and emptiest part
+  // of the screen doing nothing but toggle the bars.
   group('VlcPlayerControls centre play/pause on touch', () {
     testWidgets('the touch build has one and the remote build does not', (
       tester,
@@ -1617,9 +1571,9 @@ void main() {
 
       await tester.tap(find.byType(PlayerCenterPlayButton));
       // The screen-wide detector owns a double-tap, so the single tap resolves
-      // only once that recogniser gives up - the ~300 ms this control inherits
-      // and deliberately keeps, because the escape from it is an opaque hit
-      // test that would kill swipe-seek from dead centre.
+      // only once that recogniser gives up. The ~300 ms is kept deliberately:
+      // escaping it needs an opaque hit test, which would kill swipe-seek from
+      // dead centre.
       await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
 
       expect(
@@ -1666,8 +1620,7 @@ void main() {
     // The glyph sits outside `_bars`, so nothing else withdraws it when the
     // chrome goes: without its own IgnorePointer it is an invisible 88 px
     // circle in the dead centre that eats the tap-to-reveal, which is the only
-    // way back on a phone. That is the single most likely way to get this
-    // wrong, so it is pinned.
+    // way back on a phone.
     testWidgets('with the bars down it is inert and the tap still reveals', (
       tester,
     ) async {
@@ -1690,12 +1643,11 @@ void main() {
       await _snapshot(tester, state: 'paused');
     });
 
-    // The toast is painted above the glyph - it is a later child of the same
-    // Stack - so left centred it lands dead on the disc: every swipe readout,
-    // the 2x label and the resize name, unreadable. Hiding the glyph for the
-    // length of a drag is not the answer; that is a setState at pointer rate,
-    // which the controls' own compositing contract forbids. So the toast moves
-    // instead, and only where there is a glyph to move off.
+    // The toast is a later child of the same Stack as the glyph, so left
+    // centred it paints unreadably on the disc. Hiding the glyph for the length
+    // of a drag would be a setState at pointer rate, which the controls'
+    // compositing contract forbids, so the toast moves instead - and only where
+    // there is a glyph to move off.
     testWidgets('the toast is nudged clear of the glyph, not painted onto it', (
       tester,
     ) async {
@@ -1780,17 +1732,14 @@ void main() {
 
   group('VlcPlayerControls in full screen mode', () {
     // The screen resolves its form factor through playerFormFactorOf, which
-    // full screen mode widens to `tv`. The bar inside it used to read the raw
-    // hardware profile instead, so a desktop wired to a television adopted the
-    // ten-foot layout at the screen level and kept the phone bar inside it.
+    // full screen mode widens to `tv`. A bar that read the raw hardware profile
+    // instead would keep the phone layout inside a ten-foot screen.
     tearDown(() => fullScreenModeActive.value = false);
 
-    // The proxy for "ten-foot" is the overscan inset the bar actually lays
-    // out to - measured, not a field read back. It used to be the presence of
-    // the volume button, which was a green test guarding the wrong behaviour:
-    // volume is COMMON now (see the volume group below), so it can no longer
-    // tell one form factor from another. The inset can: a television is held
-    // to `tvEdgeInset`, and every other device to `edgeInset`.
+    // The proxy for "ten-foot" is the overscan inset the bar lays out to,
+    // measured rather than read back: a television is held to `tvEdgeInset` and
+    // every other device to `edgeInset`. The volume button cannot tell them
+    // apart, because it is on every form factor.
     double leftInset(WidgetTester tester) =>
         tester.getRect(find.byTooltip('Rewind 10 seconds')).left;
 
@@ -1815,11 +1764,10 @@ void main() {
       expect(leftInset(tester), HotstarPlayerStyle.edgeInset);
     });
 
-    // _showCenterGlyph is `!_isTv && !_isDesktop`, so this pair pins the
-    // getter, where the volume pair above pins the build-local flag. The two
-    // reads are separate and both had to move. One _pumpControls per test:
-    // the harness's tear-downs are LIFO around a single channel mock, so a
-    // second install in the same test unregisters the first fake's handler.
+    // _showCenterGlyph is `!_isTv && !_isDesktop`, a separate read from the
+    // build-local flag the inset pair above pins. One _pumpControls per test:
+    // the tear-downs are LIFO around a single channel mock, so a second install
+    // in the same test unregisters the first fake's handler.
     testWidgets('a touch device gets the centre glyph', (tester) async {
       await _pumpControls(tester, isTv: false);
       expect(find.byType(PlayerCenterPlayButton), findsOneWidget);
@@ -1846,8 +1794,8 @@ void main() {
     // FlutterView.dispatchKeyEvent returns true the moment
     // KeyboardManager.handleEvent says handled, so FrameLayout.dispatchKeyEvent
     // - and with it PhoneWindow's volume fallback and the system HUD - never
-    // runs. Claiming the key therefore silences the rocker while the app walks
-    // its own libVLC gain. Only a desktop keyboard's volume keys are ours.
+    // runs. Claiming the key would silence the rocker. Only a desktop
+    // keyboard's volume keys are ours.
     testWidgets('the hardware rocker is handed back on Android and claimed on '
         'desktop', (tester) async {
       // Restored in the body, not in a tear-down: flutter_test verifies the
@@ -1890,8 +1838,8 @@ void main() {
     });
 
     // The pre-mute level has to be whatever the viewer actually had, however
-    // they got there. The rail drag never went through the M branch, so the
-    // memory was never written and unmuting jumped to a hardcoded 100.
+    // they got there: a rail drag never goes through the M branch, so a memory
+    // written only there leaves unmute jumping to a hardcoded 100.
     testWidgets('M unmutes to the level the rail was dragged to, not 100', (
       tester,
     ) async {
@@ -1927,14 +1875,11 @@ void main() {
       await _snapshot(tester, state: 'paused');
     });
 
-    // Every route into the player's own gain needed hardware a sofa does not
-    // have: the AudioVolume keys are claimed on desktop only, the bare Up and
-    // Down arrows are a keyboard idiom that television deliberately spends on
-    // revealing the chrome, M is a keyboard key and the rail is a drag. So the
-    // one device this app is built for was the one device that could not turn
-    // the sound up - and in particular could not reach the 100-200% boost the
-    // settings screen offers, which is the half of the range that exists
-    // precisely because a television's own amplifier is often not enough.
+    // Every other route into the player's own gain needs hardware a sofa does
+    // not have: the AudioVolume keys are claimed on desktop only, the arrows
+    // are spent revealing the chrome on television, M is a keyboard key and
+    // the rail is a drag. The OSD picker is a remote's only way to the
+    // 100-200% boost.
     testWidgets('the OSD volume picker reaches the boost above 100%', (
       tester,
     ) async {
@@ -1970,21 +1915,14 @@ void main() {
       await _snapshot(tester, state: 'paused');
     });
 
-    // COMMON, on every platform, and the inversion of the pair that used to
-    // live here.
+    // The volume button is on every platform. A desktop keyboard's
+    // AudioVolumeUp/Down and the touch drag rail are not substitutes for it:
+    // the rail carries volume only while the viewer's edge-gesture setting says
+    // it does, so a phone with both edges set to brightness has no volume path
+    // at all.
     //
-    // The gate was `isTv && !_isDesktop`, justified by "a desktop keyboard
-    // owns AudioVolumeUp/Down and touch has the drag rail". Both are second
-    // routes and the standing rule rejects second routes; and both leak
-    // besides. The rail carries volume only while the viewer's edge-gesture
-    // setting says it does - set both edges to brightness and a phone had no
-    // volume path at all - and the 100-200% boost, the reason this player
-    // exists for quiet dialogue, was reachable on a handset only by dragging
-    // past the top of an invisible rail.
-    //
-    // Rendering, not merely mounting, is what each case asserts: the button
-    // is tapped and the boost is taken, so a build where the row clipped it
-    // off screen would fail here too.
+    // Each case taps the button and takes the boost, so a build where the row
+    // clipped it off screen fails here too.
     for (final (String device, bool isTv, bool desktop)
         in <(String, bool, bool)>[
           ('a television', true, false),
@@ -2024,7 +1962,6 @@ void main() {
     }
   });
 
-  /// Five defects in one row, fixed together because they are one row.
   group('VlcPlayerControls bottom row', () {
     /// Every action button's tooltip, left to right, as the bar orders them.
     /// Off touch the actions live in the bar's [Wrap]; the leading transport
@@ -2039,11 +1976,9 @@ void main() {
         .map((b) => b.tooltip)
         .toList(growable: false);
 
-    // DEFECT 3. There were no seek buttons anywhere, on any platform: precise
-    // stepping existed only as an invisible double-tap on touch and as J/L on
-    // a keyboard, while the Android PiP mini-window has shipped replay and
-    // forward buttons the whole time. A two-inch floating window had a better
-    // seek affordance than the full-screen player.
+    // The bar carries a visible seek pair on every platform. Precise stepping
+    // otherwise exists only as an invisible double-tap on touch and as J/L on a
+    // keyboard, while the Android PiP mini-window has always shown buttons.
     for (final (String device, bool isTv, bool desktop)
         in <(String, bool, bool)>[
           ('a television', true, false),
@@ -2096,20 +2031,13 @@ void main() {
       });
     }
 
-    // WAVE 1 FOLLOW-UP. The pair shipped without a name: lib/l10n belonged to
-    // another agent, so the tooltip was improvised out of the existing `sec`
-    // and `min` keys as "-30 sec" / "+30 sec". That string is the only name
-    // these two glyphs have anywhere - Tooltip also publishes it to the
-    // accessibility tree - and it read as "minus 30 sec": an amount with no
-    // verb, on the one control whose direction is the entire point.
-    // `playerRewindSeconds` and `playerForwardSeconds` name the action and
-    // carry the step as an ICU plural argument.
+    // The tooltip is the only name these two glyphs have anywhere, and Tooltip
+    // publishes it to the accessibility tree, so it names the action rather
+    // than a bare signed amount: `playerRewindSeconds` and
+    // `playerForwardSeconds` carry the step as an ICU plural argument.
     //
-    // Two steps, and neither is the 10 s default: 5 exercises the low end and
-    // 120 the high one, which is also where the improvised label used to
-    // switch units and say "2 min" while the toast the same press produced
-    // said "+120s". A label that hardcoded any single number, or that dropped
-    // the placeholder, fails at one of the two.
+    // Two steps, neither the 10 s default: a label that hardcodes any single
+    // number, or that drops the placeholder, fails at one of them.
     for (final int step in <int>[5, 120]) {
       testWidgets('the seek pair says what it does, at a $step s step', (
         tester,
@@ -2135,12 +2063,10 @@ void main() {
         // Read off the tooltip widget itself, so a build that shows a name
         // and announces something else - or nothing - fails here.
         //
-        // Measured, and reported to the owner: that property currently lands
-        // on the bar's own semantics node rather than on each button's,
-        // because PlayerIconButton puts its Tooltip ABOVE CustomButton while
-        // Material's IconButton puts it below the button's Semantics. That is
-        // a pre-existing defect in player_control_components.dart affecting
-        // all thirteen icon buttons, not something these strings introduce.
+        // That property currently lands on the bar's own semantics node rather
+        // than on each button's, because PlayerIconButton puts its Tooltip
+        // above CustomButton while Material's IconButton puts it below the
+        // button's Semantics. It affects every icon button in the bar.
         expect(
           tester.widget<RawTooltip>(rewind).semanticsTooltip,
           'Rewind $step seconds',
@@ -2151,9 +2077,8 @@ void main() {
           'Forward $step seconds',
         );
 
-        // And no signed amount survives anywhere on the transport row: the
-        // old label would still satisfy the finders above if a build kept
-        // both, and "minus 30 sec" is the thing being removed.
+        // And no signed amount survives anywhere on the transport row: a build
+        // that kept both labels would still satisfy the finders above.
         final List<String> transport = tester
             .widgetList<PlayerIconButton>(find.byType(PlayerIconButton))
             .map((PlayerIconButton b) => b.tooltip)
@@ -2168,13 +2093,10 @@ void main() {
       });
     }
 
-    // DEFECT 2. The non-touch row had no overflow strategy at all - a bare
-    // Row with a Spacer, Flex.clipBehavior at Clip.none - so a button past
-    // the edge was painted outside the bar and left mounted and focusable
-    // there. That is why rendering volume unconditionally "overflowed by
-    // 12 dp" and was answered by deleting the control on four platforms.
-    // 480 dp is a legitimate desktop window: lib/main.dart sets the minimum
-    // at 360x640.
+    // A bare Row with a Spacer leaves Flex.clipBehavior at Clip.none, so a
+    // button past the edge is painted outside the bar and left mounted and
+    // focusable there. 480 dp is a legitimate desktop window: lib/main.dart
+    // sets the minimum at 360x640.
     testWidgets('a 480 dp desktop window wraps the row instead of painting '
         'buttons off the edge', (tester) async {
       await _pumpControls(
@@ -2212,11 +2134,9 @@ void main() {
       await _snapshot(tester, state: 'paused');
     });
 
-    // DEFECT 4, half one. The row is right-anchored, so a squeeze eats it
-    // from the LEFT and whatever leads the list is what the viewer loses.
-    // It used to lead with sources, audio, subtitles, so on a 360 dp portrait
-    // handset - a real state, since the app pins portrait for a
-    // portrait-shaped video - audio and subtitles were the first two gone.
+    // The row is right-anchored, so a squeeze eats it from the left and
+    // whatever leads the list is what the viewer loses. A 360 dp portrait
+    // handset is a real state: the app pins portrait for a portrait video.
     testWidgets('audio and subtitles are last in the row, where a squeeze '
         'cannot reach them', (tester) async {
       await _pumpControls(tester, isTv: true);
@@ -2239,11 +2159,9 @@ void main() {
       await _snapshot(tester, state: 'paused');
     });
 
-    // DEFECT 4, the other half. The touch strip is the one branch a widget
-    // test cannot reach through the controls - `isTouch` is
-    // `Platform.isAndroid || Platform.isIOS`, false on every test host - so
-    // it is measured on [PlayerBottomBar] directly, which is the widget that
-    // owns the branch.
+    // The touch strip is the one branch a widget test cannot reach through the
+    // controls - `isTouch` is `Platform.isAndroid || Platform.isIOS`, false on
+    // every test host - so it is measured on [PlayerBottomBar] directly.
     testWidgets('the touch strip says it scrolls, and only when it does', (
       tester,
     ) async {
@@ -2313,28 +2231,22 @@ void main() {
       );
     });
 
-    // DEFECT 3, against the real button lists. `leading` is not 120 dp on a
-    // real handset: it is five pinned buttons - rewind, play/pause, forward,
-    // lock, next - and they measure 250 dp, so on the commonest Android
-    // portrait width the strip gets 70 dp of the bar's 320. An earlier
-    // version of the bar answered that by giving the strip a *run of its
-    // own*, and the owner photographed the result: the bottom-left controls
-    // on two lines on a phone. They are one line that scrolls, at every
-    // width - a 70 dp strip that advertises the fling is the trade, growing
-    // the chrome over the video is not. The run count itself is pinned in
-    // control_strip_single_line_test.dart; what this one adds is that the
-    // squeeze is measured against the *real* transport group and the real
-    // action list rather than a stand-in that might not squeeze at all.
+    // The same squeeze against the real button lists rather than a stand-in
+    // that might not squeeze at all. `leading` is five pinned buttons - rewind,
+    // play/pause, forward, lock, next - measuring 250 dp, so on the commonest
+    // Android portrait width the strip gets 70 dp of the bar's 320. It stays
+    // one line that scrolls at every width rather than taking a run of its own
+    // over the video; the run count itself is pinned in
+    // control_strip_single_line_test.dart.
     //
-    // So both halves of the geometry come off a really-pumped
+    // Both halves of the geometry come off a really-pumped
     // [VlcPlayerControls]: the actions are its own widgets and the leading
-    // group is a spacer of its own measured width, which is the only part of
-    // it this layout cares about. Its buttons cannot be re-hosted - the
-    // play/pause carries the state's focus node, which dies with it - and a
-    // hardcoded width would be the very thing that hid this. Then they are
-    // re-rendered through the touch branch, which `isTouch`
-    // (`Platform.isAndroid || Platform.isIOS`, false on every test host)
-    // would otherwise never let a test reach.
+    // group is a spacer of its measured width, which is the only part of it
+    // this layout cares about. The buttons cannot be re-hosted, because the
+    // play/pause carries the state's focus node, and a hardcoded width would
+    // hide the very squeeze being measured. They are then re-rendered through
+    // the touch branch, which `isTouch` would otherwise never let a test
+    // reach.
     testWidgets('a portrait handset keeps the real control row on one line, '
         'and a landscape one is no taller', (tester) async {
       final locked = ValueNotifier<bool>(false);
@@ -2481,8 +2393,7 @@ void main() {
             'able to bring it back',
       );
 
-      // And the other edge of the contract: the portrait bar costs exactly
-      // what the landscape one costs. It used to be 48 dp taller.
+      // The portrait bar costs exactly what the landscape one costs.
       final double narrowHeight = tester
           .getSize(find.byType(PlayerBottomBar))
           .height;
@@ -2508,15 +2419,11 @@ void main() {
       );
     });
 
-    // DEFECT 5. The Skip Intro / Skip Outro chip was a bare
-    // [PlayerActionButton], whose background is `Colors.transparent` until it
-    // is focused, hovered or pressed. Over a bright frame - a title card, a
-    // snow scene - that is white glyphs on white with no edge, and on
-    // television there is no hover to rescue it and focus starts on
-    // play/pause. The unlock chip a few lines away in the same file has had
-    // the answer since it landed: a painted pill. The chip is also the one
-    // control in the player on a clock, so it has to be read at a glance from
-    // a sofa rather than squinted at.
+    // A bare [PlayerActionButton] has a `Colors.transparent` background until
+    // it is focused, hovered or pressed, so over a bright frame the Skip chip
+    // would be white glyphs on white; on television there is no hover to rescue
+    // it and focus starts on play/pause. The chip is also the one control in
+    // the player on a clock, so it has to be read at a glance from a sofa.
     for (final (String device, bool isTv, double fontSize, double minHeight)
         in <(String, bool, double, double)>[
           ('a television', true, 18.0, 52.0),
@@ -2587,14 +2494,12 @@ void main() {
     }
   });
 
-  // A D-pad "OK" is not one key. A Shield remote, an Xbox or PlayStation pad
-  // and every Android TV device whose HID layer reports DPAD_CENTER as
-  // BUTTON_A all send gameButtonA, and nothing further up the tree rescues a
-  // miss: WidgetsApp binds gameButtonA to an ActivateIntent but ships no
-  // ActivateAction to answer it, and the chip's Focus sits above its InkWell,
-  // so the InkWell's own Actions map is a descendant of the focused node and
-  // is never reached. The chip is the one control on a clock - missing the
-  // press means missing the intro.
+  // A D-pad "OK" is not one key: a Shield remote, a game pad and every Android
+  // TV device whose HID layer reports DPAD_CENTER as BUTTON_A all send
+  // gameButtonA. Nothing further up the tree rescues a miss - WidgetsApp binds
+  // gameButtonA to an ActivateIntent but ships no ActivateAction to answer it,
+  // and the chip's Focus sits above its InkWell, so the InkWell's own Actions
+  // map is a descendant of the focused node and is never reached.
   group('VlcPlayerControls activation keys', () {
     final introSegment = <SkipSegment>[
       SkipSegment(startTime: 0, endTime: 60, type: SkipType.intro),
@@ -2650,20 +2555,17 @@ void main() {
     });
   });
 
-  // Skip Outro is not a seek with an advance stapled on: the seek is what
-  // makes the advance safe. `PlaybackTracker.finish` judges the session from
-  // the last sample taken while playing, and an outro band routinely opens
-  // below `kCompletedFraction`, so handing over from inside one records a
-  // `scrobbleStop` at roughly 0.88 on Trakt and Simkl where the viewer earned
-  // a play - a write on third-party accounts this app cannot undo - and never
-  // writes the local watched flag either, so the episode also stays unwatched
-  // in the Episodes tab and on the details screen.
+  // The seek is what makes the advance safe. `PlaybackTracker.finish` judges
+  // the session from the last sample taken while playing, and an outro band
+  // routinely opens below `kCompletedFraction`, so handing over from inside one
+  // records a `scrobbleStop` at roughly 0.88 on Trakt and Simkl and never
+  // writes the local watched flag either.
   //
   // On a source libVLC reports as unseekable that seek cannot land, so the
-  // press cannot be made safe and the chip is not offered at all. The whole
-  // band is below the line by construction - `segmentAt` only answers inside
-  // the band and the advance point is at or past the band's end - so there is
-  // no "already past it" case for the press to fall through into.
+  // chip is not offered at all. The whole band is below the line by
+  // construction - `segmentAt` only answers inside the band and the advance
+  // point is at or past the band's end - so there is no "already past it" case
+  // for the press to fall through into.
   group('VlcPlayerControls Skip Outro on an unseekable source', () {
     // 20 s to 28 s of a 30 s media: inside the band the position is always
     // under the 28.5 s advance point (0.95 of the duration).
@@ -2779,12 +2681,10 @@ void main() {
     });
   });
 
-  // The touch affordances exist for a handset and every assertion about them
-  // used to be measured on a 2560x1440 frame, where there is sixteen times the
-  // room to be clear of anything. These are the same claims at 844x390, where
-  // the numbers actually have to work: the glyph is the compact 72 dp disc,
-  // and both readouts have to miss it with tens of pixels to spare rather than
-  // hundreds.
+  // The same geometry claims at 844x390, where the numbers actually have to
+  // work: the glyph is the compact 72 dp disc, and both readouts have to miss
+  // it with tens of pixels to spare rather than the hundreds a 2560x1440 frame
+  // gives them.
   group('VlcPlayerControls touch geometry on a phone', () {
     testWidgets('the centre glyph is the compact disc there', (tester) async {
       await _pumpControls(tester, isTv: false, size: _phone);
@@ -2855,11 +2755,10 @@ void main() {
         reason: 'the readout says which half fired by being on it',
       );
       // The whole disc, not just the digits: the ripple is the part that would
-      // wash over the play glyph, and it is 0.44 of the shortest side here
-      // rather than the 176 dp cap a television takes.
-      // The Stack fills the burst's SizedBox.square exactly, and it is the one
-      // unambiguous handle on it: Icon puts an ExcludeSemantics of its own
-      // inside, so the burst holds two.
+      // wash over the play glyph, and here it is 0.44 of the shortest side
+      // rather than the 176 dp cap a television takes. The Stack fills the
+      // burst's SizedBox.square exactly and is the one unambiguous handle on
+      // it, since Icon puts an ExcludeSemantics of its own inside.
       final Rect burst = tester.getRect(
         find.descendant(
           of: find.byType(PlayerSeekBurst),

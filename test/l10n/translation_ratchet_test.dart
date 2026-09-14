@@ -110,6 +110,14 @@ void main() {
     //    the button is gone, and the switch was moving a stored boolean that
     //    nothing read. Removing the row without the key would leave 43 locales
     //    holding a translation for a control that does not exist.
+    //  * bufferDepth / selectBufferDepth titled a picker offering 1 to 20
+    //    minutes of read-ahead. libVLC 3 has no read-ahead-in-seconds control
+    //    for it to drive - --network-caching is per-stream output latency, and
+    //    it is pinned - so every one of the twenty choices changed nothing.
+    //  * wifiQualityPreference named a row whose branch is metered vs
+    //    unmetered, so Ethernet, a VPN tunnel and offline playback all take
+    //    it. unmeteredQualityPreference says so; the old wording sent every
+    //    wired television looking for the setting under Mobile.
     for (final String key in _retired) {
       final List<String> carriers =
           keysByLocale.entries
@@ -310,6 +318,9 @@ const List<String> _retired = <String>[
   'bigPictureMode',
   'bigPictureModeSubtitle',
   'showRotate',
+  'bufferDepth',
+  'selectBufferDepth',
+  'wifiQualityPreference',
 ];
 
 /// Message strings per locale, `@@locale` and `@key` metadata dropped.

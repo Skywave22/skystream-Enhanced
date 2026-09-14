@@ -12,6 +12,7 @@ import 'package:skystream/core/addons/models/addon_meta.dart'
 import 'package:skystream/core/utils/image_fallbacks.dart';
 import 'package:skystream/core/utils/layout_constants.dart';
 import '../../../../core/extensions/extension_manager.dart';
+import '../../../details/presentation/playback_launcher.dart';
 import '../../../../shared/widgets/cards_wrapper.dart';
 import '../../../../shared/widgets/loading_dialog.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
@@ -214,10 +215,13 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
           final liveItem = refreshedItem ?? item;
           if (!context.mounted || canceled) return;
 
+          // The item URL is the stream for a livestream, so there is nothing
+          // left to resolve — but which player plays it is still the user's
+          // setting, and the launcher is what reads it.
           unawaited(
-            PlayerRoute(
-              $extra: PlayerRouteExtra(item: liveItem, videoUrl: liveItem.url),
-            ).push<void>(context),
+            ref
+                .read(playbackLauncherProvider)
+                .playResolved(context, item: liveItem, videoUrl: liveItem.url),
           );
           unawaited(
             ref.read(watchHistoryProvider.notifier).removeFromHistory(item.url),

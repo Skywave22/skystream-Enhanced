@@ -145,8 +145,8 @@ class ExtensionManager extends _$ExtensionManager {
     return [];
   }
 
-  /// Called by the extensions feature when installed plugins change.
-  /// Keeps core independent of the feature; sync is triggered from app/feature layer.
+  /// Called by the extensions feature when installed plugins change, so core
+  /// stays independent of the feature.
   Future<void> syncFromPlugins(List<ExtensionPlugin> installed) async {
     await _syncPlugins(installed);
   }
@@ -154,7 +154,7 @@ class ExtensionManager extends _$ExtensionManager {
   Future<void> _syncPlugins(List<ExtensionPlugin> installed) async {
     if (_engine == null || _storageService == null) return;
 
-    // Use a lock to ensure only one sync happens at a time.
+    // Only one sync runs at a time.
     final prevLock = _syncLock ?? Future.value();
     final completer = Completer<void>();
     _syncLock = completer.future;
@@ -214,7 +214,7 @@ class ExtensionManager extends _$ExtensionManager {
         }
       }
 
-      // 2. Process background providers in manageable batches (Pool of 3)
+      // 2. The rest, three at a time.
       const batchSize = 3;
 
       for (int i = 0; i < sortedPlugins.length; i += batchSize) {
@@ -277,12 +277,10 @@ class ExtensionManager extends _$ExtensionManager {
           if (p is JsBasedProvider) {
             final ns = p.namespace;
             if (ns != null && ns.isNotEmpty) {
-              // Releases the plugin's globalThis slot + runs GC in the
-              // worker isolate. Audit H9. Note: .qbc bytecode cache files
-              // live inside the per-plugin directory and are already cleaned
-              // by PluginStorageService.deletePlugin (recursive delete) and
-              // PluginStorageService.installPlugin (clears target dir first),
-              // so audit M21's "orphan .qbc" concern is already mitigated.
+              // Releases the plugin's globalThis slot and runs GC in the
+              // worker isolate. The .qbc bytecode cache lives in the
+              // per-plugin directory, which PluginStorageService already
+              // clears on delete and on install.
               _engine?.unload(ns);
             }
           }
@@ -290,7 +288,6 @@ class ExtensionManager extends _$ExtensionManager {
         state = newState;
       }
 
-      // Signal that plugin sync is complete
       ref.read(pluginSyncCompleteProvider.notifier).set(true);
     } finally {
       if (!completer.isCompleted) completer.complete();
@@ -309,7 +306,6 @@ class ExtensionManager extends _$ExtensionManager {
     }
   }
 
-  /// Trigger garbage collection in the underlying JS engine
   void runGC() {
     _engine?.runGC();
   }
@@ -339,11 +335,9 @@ class ExtensionManager extends _$ExtensionManager {
   Future<List<SkyStreamProvider>> _loadPlugin(ExtensionPlugin plugin) async {
     if (_engine == null || _storageService == null) return [];
     try {
-      // Integrity check (PR-08c): SHA-256 verification of plugin.js against
-      // meta.json's installSha256. DISABLED per project decision 2026-05-25 —
-      // the implementation in PluginStorageService.verifyIntegrity is kept
-      // intact in case we want to re-enable it later (e.g. for a signed-
-      // plugin distribution mode). Uncomment the block below to re-enable.
+      // SHA-256 verification of plugin.js against meta.json's installSha256
+      // is disabled; PluginStorageService.verifyIntegrity is kept intact for a
+      // signed-plugin distribution mode. Uncomment the block below to enable.
       //
       // final integrityOk = await _storageService!.verifyIntegrity(plugin);
       // if (!integrityOk) {
@@ -399,11 +393,10 @@ class ExtensionManager extends _$ExtensionManager {
       );
 
       // ── Dynamic provider mode ─────────────────────────────────────────────
-      // Triggered when plugin.json has "providers": [] (empty array).
-      // We create one bootstrap shell just to call getProviders(), then
-      // fan-out into namespaced sub-providers exactly like the static path.
-      // The bootstrap and all sub-providers share the same .qbc bytecode, so
-      // there is NO extra JS evaluation vs a static provider list.
+      // One bootstrap shell calls getProviders(), then the live list fans out
+      // into namespaced sub-providers exactly like the static path. Bootstrap
+      // and sub-providers share the same .qbc bytecode, so this costs no extra
+      // JS evaluation over a static provider list.
       if (plugin.providers != null && plugin.providers!.isEmpty) {
         if (kDebugMode) {
           debugPrint(
@@ -604,7 +597,6 @@ class ExtensionManager extends _$ExtensionManager {
   }
 
   void _addProvider(SkyStreamProvider provider) {
-    // Deduplicate by Package Name
     if (!state.any((p) => p.packageName == provider.packageName)) {
       if (kDebugMode) {
         debugPrint(
@@ -632,7 +624,7 @@ class ExtensionManager extends _$ExtensionManager {
   }
 }
 
-// Provider to track if we are still resolving the initial active provider
+// Tracks whether the initial active provider is still being resolved.
 @Riverpod(keepAlive: true)
 class ProviderResolutionLoading extends _$ProviderResolutionLoading {
   @override
@@ -643,7 +635,7 @@ class ProviderResolutionLoading extends _$ProviderResolutionLoading {
   void set(bool value) => state = value;
 }
 
-// Tracks whether the initial plugin sync has completed at least once
+// Tracks whether the initial plugin sync has completed at least once.
 @Riverpod(keepAlive: true)
 class PluginSyncComplete extends _$PluginSyncComplete {
   @override
@@ -654,7 +646,6 @@ class PluginSyncComplete extends _$PluginSyncComplete {
   void set(bool value) => state = value;
 }
 
-// Global definition of activeProviderState
 @Riverpod(keepAlive: true)
 class ActiveProvider extends _$ActiveProvider {
   String? _targetProviderId;
@@ -682,7 +673,6 @@ class ActiveProvider extends _$ActiveProvider {
     });
 
     ref.listen(extensionManagerProvider, (previous, next) {
-      // On first listen invocation, perform the initial load from storage
       if (!_initialLoadDone) {
         _initialLoadDone = true;
         _loadFromStorage(next);
@@ -722,10 +712,9 @@ class ActiveProvider extends _$ActiveProvider {
       }
     });
 
-    // ref.listen only fires on changes, not the initial value. If extensionManager
-    // already has a value when we subscribe (e.g. empty list on fresh install),
-    // the listener never fires. Defer initial load to after build - we cannot
-    // modify other providers (providerResolutionLoadingProvider) during build.
+    // ref.listen only fires on changes, so a value extensionManager already
+    // has when we subscribe never reaches the listener. Deferred to after
+    // build because other providers cannot be modified during build.
     Future.microtask(() {
       _initialLoadDone = true;
       _loadFromStorage(ref.read(extensionManagerProvider));
@@ -750,11 +739,10 @@ class ActiveProvider extends _$ActiveProvider {
         _targetProviderId = null;
         ref.read(providerResolutionLoadingProvider.notifier).set(false);
       } else {
-        // Provider not yet loaded. Keep _targetProviderId set so the listener can pick it up
-        // when extensionManagerProvider updates later.
+        // Not loaded yet. _targetProviderId stays set so the listener picks it
+        // up when extensionManagerProvider updates later, and loading stays
+        // true until then.
         state = null;
-        // Do NOT set _targetProviderId = null here!
-        // We also DO NOT set loading = false yet, as we are waiting for this specific ID.
       }
     }
   }

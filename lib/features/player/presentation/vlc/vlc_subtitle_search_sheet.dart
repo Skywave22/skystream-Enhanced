@@ -7,26 +7,19 @@ import '../../domain/entity/subtitle_model.dart';
 import '../../domain/subtitle_search_target.dart';
 import '../subtitle_search_provider.dart';
 
-/// Online subtitle search, reachable again.
+/// The door onto [SubtitleSearch]: online subtitle search for what is playing.
 ///
-/// [SubtitleSearch] has been in the tree the whole time — three providers,
-/// cancellation, ZIP/GZIP extraction on a worker isolate — with nothing but its
-/// own generated file importing it. The old side panel was its only door and
-/// went out with the media_kit player. This is the replacement door, and
-/// nothing more: the search itself is used exactly as designed.
+/// The sheet is handed a [SubtitleSearchTarget] — the title the player is
+/// showing and, when the catalogue knew them, its IMDb/TMDb id and the episode.
+/// With an id it searches the moment it opens, because an id match is exact and
+/// a title match is a guess. The field shows the title, and the moment the
+/// viewer edits it the next search is by that text alone: every provider
+/// prefers an id over the query when both are sent, so an edited title with the
+/// ids still attached would be silently ignored. Restoring the exact title
+/// turns the ids back on.
 ///
-/// What the door is handed is a [SubtitleSearchTarget]: the title the player
-/// is showing and, when the catalogue knew them, its IMDb/TMDb id and the
-/// episode. With an id the sheet searches the moment it opens - zero presses
-/// on a remote - because an id match is exact and a title match is a guess.
-/// The field still shows the title, and the moment the viewer edits it the
-/// next search is by that text alone: every provider prefers an id over the
-/// query when both are sent, so an edited title with the ids still attached
-/// would be silently ignored. Restoring the exact title turns the ids back on.
-///
-/// A result is handed to the engine as an ordinary side-car, so once it is
-/// added it is just another entry in the Subtitles tab's list with a libVLC id
-/// like any other. No parallel "external subtitle" bookkeeping comes back.
+/// A result is handed to the engine as an ordinary side-car, so it becomes just
+/// another entry in the Subtitles tab's list with a libVLC id like any other.
 class VlcSubtitleSearchSheet extends ConsumerStatefulWidget {
   const VlcSubtitleSearchSheet({
     required this.controller,
@@ -41,10 +34,8 @@ class VlcSubtitleSearchSheet extends ConsumerStatefulWidget {
   /// the field; an id, when there is one, makes the search fire on open.
   final SubtitleSearchTarget? target;
 
-  /// On a D-pad, focus starts on the search button when the field is seeded -
-  /// with an id that is the Retry target while results load, without one it
-  /// *is* the one button press - and on the field when there is nothing to
-  /// search for yet.
+  /// On a D-pad, focus starts on the search button when the field is seeded and
+  /// on the field itself when there is nothing to search for yet.
   final bool isTv;
 
   /// Resolves to `true` when a subtitle was added, so the caller can close
@@ -92,9 +83,9 @@ class _VlcSubtitleSearchSheetState
   void initState() {
     super.initState();
     _idSearch = widget.target?.hasId ?? false;
-    // An id is worth a search nobody asked for; a bare title is not - a local
-    // file's filename would otherwise hit the network on every open. A search
-    // already in flight (the notifier outlives this sheet) is left to finish.
+    // An id is worth a search nobody asked for; a bare title is not, or a local
+    // file's filename would hit the network on every open. A search already in
+    // flight (the notifier outlives this sheet) is left to finish.
     if (_idSearch) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -152,13 +143,11 @@ class _VlcSubtitleSearchSheetState
       });
       return;
     }
-    // The engine refuses side-cars for reasons the sheet cannot see - a
-    // disposed controller, a URI the platform will not take, an addSlave that
-    // comes back false. Unguarded, the throw escapes an unawaited `onTap`
-    // future and `_downloading` stays true forever: the progress bar never
-    // stops, every result is `enabled: false` (so on a remote the whole list
-    // leaves focus traversal) and nothing says why. Release the state and say
-    // it failed, exactly as the empty-path branch above does.
+    // The engine refuses side-cars for reasons the sheet cannot see: a disposed
+    // controller, a URI the platform will not take, an addSlave that comes back
+    // false. Unguarded the throw escapes an unawaited `onTap` future and
+    // `_downloading` stays true forever, leaving every result `enabled: false`
+    // and, on a remote, the whole list out of focus traversal.
     try {
       await widget.controller.addSubtitle(Uri.file(path));
     } catch (_) {
@@ -323,12 +312,9 @@ class _VlcSubtitleSearchSheetState
       // to build - worth showing rather than swallowing.
       AsyncError(:final error) => _note(l10n.subtitleSearchFailed('$error')),
       AsyncData(value: null) => _note(l10n.subtitleSearchPrompt),
-      // Empty is empty. Searching needs no account: OpenSubtitles runs on a
-      // bundled key (subtitle_providers.dart `_defaultApiKey`) and SubSource
-      // takes its keyless path, so a fresh install really did search - only
-      // SubDL sits out without a key. Reading "no account is set up" off empty
-      // settings blamed the viewer's configuration for the ordinary answer
-      // and hid the one piece of advice that helps.
+      // Empty is empty, not a missing account: OpenSubtitles runs on a
+      // bundled key and SubSource takes its keyless path, so a fresh
+      // install really did search. Only SubDL sits out without a key.
       AsyncData(value: final found) when found!.isEmpty => _note(
         l10n.noSubtitlesFoundTryAnother,
       ),
@@ -369,18 +355,14 @@ class _VlcSubtitleSearchSheetState
     };
   }
 
-  /// What to say above results the notifier widened to on its own, or null
-  /// when they are what was asked for.
+  /// What to say above results the notifier widened to on its own, or null when
+  /// they are what was asked for.
   ///
-  /// The two widenings are different news and cannot share a string. An id
-  /// that missed leaves title matches for *this* episode, and that is all
-  /// [AppLocalizations.subtitleSearchTitleFallback] claims. The season pass
-  /// is reachable with no id ever sent - `_nextMode` takes any non-season
-  /// mode with a season and an episode - so the id wording would be simply
-  /// false there; worse, what it leaves out is the thing that matters, that
-  /// the list now spans the whole season and the viewer has to find their own
-  /// episode in it or end up one to nine episodes out of sync. An exhaustive
-  /// switch, so a new mode cannot silently inherit either note.
+  /// The two widenings are different news and cannot share a string. An id that
+  /// missed leaves title matches for this episode. The season pass is reachable
+  /// with no id ever sent, and what matters there is that the list now spans
+  /// the whole season, so the viewer has to find their own episode in it. An
+  /// exhaustive switch, so a new mode cannot silently inherit either note.
   static String? _fallbackNote(
     AppLocalizations l10n,
     SubtitleSearchMode mode,

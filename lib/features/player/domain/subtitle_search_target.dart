@@ -1,4 +1,4 @@
-/// What an online subtitle search is *about*.
+/// What an online subtitle search is about.
 ///
 /// One value object instead of five loose parameters, so every hop between
 /// the screen, the panel, the sheet and the notifier changes by one field.
@@ -10,12 +10,11 @@ import '../../../core/domain/entity/multimedia_item.dart';
 /// The title (and, when known, the ids and episode) to search subtitles for.
 ///
 /// Every provider prefers an id over the title when one is present
-/// (`subtitle_providers.dart`), so the ids here decide whether the first
-/// pass is an exact-match search or a text search; see `SubtitleSearchMode`.
+/// (`subtitle_providers.dart`), so the ids here decide whether the first pass
+/// is an exact-match search or a text search; see `SubtitleSearchMode`.
 ///
-/// Immutable: const constructor, final fields, value equality. (Not annotated
-/// `@immutable` because `package:meta` is not a declared dependency and the
-/// point of this file is to import nothing from Flutter.)
+/// Not annotated `@immutable` because `package:meta` is not a declared
+/// dependency and this file imports nothing from Flutter.
 class SubtitleSearchTarget {
   const SubtitleSearchTarget({
     required this.title,
@@ -28,14 +27,14 @@ class SubtitleSearchTarget {
   /// Builds the target for [item], scoped to [episode] when one is playing.
   ///
   /// The IMDb id is read from `item.imdbId`, then `syncData['imdbId']`, then
-  /// `syncData['imdb_id']` (the order 38da335's player controller used), and
-  /// normalised to a `tt` prefix so every provider sees the same shape.
+  /// `syncData['imdb_id']`, and normalised to a `tt` prefix so every provider
+  /// sees the same shape.
   ///
-  /// [episode] null drops season/episode (a hand-picked torrent pack file may
-  /// not be the episode the screen thinks is playing). Zero season/episode -
-  /// the `Episode` defaults - are "unknown" and become null too. Title is
-  /// always the bare show title: providers that take season_number /
-  /// episode_number need it, not "Show S02E05".
+  /// A null [episode] drops season/episode, because a hand-picked torrent pack
+  /// file may not be the episode the screen thinks is playing. Zero
+  /// season/episode - the `Episode` defaults - are "unknown" and become null
+  /// too. Title is always the bare show title: providers that take
+  /// season_number / episode_number need it, not "Show S02E05".
   factory SubtitleSearchTarget.of(MultimediaItem item, Episode? episode) {
     final season = episode?.season ?? 0;
     final number = episode?.episode ?? 0;

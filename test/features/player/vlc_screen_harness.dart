@@ -1,14 +1,12 @@
 /// Pumps the real [VlcPlayerScreen] over a mocked engine.
 ///
-/// Shared by every test about what the *screen* does - the opening overlay,
-/// Back, the status line - as opposed to what the controls or the domain do.
 /// The screen is a hub, so standing it up means answering for the engine
 /// channel, connectivity, the wakelock and storage at once; that plumbing
-/// lives here so each test file can say what it is about instead.
+/// lives here.
 ///
-/// Hygiene every screen test has to respect:
+/// Rules every screen test has to respect:
 ///  * A playing controller keeps a 1 s stall watchdog armed, and flutter_test
-///    checks for pending timers *before* `addTearDown` runs. A test that ends
+///    checks for pending timers before `addTearDown` runs. A test that ends
 ///    in healthy playback must emit a paused snapshot
 ///    (`sendEvent(tester, snapshot(state: 'paused'))`) or unmount the screen
 ///    in-body with `tester.pumpWidget(const SizedBox())`.
@@ -51,12 +49,10 @@ const MethodChannel pipChannel = MethodChannel(
   'dev.akash.skystream.player/pip',
 );
 
-/// The texture path is taken on Windows and Linux, and it is the one that
-/// names its own view: `create` answers with the id, so the test knows which
-/// event channel to speak on. The platform-view path takes its id from
-/// Flutter's global registry, which counts across the whole process - and the
-/// screen has nowhere to publish it, so no test could speak to that engine.
-/// Hence the variant: this is about the screen, not about the backend.
+/// The texture path names its own view: `create` answers with the id, so a
+/// test knows which event channel to speak on. The platform-view path takes
+/// its id from Flutter's process-wide registry, which the screen has nowhere
+/// to publish, so no test could reach that engine.
 final TargetPlatformVariant texturePlatform = TargetPlatformVariant.only(
   TargetPlatform.windows,
 );
@@ -81,23 +77,17 @@ final ByteData? wakelockReply = const StandardMessageCodec().encodeMessage(
   <Object?>[null],
 );
 
-/// A 1080p television at the density Android TV actually reports.
-///
-/// A Shield, a Google TV or a Fire TV all present a 1920x1080 panel at
-/// devicePixelRatio 2, i.e. **960x540 logical dp** - half the budget a naive
-/// 1920x1080-at-dpr-1 harness hands a layout. Every ten-foot geometry defect
-/// worth catching (a drawer wider than the title-safe area, a tab strip that
-/// ellipsizes, a control that overflows the bar) only reproduces inside the
-/// real budget, so the shared harness has to spend the real one.
+/// A 1080p television at the density Android TV reports: a 1920x1080 panel at
+/// devicePixelRatio 2, so 960x540 logical dp - half the layout budget a naive
+/// 1920x1080-at-dpr-1 harness would hand out.
 const Size googleTvSize = Size(960, 540);
 
 /// The size every screen test runs at. This is [googleTvSize]: the harness
 /// sets `devicePixelRatio = 1`, so the number here is logical dp directly.
 const Size tvSize = googleTvSize;
 
-/// Resume lookup and progress writing both end in Hive. A test about what is
-/// on screen has no business standing a storage stack up, so the repository
-/// answers empty and swallows the writes.
+/// Resume lookup and progress writing both end in Hive; this answers empty
+/// and swallows the writes instead of standing a storage stack up.
 class NoHistory extends HistoryRepository {
   NoHistory() : super(StorageService());
 
@@ -160,16 +150,15 @@ class MuteWatchHistory extends WatchHistory {
     String? episodePosterUrl,
   }) async {}
 
-  /// The other half of the same write path: a title that finishes with nothing
-  /// after it is cleared out of Continue Watching from here, which is what
-  /// end of media does the moment there is no next episode.
+  /// End of media with no next episode clears the title out of Continue
+  /// Watching through here.
   @override
   Future<void> removeFromHistory(String url) async {}
 }
 
-/// Marking an episode watched is [PlaybackTracker]'s terminal act on a series,
-/// so every test that plays an episode all the way to its duration reaches it.
-/// The real provider is built from `storageServiceProvider`, which throws.
+/// Every test that plays an episode to its duration reaches [PlaybackTracker]'s
+/// terminal mark-watched. The real provider is built from
+/// `storageServiceProvider`, which throws.
 class QuietEpisodeWatch extends EpisodeWatchRepository {
   QuietEpisodeWatch() : super(StorageService(), NoHistory(), _nothingChanged);
 
@@ -183,14 +172,13 @@ class QuietEpisodeWatch extends EpisodeWatchRepository {
   ) async {}
 
   /// Null is "no explicit override", which sends `isWatched` on to the history
-  /// repository - already answered by [NoHistory]. Overridden because the real
-  /// one reads the raw store.
+  /// repository. Overridden because the real one reads the raw store.
   @override
   bool? getExplicitState(String mainUrl, Episode episode) => null;
 }
 
-/// Both skip-segment lookups are opt-in and read their switch from storage
-/// before doing anything, and an episode always asks. Off, without asking.
+/// Both skip-segment lookups read their switch from storage before doing
+/// anything, and an episode always asks. Off, without a storage stack.
 class QuietSettings extends SettingsRepository {
   QuietSettings() : super(StorageService());
 
@@ -203,9 +191,8 @@ class QuietSettings extends SettingsRepository {
 
 /// A download lookup that waits to be let go.
 ///
-/// The next-episode path looks on disk before it resolves anything, and that
-/// lookup is the first await on the way. Holding it open is how a test gets to
-/// see the screen mid-advance rather than after the whole chain has run.
+/// The next-episode path looks on disk before it resolves anything, so holding
+/// that lookup open is how a test sees the screen mid-advance.
 class GatedDownloads extends DownloadService {
   GatedDownloads(super.ref);
 
@@ -228,7 +215,6 @@ class GatedDownloads extends DownloadService {
 /// one, the channel and the stream are the fake's, so track calls are answered
 /// from its state and `engine.emit` stamps that state into every snapshot;
 /// [sendEvent] still reaches it as long as the fake keeps the default [viewId].
-/// Usable as a tear-off in `setUp` either way.
 void installEngineMocks({FakeVlcEngine? engine}) {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -271,10 +257,9 @@ void removeEngineMocks() {
   messenger.setMockStreamHandler(connectivityStatus, null);
 }
 
-/// The overlay's spinner never stops, so `pumpAndSettle` cannot be used past
-/// the point where the screen reaches the playing stage. Pumping a fixed run
-/// of frames drives the same async gaps without waiting for an animation that
-/// is deliberately endless.
+/// The overlay's spinner never stops, so `pumpAndSettle` cannot be used once
+/// the screen has reached the playing stage. A fixed run of frames drives the
+/// same async gaps.
 Future<void> settle(WidgetTester tester) async {
   for (var i = 0; i < 12; i++) {
     await tester.pump(const Duration(milliseconds: 50));
@@ -322,9 +307,8 @@ Future<void> sendEvent(WidgetTester tester, Map<String, Object?> event) async {
 Future<void> sendFirstFrame(WidgetTester tester) =>
     sendEvent(tester, snapshot());
 
-/// Back as the system delivers it - the remote's key on a television, the
-/// gesture on a phone - which the framework turns into a `popRoute` on the
-/// navigation channel and PopScope catches.
+/// Back as the system delivers it, which the framework turns into a `popRoute`
+/// on the navigation channel for PopScope to catch.
 Future<void> sendBack(WidgetTester tester) async {
   await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
     SystemChannels.navigation.name,
@@ -344,10 +328,14 @@ Future<void> sendBack(WidgetTester tester) async {
 /// would leave the app instead.
 ///
 /// The sync manager is stood up with no tracking services unless [overrides]
-/// brings its own: the moment a snapshot with a real length lands, the
-/// screen's PlaybackTracker scrobbles through `syncManagerProvider`, and the
-/// real one watches four services none of this plumbing answers for - the
-/// scrobble would throw straight out of the controller's notifyListeners.
+/// brings its own: the real one watches four services none of this plumbing
+/// answers for, so the scrobble a snapshot with a real length triggers would
+/// throw straight out of the controller's notifyListeners.
+///
+/// [settings] is a parameter rather than something a caller puts in
+/// [overrides] because the default below is unconditional: Riverpod rejects
+/// the same provider overridden twice in one scope, so a test that brought its
+/// own `playerSettingsProvider` would throw instead of taking effect.
 Future<void> pumpPlayer(
   WidgetTester tester, {
   List<StreamResult>? preloadedStreams,
@@ -358,15 +346,14 @@ Future<void> pumpPlayer(
   bool pushed = false,
   List<Override> overrides = const <Override>[],
   DeviceProfile? profile,
+  PlayerSettings settings = const PlayerSettings(),
   Size panelPhysicalSize = tvSize,
   double panelDevicePixelRatio = 1,
 }) async {
-  // The two panel arguments default to the harness size at density 1, so a
-  // caller that says nothing gets exactly what every test got before they
-  // existed. They are here for the one question that needs a real panel: the
-  // player reads the physical height of the surface to decide how tall a
-  // rendition this device may be handed, and 960x540 at density 1 is not a
-  // panel any device has.
+  // The panel arguments default to the harness size at density 1. They exist
+  // for the one question that needs a real panel: the player reads the
+  // physical height of the surface to decide how tall a rendition this device
+  // may be handed, and 960x540 at density 1 is not a panel any device has.
   tester.view.physicalSize = panelPhysicalSize;
   tester.view.devicePixelRatio = panelDevicePixelRatio;
   addTearDown(tester.view.reset);
@@ -387,13 +374,8 @@ Future<void> pumpPlayer(
     preloadedStreams: preloadedStreams,
   );
   final navigator = GlobalKey<NavigatorState>();
-  // Riverpod rejects the same provider overridden twice in one scope, so
-  // every default below stands down when the caller brought its own. The sync
-  // manager was the first to need it; the skip settings are the second (both
-  // segment lookups read their switch from `settingsRepositoryProvider` before
-  // doing anything, so a test that wants real intro/outro bands has no other
-  // way in), and the two stores behind the panel's watched marks are the
-  // third.
+  // Riverpod rejects the same provider overridden twice in one scope, so every
+  // default below stands down when the caller brought its own.
   bool brought(Object provider) =>
       overrides.any((override) => override.origin == provider);
 
@@ -403,9 +385,7 @@ Future<void> pumpPlayer(
         deviceProfileProvider.overrideWithValue(
           AsyncValue.data(profile ?? DeviceProfile(isTv: isTv)),
         ),
-        playerSettingsProvider.overrideWithBuild(
-          (_, _) => const PlayerSettings(),
-        ),
+        playerSettingsProvider.overrideWithBuild((_, _) => settings),
         // Nothing here goes near a plugin: either the item is direct or the
         // candidates are handed in already resolved.
         activeProviderProvider.overrideWithValue(null),

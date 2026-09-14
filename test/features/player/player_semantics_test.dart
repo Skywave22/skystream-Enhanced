@@ -1,27 +1,18 @@
 /// What a screen reader actually receives from the player chrome.
 ///
-/// This file exists because a `tooltip:` that is *set* is not a name that is
-/// *delivered*, and nothing here could tell the two apart. Every player
-/// control took a localized tooltip, the widget test suite was green, and a
-/// semantics dump of the real bar showed thirteen buttons with an empty label:
+/// A tooltip that is set is not a name that is delivered. [Tooltip] annotates
+/// with `SemanticsProperties.tooltip` and nothing else, and a tooltip placed
+/// above a button sits outside the semantics container the button opens, so
+/// the annotation cannot merge down into it: the named node is not tappable
+/// and the tappable node is not named. Both engines then skip the named one —
+/// Android's `AccessibilityBridge.isImportant()` and iOS's
+/// `SemanticsObject.isFocusable` look at label/value/hint/actions and neither
+/// looks at a tooltip.
 ///
-///     id=4 rect=48x48 label="" tooltip="Rewind 5 seconds" btn=false actions=[]
-///       id=5 rect=48x48 label="" tooltip=""               btn=true  actions=[tap|focus]
-///
-/// [Tooltip] annotates with `SemanticsProperties.tooltip` and nothing else,
-/// and it sat *above* [CustomButton], whose [TextButton] opens a semantics
-/// container that the annotation cannot merge down into. So the named node was
-/// not tappable and the tappable node was not named. Both engines then skip
-/// the named one — Android's `AccessibilityBridge.isImportant()` and iOS's
-/// `SemanticsObject.isFocusable` both look at label/value/hint/actions and
-/// neither looks at a tooltip — and TalkBack and VoiceOver land on a run of
-/// anonymous "button"s. The player was unusable without sight.
-///
-/// So the assertions below are deliberately made against the *rendered
-/// semantics tree*, never against a widget's properties: the property was set
-/// the whole time. They also ignore any node with `isMergedIntoParent`, since
-/// those are folded into an ancestor before the update reaches the platform —
-/// what the reader sees is exactly the un-merged set.
+/// The assertions below are therefore made against the rendered semantics
+/// tree, never against a widget's properties, and they ignore any node with
+/// `isMergedIntoParent`, since those are folded into an ancestor before the
+/// update reaches the platform.
 library;
 
 import 'package:flutter/material.dart';
@@ -38,7 +29,7 @@ import 'package:skystream/features/player/presentation/widgets/player_control_co
 /// Every node that survives merging, i.e. every node the platform is told
 /// about. A node with `isMergedIntoParent` contributes its data to an ancestor
 /// and is never sent on its own, so including it would let a nameless
-/// tap-owner hide behind a named parent — which is the whole defect.
+/// tap-owner hide behind a named parent.
 List<SemanticsNode> _delivered(SemanticsNode root) {
   final out = <SemanticsNode>[];
   void walk(SemanticsNode n) {
@@ -85,8 +76,8 @@ Future<void> _withSemantics(
   Future<void> Function() body,
 ) async {
   final handle = tester.ensureSemantics();
-  // A landscape phone: the geometry the player actually ships in, and wide
-  // enough that the bottom bar lays every control out rather than wrapping.
+  // A landscape phone, wide enough that the bottom bar lays every control out
+  // rather than wrapping.
   tester.view.physicalSize = const Size(2400, 1080);
   tester.view.devicePixelRatio = 2;
   try {
@@ -215,10 +206,7 @@ void main() {
         final named = delivered
             .where((n) => n.getSemanticsData().label == name)
             .toList();
-        // Exactly one node per control, not two. The pre-fix shape split each
-        // icon button into a named-but-inert node above a
-        // tappable-but-anonymous one; PlayerActionButton split the other way
-        // and made a reader say its name twice.
+        // Exactly one node per control, not two.
         expect(
           named,
           hasLength(name == 'Pause' ? 2 : 1), // the centre disc repeats 'Pause'
@@ -243,16 +231,14 @@ void main() {
     await _withSemantics(tester, () async {
       await tester.pumpWidget(_chrome());
 
-      // The exact fingerprint of the bug: a delivered node holding a tooltip -
-      // the string the author meant as the name - with no way to act on it and
-      // not even flagged as a button, so both engines skip it entirely.
-      // Material's own IconButton never produces one; the old shape produced
-      // one per control.
+      // A delivered node holding a tooltip with no way to act on it and not
+      // flagged as a button is skipped entirely by both engines. Material's
+      // own IconButton never produces one.
       final inertNamed = _delivered(_root(tester)).where((n) {
         final d = n.getSemanticsData();
-        // The button flag is part of the test: a *disabled* control
-        // legitimately has a name and no tap, and it is still announced
-        // correctly. The broken shape produced a node that was neither.
+        // The button flag is part of the test: a disabled control
+        // legitimately has a name and no tap, and is still announced
+        // correctly.
         return d.tooltip.isNotEmpty &&
             !_hasTap(d) &&
             !d.flagsCollection.isButton;
@@ -280,7 +266,7 @@ void main() {
                 icon: Icons.skip_next_rounded,
                 tooltip: 'Next episode',
                 // No handler: the last episode. It is still on screen, so a
-                // reader must still be able to say what it is.
+                // reader must still be able to name it.
                 onPressed: null,
               ),
             ),

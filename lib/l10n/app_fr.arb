@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Double tape pour avancer/reculer",
   "swipeToSeek": "Glisser pour avancer/reculer",
   "seekDuration": "Durée de saut",
-  "bufferDepth": "Profondeur du tampon",
   "defaultResizeMode": "Mode de redimensionnement par défaut",
   "hardwareDecoding": "Décodage matériel",
   "network": "Réseau",
@@ -177,7 +176,6 @@
   "left": "Gauche",
   "right": "Droit",
   "selectSeekDuration": "Durée de saut",
-  "selectBufferDepth": "Profondeur du tampon",
   "subtitleSettings": "Paramètres des sous-titres",
   "size": "Taille : {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Préférence de qualité Wi-Fi",
   "mobileQualityPreference": "Préférence de qualité mobile",
   "anyNoPreference": "Toutes (pas de préférence)",
   "subtitleAccounts": "Comptes de sous-titres",

@@ -189,6 +189,10 @@ class SubtitleSearch extends _$SubtitleSearch {
         password: settings.osPassword,
         apiKey: settings.osApiKey,
       ),
+      // Key only, unlike OpenSubtitles above: SubDL's search endpoint
+      // authenticates with `api_key` and nothing else, and the account pair it
+      // also stores exists to mint that key from the settings dialog. Passing
+      // the pair here would change nothing.
       SubDLProvider(dio, apiKey: settings.subdlApiKey),
       SubSourceProvider(dio, apiKey: settings.subsourceApiKey),
     ];

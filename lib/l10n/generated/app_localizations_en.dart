@@ -100,9 +100,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get seekDuration => 'Seek Duration';
 
   @override
-  String get bufferDepth => 'Buffer depth';
-
-  @override
   String get defaultResizeMode => 'Default Resize Mode';
 
   @override
@@ -466,9 +463,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Select Seek Duration';
-
-  @override
-  String get selectBufferDepth => 'Select Buffer depth';
 
   @override
   String get subtitleSettings => 'Subtitle Settings';
@@ -932,6 +926,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName not detected. Starting internal player.';
   }
@@ -1196,7 +1195,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi Quality Preference';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Mobile Quality Preference';
@@ -1650,4 +1652,18 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'None of your scrapers have this title.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

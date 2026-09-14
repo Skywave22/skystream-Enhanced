@@ -1,35 +1,29 @@
 /// Completion and remote scrobbling for one playback session.
 ///
-/// Everything here is an **irreversible write to somebody's account**. Trakt,
+/// Every write here is an irreversible write to somebody's account: Trakt,
 /// Simkl, MyAnimeList and AniList all accept a "watched" signal and none of
-/// them offers an undo through this app — `SimklService.removePlaybackProgress`
-/// is a hardcoded `return false`. So the ordering rules below are not style
-/// preferences; each one exists because getting it wrong corrupts real user
-/// data in a way the app cannot repair.
+/// them offers an undo through this app. Getting one of these rules wrong
+/// corrupts real user data the app cannot repair.
 ///
-///   1. **The latch is set before the write is dispatched, never after.** An
+///   1. The latch is set before the write is dispatched, never after. An
 ///      `await` between the check and the set is a window in which a second
 ///      call passes the same check.
-///   2. **Exactly one terminal event per session.** The old path emits
-///      `scrobbleStop` at dispose (player_controller.dart:4081) and then calls
-///      `saveProgress()` (:4090), which can cross 90% and also emit
-///      `markWatched` — two terminal events for one episode, which either
-///      duplicates the Trakt play or resurrects it in Continue Watching.
-///   3. **Completion is judged only from a sample taken while playing.** At
-///      `ended` and `stopped` libVLC reports position 0, so a ratio computed
-///      then is 0 and the branch silently never fires.
-///   4. **The duration must have settled first.** VLC revises its reported
-///      duration during startup; a 90% ratio against a provisional duration
-///      marks a title watched seconds after it opens.
-///   5. **The latch never resets on failover or retry** — only a genuinely new
+///   2. Exactly one terminal event per session — `markWatched` or
+///      `scrobbleStop`, never both. Two of them either duplicate the Trakt play
+///      or resurrect the episode in Continue Watching.
+///   3. Completion is judged only from a sample taken while playing. At `ended`
+///      and `stopped` libVLC reports position 0, so a ratio computed then is 0
+///      and the branch silently never fires.
+///   4. The duration must have settled first. VLC revises its reported duration
+///      during startup, and a 90% ratio against a provisional duration marks a
+///      title watched seconds after it opens.
+///   5. The latch never resets on failover or retry; only a genuinely new
 ///      episode gets a new session.
-///   6. **The terminal write is durable, and therefore needs an identity.**
-///      `SyncManager` now persists `markWatched`/`scrobbleStop` and replays
-///      them until they land, so this class hands it [token] as the session
-///      key: a replay of this session's write must collapse onto the queued
-///      one, while a genuinely new viewing must queue a new entry. Nothing
-///      about *when* a mark is emitted changed — rules 1-5 still decide that,
-///      from the last sample taken while playing.
+///   6. The terminal write is durable and therefore needs an identity.
+///      `SyncManager` persists `markWatched`/`scrobbleStop` and replays them
+///      until they land, so a session key travels with the write: a replay must
+///      collapse onto the queued entry while a genuinely new viewing queues a
+///      new one.
 library;
 
 import 'dart:async';
@@ -150,21 +144,19 @@ class PlaybackTracker {
   }
 
   /// This session's identity, handed to [SyncManager] so its outbox can tell a
-  /// retry of *this* write apart from a genuinely new viewing. Rule 6 of the
-  /// header: a terminal write is now queued and replayed, so it needs a name
-  /// that is stable across the retries and different across sessions.
+  /// retry of this write apart from a genuinely new viewing: stable across the
+  /// retries, different across sessions.
   ///
-  /// Minted once per tracker, and deliberately *not* `'$token'`. [token]
-  /// counts stream resolutions inside one player screen and every launch
-  /// builds a fresh screen, so the first — usually only — resolution of every
-  /// viewing produced the literal `"1"`. Two viewings of the same episode on
-  /// two launches therefore shared an outbox key, and while the first was
-  /// still queued the second, newer terminal write was silently dropped as a
-  /// duplicate of it. The queue then delivered the older progress.
+  /// Deliberately not [token] on its own. [token] counts stream resolutions
+  /// inside one player screen and every launch builds a fresh screen, so the
+  /// first — usually only — resolution of every viewing produced the same
+  /// value; two viewings of the same episode on two launches then shared an
+  /// outbox key and the newer terminal write was dropped as a duplicate of the
+  /// queued one.
   ///
-  /// [token] is kept on the end for diagnostics only; the wall clock plus the
-  /// process-local [_sessionSeq] is what carries the uniqueness, so the value
-  /// is unique even if the clock stands still or steps backwards.
+  /// [token] is kept on the end for diagnostics only. The wall clock plus the
+  /// process-local [_sessionSeq] carries the uniqueness, so the value holds
+  /// even if the clock stands still or steps backwards.
   late final String _key =
       '${DateTime.now().microsecondsSinceEpoch}-${++_sessionSeq}-$token';
 
@@ -217,10 +209,8 @@ class PlaybackTracker {
   ///
   /// Here rather than in the screen's advance path because 90% is the moment
   /// the viewer is done with this episode, and the credits are exactly when
-  /// they back out: leaving the rollover to end-of-media meant Continue
-  /// Watching still offered the finished episode at 92%. This is where the old
-  /// controller did it too (player_controller.dart:3921-3934), from
-  /// saveProgress the moment progress crossed the line.
+  /// they back out: leaving the rollover to end-of-media left the finished
+  /// episode on offer at 92%.
   ///
   /// Runs at most once per session — [_markedWatched] gates the only caller —
   /// and is idempotent with the advance path, which asks the same question

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/features/settings/presentation/player_settings_provider.dart';
 import 'package:skystream/features/settings/presentation/player_settings_screen.dart';
+import 'package:skystream/features/settings/presentation/widgets/settings_widgets.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 /// The four gesture rows - Left gesture, Right gesture, Double-tap to seek,
@@ -41,6 +42,7 @@ void main() {
     required DeviceProfile profile,
     Size size = const Size(390, 844),
     NavigationMode navigationMode = NavigationMode.traditional,
+    PlayerSettings settings = const PlayerSettings(),
   }) async {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = size;
@@ -52,18 +54,16 @@ void main() {
       ProviderScope(
         overrides: [
           deviceProfileProvider.overrideWithValue(AsyncValue.data(profile)),
-          playerSettingsProvider.overrideWithBuild(
-            (_, _) => const PlayerSettings(),
-          ),
+          playerSettingsProvider.overrideWithBuild((_, _) => settings),
         ],
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           theme: ThemeData(platform: platform),
           builder: (BuildContext context, Widget? child) => MediaQuery(
-            data: MediaQuery.of(context).copyWith(
-              navigationMode: navigationMode,
-            ),
+            data: MediaQuery.of(
+              context,
+            ).copyWith(navigationMode: navigationMode),
             child: child!,
           ),
           home: const PlayerSettingsScreen(isEmbedded: true),
@@ -160,5 +160,62 @@ void main() {
       expect(find.text(title), findsNothing, reason: title);
     }
     expect(find.text(l10n.defaultPlayer), findsOneWidget);
+  });
+
+  /// The subtitles-by-default row.
+  ///
+  /// Not gated on anything - a television has subtitles too - so the only
+  /// questions are that it is there and that it reads back the value in force
+  /// rather than a fixed word. Read off the [SettingsTile] rather than by
+  /// finding the text: "Auto" is also what the default-player row says, and a
+  /// bare text finder cannot tell the two rows apart.
+  String subtitleDefaultRow(WidgetTester tester) => tester
+      .widgetList<SettingsTile>(find.byType(SettingsTile, skipOffstage: false))
+      .firstWhere((SettingsTile tile) => tile.title == l10n.subtitleDefault)
+      .subtitle!;
+
+  testWidgets('the subtitle default row reads Auto on a fresh install', (
+    WidgetTester tester,
+  ) async {
+    await pumpPlayerSettings(
+      tester,
+      platform: TargetPlatform.android,
+      profile: const DeviceProfile(),
+    );
+
+    expect(subtitleDefaultRow(tester), l10n.subtitleDefaultAuto);
+  });
+
+  testWidgets('the subtitle default row reads back a stored Off', (
+    WidgetTester tester,
+  ) async {
+    // A separate test rather than a second pump in the one above: the scope is
+    // rebuilt, not rebuilt from scratch, and a keepAlive notifier that has
+    // already answered does not re-run its build for a new override.
+    await pumpPlayerSettings(
+      tester,
+      platform: TargetPlatform.android,
+      profile: const DeviceProfile(),
+      settings: const PlayerSettings(subtitleDefault: SubtitleDefault.off),
+    );
+
+    expect(
+      subtitleDefaultRow(tester),
+      l10n.off,
+      reason: 'the row is a read-out, not a label',
+    );
+  });
+
+  testWidgets('a television keeps the subtitle default row', (
+    WidgetTester tester,
+  ) async {
+    await pumpPlayerSettings(
+      tester,
+      platform: TargetPlatform.android,
+      profile: const DeviceProfile(isTv: true),
+      size: const Size(1920, 1080),
+    );
+
+    expect(find.text(l10n.subtitleDefault), findsOneWidget);
   });
 }

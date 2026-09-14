@@ -1,47 +1,34 @@
 /// A durable, de-duplicating outbox for the tracking writes that must survive
 /// a network flap.
 ///
-/// The terminal tracking events — "this episode is watched", "playback stopped
-/// here" — are emitted at exactly the moment a phone is most likely to lose the
-/// network: the credits roll, the user gets up, Wi-Fi drops to cellular. Before
-/// this file those writes were `unawaited(...)` calls whose failure was logged
-/// and forgotten, so one flap lost the episode permanently while the app's own
-/// list still showed it watched.
+/// The terminal tracking events - "this episode is watched", "playback stopped
+/// here" - are emitted at exactly the moment a phone is most likely to lose the
+/// network, and a lost write loses the episode permanently while the app's own
+/// list still shows it watched.
 ///
-/// The rules this implements, and why each one is load-bearing:
+/// [SyncOutbox.enqueue] writes the entry to storage before it attempts the
+/// network, so a process kill between the two costs nothing.
 ///
-///   1. **Persist before dispatch.** [SyncOutbox.enqueue] writes the entry to
-///      storage and only then attempts the network. A process kill between the
-///      two costs nothing; the entry is replayed at next launch.
-///   2. **Delivery is recorded per service, not per event.** Trakt's
-///      `scrobble/stop` is *not* idempotent — replaying it counts a second
-///      play. So an entry carries the set of service id-prefixes that have
-///      already confirmed it and a retry is only ever sent to the remainder.
-///   3. **Enqueue is de-duplicating.** The identity of an entry is
-///      (op, item url, season/episode, episode url, session). A second enqueue
-///      for a write already pending is dropped rather than queued twice — so
-///      the session component has to be unique per *viewing*, not per screen,
-///      or the second of two viewings loses its write to the first.
-///   4. **Only terminal events are queued.** `scrobbleStart` and
-///      `scrobblePause` describe where the user *is right now*; replaying a
-///      two-hour-old "paused at 12%" would overwrite a newer resume point with
-///      stale data. Losing one of those costs nothing, so they stay
-///      fire-and-forget.
-///   5. **The queue is bounded three ways** — [maxEntries], [maxAgeMs] and
-///      [maxAttempts] — because a long offline stretch, or a write that can
-///      never succeed, must not grow storage without limit or retry forever.
-///   6. **A queued stop expires far sooner than a queued mark**
-///      ([SyncOutbox.maxStopAgeMs]). `markWatched` is a monotone fact — "this
-///      episode has been seen" is as true a week later as it was that night.
-///      `scrobbleStop` is not: it carries *where the user was*, and the
-///      scrobble wire format has no field for when. Trakt stamps `paused_at`
-///      with its own receipt time, so a stop replayed hours later arrives
-///      looking like the freshest thing on the account and overwrites the
-///      point a *newer* viewing — very often on another device — already
-///      recorded. That is rule 4's own argument about a stale pause, and it
-///      applies to a stale stop just as hard; the only thing that made stop
-///      queueable at all is that a *prompt* replay still records the right
-///      point.
+/// Delivery is recorded per service, not per event: Trakt's `scrobble/stop` is
+/// not idempotent, so an entry carries the set of service id-prefixes that have
+/// already confirmed it and a retry only goes to the remainder.
+///
+/// Enqueue de-duplicates on (op, item url, season/episode, episode url,
+/// session). The session component has to be unique per viewing, not per
+/// screen, or the second of two viewings loses its write to the first.
+///
+/// Only terminal events are queued. `scrobbleStart` and `scrobblePause`
+/// describe where the user is right now, so replaying a two-hour-old "paused at
+/// 12%" would overwrite a newer resume point with stale data; losing one of
+/// those costs nothing.
+///
+/// The queue is bounded by [maxEntries], [maxAgeMs] and [maxAttempts], and a
+/// queued stop expires far sooner than a queued mark
+/// ([SyncOutbox.maxStopAgeMs]). `markWatched` is a monotone fact;
+/// `scrobbleStop` carries a position and the wire format has no field for
+/// when, so Trakt stamps `paused_at` with its own receipt time and a late
+/// replay overwrites the point a newer viewing, often on another device,
+/// already recorded.
 library;
 
 import 'dart:async';
@@ -53,7 +40,7 @@ import '../../../core/storage/storage_service.dart';
 
 /// The tracking writes the outbox is allowed to replay.
 ///
-/// Deliberately only the terminal ones — see rule 4 in the library comment.
+/// Deliberately only the terminal ones; see the library comment.
 enum SyncOp { markWatched, scrobbleStop }
 
 /// What one fan-out to the tracking services achieved.
@@ -91,8 +78,7 @@ abstract class SyncOutboxStore {
 /// [_resolve] is a closure rather than the service itself because
 /// `storageServiceProvider` throws until `StorageService.init` has run, and the
 /// outbox must not turn that into a crash at provider-build time. Both methods
-/// degrade to "no persistence" if storage is unavailable, which leaves tracking
-/// exactly as reliable as it was before this file existed rather than worse.
+/// degrade to "no persistence" if storage is unavailable.
 class HiveSyncOutboxStore implements SyncOutboxStore {
   HiveSyncOutboxStore(this._resolve);
 
@@ -134,7 +120,7 @@ class SyncOutboxEntry {
     Set<String>? delivered,
   }) : delivered = delivered ?? <String>{};
 
-  /// Identity used for de-duplication. See rule 3.
+  /// Identity used for de-duplication.
   final String key;
   final SyncOp op;
   final MultimediaItem item;
@@ -146,7 +132,7 @@ class SyncOutboxEntry {
   int nextAttemptMs;
 
   /// Service `idPrefix`es that have already confirmed this write. Never
-  /// re-sent to. See rule 2.
+  /// re-sent to.
   final Set<String> delivered;
 
   /// Only the fields a tracking write actually addresses the title by. A full
@@ -224,17 +210,16 @@ class SyncOutboxEntry {
   }
 }
 
-/// Builds the de-duplication identity for a write. See rule 3.
+/// Builds the de-duplication identity for a write.
 ///
 /// [session] is the identity the emitter minted for one viewing: two genuinely
 /// separate viewings of the same episode get separate entries, while a repeat
 /// emission inside one session collapses onto the pending one. It is the
-/// caller's job to make that string unique per viewing — see
-/// `PlaybackTracker._key`, which mints one per tracker rather than reusing the
-/// player screen's resolution counter, because that counter restarts at 1 on
-/// every launch and so gave two different viewings the same identity.
+/// caller's job to make that string unique per viewing - see
+/// `PlaybackTracker._key`, which mints one per tracker rather than reusing a
+/// counter that restarts at 1 on every launch.
 ///
-/// The episode is addressed by url *as well as* by season/episode number,
+/// The episode is addressed by url as well as by season/episode number,
 /// because both numbers default to 0 ([Episode.season], [Episode.episode]): a
 /// provider that returns an unnumbered episode list would otherwise collapse
 /// every episode of the series onto one key.
@@ -277,16 +262,14 @@ class SyncOutbox {
 
   final int maxAgeMs;
 
-  /// Age cap for [SyncOp.scrobbleStop] only — see rule 6.
+  /// Age cap for [SyncOp.scrobbleStop] only.
   ///
-  /// An hour covers what the outbox exists for: a handover between networks, a
-  /// tunnel, a lift, a router rebooting. It stays well inside the window in
-  /// which the same title could plausibly have been watched somewhere else,
-  /// which is the point at which replaying this stop stops being a recovery
-  /// and starts being data loss. Dropping the stop is the cheap failure —
-  /// this device's own resume point lives in local history either way, and
-  /// only the remote one goes unrefreshed. Delivering it late is the
-  /// expensive one: it destroys a newer position on every device.
+  /// An hour covers what the outbox exists for - a handover between networks,
+  /// a tunnel, a lift, a router rebooting - and stays inside the window in
+  /// which the same title could plausibly have been watched somewhere else.
+  /// Dropping the stop is the cheap failure: this device's own resume point
+  /// lives in local history either way. Delivering it late destroys a newer
+  /// position on every device.
   ///
   /// Never applied above [maxAgeMs]; the smaller of the two wins.
   final int maxStopAgeMs;
@@ -368,8 +351,8 @@ class SyncOutbox {
 
     final key = syncOutboxKey(op, item, episode, session);
     if (_entries.any((e) => e.key == key)) {
-      // Rule 3: the same write is already pending. Queuing it twice is how a
-      // Trakt play gets counted twice.
+      // The same write is already pending. Queuing it twice is how a Trakt
+      // play gets counted twice.
       talker.debug('SyncOutbox: $key already queued, not duplicating');
       return;
     }
@@ -472,7 +455,7 @@ class SyncOutbox {
     final now = _clock().millisecondsSinceEpoch;
     final stopCap = maxStopAgeMs < maxAgeMs ? maxStopAgeMs : maxAgeMs;
     _entries.removeWhere((e) {
-      // Rule 6: a stop is a resume point, and a resume point goes off.
+      // A stop is a resume point, and a resume point goes off.
       final cap = e.op == SyncOp.scrobbleStop ? stopCap : maxAgeMs;
       final stale = e.enqueuedAtMs < now - cap;
       if (stale) {

@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Visual + layout tokens for the player chrome.
-///
-/// This is the single source of truth for player colors, motion, gradients,
-/// and the layout metrics that the chrome, subtitle offset, and floating
-/// prompts all share — so nothing relies on magic numbers scattered across
-/// widgets.
+/// Visual and layout tokens for the player chrome: colors, motion, gradients,
+/// and the layout metrics the chrome, subtitle offset and floating prompts
+/// all share.
 class HotstarPlayerStyle {
   // --- Colors ---
   static const Color background = Color(0xFF000000);
@@ -16,18 +13,16 @@ class HotstarPlayerStyle {
   static const Color accentAlt = Color(0xFFDD3EFF);
   static const Color primaryText = Color(0xF2FFFFFF);
   static const Color secondaryText = Color(0xA6FFFFFF);
-  /// The smallest type in the chrome (panel secondary lines, torrent stats,
-  /// the countdown's caption). Alpha 0x73 measured 4.43:1 against the black
-  /// under the scrim, which misses WCAG AA for body text; 0x75 is the first
-  /// step that clears it (4.56:1, and higher again over the panel fills).
+  /// The smallest type in the chrome: panel secondary lines, torrent stats,
+  /// the countdown's caption. Alpha 0x75 is the first step that clears WCAG AA
+  /// against the black under the scrim (4.56:1); 0x73 measured 4.43:1.
   static const Color mutedText = Color(0x75FFFFFF);
   static const Color divider = Color(0x1FFFFFFF);
   static const Color track = Color(0x55FFFFFF);
 
   /// Unfilled part of a progress track - the next-episode ring and the
-  /// torrent progress bar. It is what tells a viewer how much is *left*, so
-  /// it is a UI component under WCAG 1.4.11 and owes 3:1, not the 1.71:1 the
-  /// old 0x35 measured. 0x5C is the first step that clears it (3.14:1).
+  /// torrent progress bar. It tells a viewer how much is left, so it is a UI
+  /// component under WCAG 1.4.11 and owes 3:1; 0x5C measures 3.14:1.
   static const Color trackInactive = Color(0x5CFFFFFF);
   static const Color focus = Color(0x660A84FF);
   static const Color liveRed = Color(0xFFE53935);
@@ -49,17 +44,17 @@ class HotstarPlayerStyle {
   /// is clipped on many TVs). Keeps controls and focus rings fully visible.
   static const double tvEdgeInset = 48;
 
-  /// Approximate height of the bottom chrome (scrubber row + controls row +
+  /// Approximate height of the bottom chrome (scrubber row, controls row and
   /// internal padding), excluding the safe-area bottom inset. Used to offset
-  /// subtitles and to anchor floating prompts above the scrubber. The bottom
-  /// bar itself is content-sized; this is a layout estimate, not a clamp.
+  /// subtitles and anchor floating prompts above the scrubber. The bottom bar
+  /// itself is content-sized, so this is an estimate, not a clamp.
   static const double bottomChromeHeight = 132;
 
-  /// Focus-ring treatment shared by every focusable control so play/pause,
-  /// seek, scrubber, action, and utility buttons look identical when focused.
+  /// Focus-ring scale shared by every focusable control, so play/pause, seek,
+  /// scrubber, action and utility buttons look identical when focused.
   static const double focusScale = 1.04;
 
-  // --- Gradients (const scrims, dark at the edge → transparent at center) ---
+  // --- Gradients ---
   static const LinearGradient topGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,

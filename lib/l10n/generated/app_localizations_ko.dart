@@ -99,9 +99,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get seekDuration => '탐색 시간';
 
   @override
-  String get bufferDepth => '버퍼 깊이';
-
-  @override
   String get defaultResizeMode => '기본 화면 크기 모드';
 
   @override
@@ -459,9 +456,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get selectSeekDuration => '탐색 시간 선택';
-
-  @override
-  String get selectBufferDepth => '버퍼 깊이 선택';
 
   @override
   String get subtitleSettings => '자막 설정';
@@ -910,6 +904,11 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName을(를) 찾을 수 없습니다. 내부 플레이어를 실행합니다.';
   }
@@ -1175,7 +1174,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi 화질 설정';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => '모바일 데이터 화질 설정';
@@ -1627,4 +1629,18 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get sourcesEmptyNothingFound => '보유한 스크레이퍼 중 이 작품을 가진 것이 없습니다.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

@@ -4,8 +4,7 @@ import '../../../../shared/widgets/custom_widgets.dart';
 import 'hotstar_player_style.dart';
 import 'player_activation.dart';
 
-/// Top zone: back button + title/subtitle. Paints its own top scrim so the
-/// chrome no longer needs a separate fixed-height Positioned gradient.
+/// Top zone: back button + title/subtitle. Paints its own top scrim.
 class PlayerTopBar extends StatelessWidget {
   final String title;
   final String? subtitle;
@@ -92,74 +91,45 @@ class PlayerTopBar extends StatelessWidget {
 
 /// Bottom zone shell: scrubber row on top, then a single flat controls row —
 /// [leading] (playback) pinned left and [actions] (everything else) filling
-/// the rest, right-anchored.
+/// the rest, right-anchored. Paints its own scrim.
 ///
-/// THE OVERFLOW CONTRACT. A control row that can only lay out is a row nobody
-/// dares add a button to: the last attempt to render the volume button
-/// everywhere overflowed the non-touch row by 12 dp and was "solved" by hiding
-/// the control on four platforms. So neither branch below may ever overflow,
-/// and neither may hide a button:
+/// Neither layout branch may overflow and neither may hide a button. Off touch
+/// the actions are a [Wrap] whose extra runs go above the first, so nothing is
+/// clipped and a D-pad or pointer reaches every button with no gesture. On
+/// touch they are a right-anchored finger-scroll strip with a visible edge
+/// hint, one line tall at every width. Both branches render the same button
+/// list; the fork is a layout ramp, not a capability gate.
 ///
-///   * Off touch the actions are a [Wrap]. When they fit it is one
-///     right-aligned run, byte-for-byte the layout the old `Spacer()` produced;
-///     when they do not, the extras take a second run *above* the first and
-///     the bar grows upwards. Nothing is clipped, so nothing needs a scroll
-///     affordance, and both a D-pad (Up/Down across the runs, Left/Right along
-///     one) and a pointer reach every button with no gesture at all.
-///   * On touch they are a right-anchored finger-scroll strip with a visible
-///     edge hint, on **every** touch viewport and at every width. Nothing is
-///     hidden that the hint does not advertise, and a finger is the one input
-///     that can fling a strip, so the row stays exactly one line tall from a
-///     360 dp portrait handset up. Every button is still present and
-///     reachable.
+/// The touch strip never gets a run of its own. Giving it one below a width
+/// threshold rendered the bar as two runs, 112 dp tall, on the commonest
+/// Android portrait width — chrome eating 48 dp of the video underneath it.
 ///
-/// ONE LINE ON TOUCH, AND THAT IS THE WHOLE RULE. A version of this file gave
-/// the strip a run of its own below a width threshold, on the reasoning that
-/// five pinned transport buttons measure 250 dp and leave the strip 70 of a
-/// 360 dp handset's 320. Measured, it did what a [Wrap] does: the bar rendered
-/// **two runs, 112 dp tall**, on the commonest Android portrait width. That is
-/// the defect this comment exists to keep out. The bar is chrome laid over the
-/// video - on Android over the platform view itself - and a second run eats
-/// 48 dp of the frame for controls the viewer did not ask to see all of at
-/// once. A 70 dp strip that scrolls, and says so, is the trade; growing the
-/// chrome is not.
-///
-/// That is the whole of the fork, and it is a layout ramp rather than a
-/// capability gate: both branches render the *same* button list.
-///
-/// Left/Right/Up/Down are left to [DirectionalFocusAction]: the buttons are
+/// Directional keys are left to [DirectionalFocusAction]: the buttons are
 /// siblings in one [Row] inside one [FocusTraversalGroup], so geometric
-/// traversal already walks the row and stops at its ends. An earlier version
-/// drove Left/Right by hand with [FocusNode.nextFocus]/[previousFocus]; those
-/// operate on the enclosing *scope* (the route), not the group, and wrap to
-/// the route's first/last node — so Right from the last button landed somewhere
-/// else on screen. Paints its own scrim.
+/// traversal walks the row and stops at its ends.
+/// [FocusNode.nextFocus]/[previousFocus] must not be used here — they operate
+/// on the enclosing scope (the route), not the group, and wrap to the route's
+/// first and last node.
 class PlayerBottomBar extends StatelessWidget {
   final Widget progressBar;
   final List<Widget> leading;
   final List<Widget> actions;
   final bool isTv;
 
-  /// Whether the [actions] scroll rather than wrap. See the class comment: it
-  /// picks a layout for the viewport, never which controls exist.
+  /// Whether the [actions] scroll rather than wrap. Picks a layout for the
+  /// viewport, never which controls exist.
   final bool isTouch;
 
   /// The widest viewport still laid out as a portrait handset, in the logical
-  /// pixels the bar's own [Padding] leaves it - so a device figure minus the
-  /// two [HotstarPlayerStyle.edgeInset]s. The number sits in the gap between
-  /// the widest handset held upright (430 dp on the largest iPhone, 412 on the
-  /// largest Pixel) and the narrowest one turned sideways (568 dp), so no
-  /// device straddles it and anything under it is a phone in portrait.
+  /// pixels the bar's own [Padding] leaves it — a device width minus the two
+  /// [HotstarPlayerStyle.edgeInset]s. It sits in the gap between the widest
+  /// handset held upright (430 dp) and the narrowest one turned sideways
+  /// (568 dp), so no device straddles it.
   ///
-  /// **The bar itself no longer branches on this.** It used to: below the
-  /// threshold the action strip took a run of its own and the bar stood 48 dp
-  /// taller, which is the two-line bottom-left control cluster the owner
-  /// reported from a handset. The bar is one line on touch at every width now
-  /// (see the class comment). The constant survives only because
-  /// `next_episode_countdown.dart` reads it to decide how much room to leave
-  /// above the bar, and that arithmetic is not this file's to change; it now
-  /// over-reserves 48 dp on a portrait handset, which lifts the up-next card
-  /// higher than it needs to sit but cannot make it overlap the scrubber.
+  /// This bar does not branch on it. Only `next_episode_countdown.dart` reads
+  /// it, to decide how much room to leave above the bar; that reservation runs
+  /// 48 dp generous on a portrait handset, which lifts the up-next card but
+  /// cannot make it overlap the scrubber.
   static const double narrowTouchWidth = 520;
 
   const PlayerBottomBar({
@@ -183,10 +153,9 @@ class PlayerBottomBar extends StatelessWidget {
     final double rightPadding = isTv
         ? edge
         : (padding.right > edge ? padding.right : edge);
-    // The same shape as the top bar's scrim: a gradient is paint, not a
-    // compositing layer, so it costs nothing over the platform view and stays
-    // inside the bar's own fade. Without it every reveal on a bright scene
-    // puts white glyphs on white.
+    // A gradient is paint, not a compositing layer, so the scrim costs nothing
+    // over the platform view. Without it a reveal on a bright scene puts white
+    // glyphs on white.
     return DecoratedBox(
       decoration: const BoxDecoration(
         gradient: HotstarPlayerStyle.bottomGradient,
@@ -210,13 +179,11 @@ class PlayerBottomBar extends StatelessWidget {
   }
 
   /// The one flat control line: the transport group pinned left, everything
-  /// else filling the rest of the *same* line.
+  /// else filling the rest of the same line.
   ///
-  /// The left group (seek back, play/pause, seek forward, lock, next) is
-  /// always visible, never scrolled and never wrapped. What the two branches
-  /// differ on is only what the remainder does when the actions outgrow it -
-  /// off touch it wraps upwards, on touch it scrolls sideways - and neither
-  /// may move the transport group off the bottom line.
+  /// The left group is always visible, never scrolled and never wrapped. The
+  /// branches differ only in what the remainder does when the actions outgrow
+  /// it, and neither may move the transport group off the bottom line.
   Widget _controlsRow() {
     // Sized to its own children rather than spread, so it is inflexible and
     // the remainder is exactly what [Expanded] hands the actions.
@@ -229,14 +196,14 @@ class PlayerBottomBar extends StatelessWidget {
       children: [
         transport,
         Expanded(
-          // Touch: one line, right-anchored, finger-scrolled, with the edge
-          // hint that says so. No [LayoutBuilder] and no width threshold -
-          // a threshold is how the second run got here.
+          // Touch: one line, right-anchored, finger-scrolled, with an edge
+          // hint. No [LayoutBuilder] and no width threshold — a threshold is
+          // what produced the second run.
           child: isTouch
               ? PlayerActionStrip(actions: actions)
-              // Off touch there is no fling, so the overflow has to be laid
-              // out rather than scrolled: extra runs go *above* the first and
-              // the bar grows upwards. Unchanged.
+              // Off touch there is no fling, so overflow is laid out rather
+              // than scrolled: extra runs go above the first and the bar grows
+              // upwards.
               : Wrap(
                   alignment: WrapAlignment.end,
                   runAlignment: WrapAlignment.end,
@@ -249,22 +216,15 @@ class PlayerBottomBar extends StatelessWidget {
   }
 }
 
-/// The touch action strip: right-anchored, finger-scrollable, and — this is
-/// the part that was missing — visibly scrollable.
+/// The touch action strip: right-anchored, finger-scrollable, and visibly so.
 ///
-/// Right-anchored means the overflow slides off the **left** edge, so the
-/// buttons at the end of the list are the ones that survive a squeeze and the
-/// ones at the start are the ones that vanish. With no fade, no chevron and no
-/// bounce at rest there was nothing on screen that said so: measured on a
-/// 360 dp portrait phone, a torrent series leaves this 70 dp of the bar's
-/// 320 - one button of ten - and even given the whole line by
-/// [PlayerBottomBar.narrowTouchWidth] it still shows six of them, so the rest
-/// simply were not there as far as the viewer could tell.
-///
-/// So when — and only when — content is hidden to the left, a scrim-to-clear
-/// gradient with a chevron in it is painted over that edge. It is
-/// [IgnorePointer]: it is a hint, not a control, and it must never eat the tap
-/// meant for the half-visible button underneath it.
+/// Right-anchored means the overflow slides off the left edge, so the buttons
+/// at the end of the list survive a squeeze and the ones at the start vanish.
+/// A 360 dp portrait phone can leave this 70 dp of the bar's 320, so when —
+/// and only when — content is hidden to the left, a scrim-to-clear gradient
+/// with a chevron is painted over that edge. It is [IgnorePointer]: a hint,
+/// not a control, and it must never eat the tap meant for the half-visible
+/// button underneath it.
 class PlayerActionStrip extends StatefulWidget {
   const PlayerActionStrip({super.key, required this.actions});
 
@@ -286,9 +246,8 @@ class _PlayerActionStripState extends State<PlayerActionStrip> {
   /// covers a finger moving the strip; [ScrollMetricsNotification] covers the
   /// cases where nothing scrolled but the answer changed anyway — first
   /// layout, a rotation, a button appearing or disappearing. Metrics arrive in
-  /// a microtask after layout (ScrollPosition.didUpdateScrollMetrics), so
-  /// setState from here is a legal frame request rather than a build-time
-  /// mutation.
+  /// a microtask after layout (`ScrollPosition.didUpdateScrollMetrics`), so
+  /// setState from here is a legal frame request, not a build-time mutation.
   bool _update(ScrollMetrics metrics) {
     // Half a logical pixel: less than that is hidden by rounding rather than
     // by the viewport, and a hint painted for it would never go away.
@@ -323,8 +282,7 @@ class _PlayerActionStripState extends State<PlayerActionStrip> {
                     width: PlayerActionStrip.hintWidth,
                     // Paint, not a layer: a gradient in a DecoratedBox costs
                     // nothing over the platform view, where an opacity or a
-                    // blur would be one more IOSurface. See
-                    // controls_layer_shape_test.dart.
+                    // blur would be one more IOSurface.
                     child: DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -355,25 +313,12 @@ class _PlayerActionStripState extends State<PlayerActionStrip> {
 /// Compact icon-only button for utilities (resize, PiP, fullscreen) and the
 /// top-bar back button.
 ///
-/// THE ACCESSIBLE NAME IS EXPLICIT, AND IT HAS TO BE. A [Tooltip] wrapped
-/// *around* a button does not name it: [Tooltip] annotates with
-/// `SemanticsProperties.tooltip` only, and [CustomButton]'s [TextButton]
-/// starts a semantics *container* underneath, so the annotation cannot merge
-/// down onto the node that owns the tap. Measured before this was fixed, with
-/// a real semantics dump of three of these in a row:
-///
-///     id=4 rect=48x48 label="" tooltip="Rewind 5 seconds" btn=false actions=[]
-///       id=5 rect=48x48 label="" tooltip=""               btn=true  actions=[tap|focus]
-///
-/// The reader focuses the inner node — the one with the action — and finds it
-/// nameless, so every player control announced as an anonymous "button".
-/// Material's own [IconButton] escapes this by mounting its [Tooltip] *below*
-/// the button's [Semantics], where it merges up into a single node.
-///
-/// The shape here does the same thing the other way round: an explicit
-/// [Semantics] supplies the name and a [MergeSemantics] collapses name, button
-/// flag and tap action into one node, so both TalkBack and VoiceOver focus a
-/// single, named, activatable element. Asserted by
+/// The accessible name is explicit because a [Tooltip] wrapped around a button
+/// does not name it: [Tooltip] annotates with `SemanticsProperties.tooltip`
+/// only, and [CustomButton]'s [TextButton] starts a semantics container
+/// underneath, so the annotation cannot merge down onto the node that owns the
+/// tap. An explicit [Semantics] supplies the name and a [MergeSemantics]
+/// collapses name, button flag and tap action into one node. Asserted by
 /// `test/features/player/player_semantics_test.dart`.
 class PlayerIconButton extends StatefulWidget {
   final IconData icon;
@@ -429,17 +374,12 @@ class _PlayerIconButtonState extends State<PlayerIconButton> {
         label: widget.tooltip,
         child: Tooltip(
           message: widget.tooltip,
-          // The button's declared box IS its footprint.
-          //
-          // [CustomButton] renders a Material 3 [TextButton], which brings
-          // `minimumSize: Size(64, 40)` and 12 dp of padding on each side that
-          // nothing here asked for. Those 24 dp are what made this row a layout
-          // crisis: at 960 dp television metrics a fully loaded bar spent 24 dp
-          // per button on empty space it did not have, and the answer last time
-          // was to delete the volume button on four platforms rather than
-          // reclaim it. Zeroing them costs no touch target - the tap target is
-          // still padded to [kMinInteractiveDimension] by the button's own
-          // `_InputPadding` - and buys back 24 dp x 13 buttons.
+          // The button's declared box is its footprint. [CustomButton]
+          // renders a Material 3 [TextButton], which brings
+          // `minimumSize: Size(64, 40)` and 12 dp of padding a side; at 960 dp
+          // television metrics that is 24 dp per button the control row does
+          // not have. Zeroing it costs no touch target — the button's own
+          // `_InputPadding` still pads to [kMinInteractiveDimension].
           child: TextButtonTheme(
             data: TextButtonThemeData(
               style: TextButton.styleFrom(
@@ -472,43 +412,32 @@ class _PlayerIconButtonState extends State<PlayerIconButton> {
 
 /// The big centred play/pause a phone or tablet expects over the video.
 ///
-/// Sits beside [PlayerIconButton] so the two stay one design: same white
-/// glyph, same rounded Material icons, and the disc is the only thing the
-/// bottom-bar copy does not have. It is a second control, not a replacement -
-/// the bar keeps its own play/pause, because the chrome's focus machinery
-/// names that node and both Netflix and Prime ship two on a tablet.
+/// A second control, not a replacement: the bottom bar keeps its own
+/// play/pause, whose node the chrome's focus machinery names.
 ///
-/// Deliberately **not** a [CustomButton] and deliberately **not** a [Focus]:
-/// it holds no [FocusNode], so it is not a traversal candidate and can never
-/// compete for the autofocus the bottom bar's play/pause owns on television.
-/// It is built on touch only, so on a remote it does not exist at all.
+/// Not a [CustomButton] and not a [Focus]: it holds no [FocusNode], so it is
+/// not a traversal candidate and cannot compete for the autofocus the bottom
+/// bar's play/pause owns on television. Built on touch only.
 ///
-/// [HitTestBehavior.translucent] is load-bearing rather than a default. The
-/// player's screen-wide gesture detector is the *first* child of the same
-/// Stack and this glyph is a later one, so hit testing reaches the glyph
-/// first. Opaque would stop [RenderStack.defaultHitTestChildren] dead and the
-/// screen-wide detector would never enter the gesture arena - which kills
-/// swipe-to-seek and swipe-for-volume started from the dead centre of the
-/// frame. Translucent puts both in the arena: a tap goes to the deeper member
-/// and a drag to the parent as soon as the pointer moves.
+/// [HitTestBehavior.translucent] is load-bearing. The player's screen-wide
+/// gesture detector is the first child of the same Stack and this glyph a
+/// later one, so hit testing reaches the glyph first; opaque would stop
+/// [RenderStack.defaultHitTestChildren] dead, keep the screen-wide detector
+/// out of the gesture arena and kill swipe-to-seek and swipe-for-volume
+/// started from the centre of the frame.
 ///
-/// Translucent alone is not enough, and this is the part that is easy to get
-/// wrong. `RenderProxyBoxWithHitTestBehavior.hitTest` returns `hitTarget`,
-/// which is true whenever a *child* was hit - and `RenderParagraph.hitTestSelf`
-/// returns true unconditionally, so the [Icon] in the middle of the disc makes
-/// the detector answer "hit" and the Stack stops walking exactly as if it were
-/// opaque. Measured: a `dragFrom(centre)` stopped seeking. So the disc is
-/// wrapped in an [IgnorePointer] - it is paint, and the gesture belongs to the
-/// square around it. The detector then reports no hit, adds itself to the
-/// result anyway (that is what translucent means) and the walk carries on down
-/// to the screen-wide detector.
+/// Translucent alone is not enough.
+/// `RenderProxyBoxWithHitTestBehavior.hitTest` returns `hitTarget`, which is
+/// true whenever a child was hit, and `RenderParagraph.hitTestSelf` returns
+/// true unconditionally — so the [Icon] would make the detector answer "hit"
+/// and the Stack would stop walking as if it were opaque. The disc is
+/// therefore wrapped in an [IgnorePointer]: it is paint, and the gesture
+/// belongs to the square around it.
 ///
-/// The label is passed in rather than looked up here: this file is not a
-/// localization boundary, and `lib/features/player/**` has a zero budget for
-/// hardcoded user-visible strings.
+/// The label is passed in because this file is not a localization boundary.
 class PlayerCenterPlayButton extends StatelessWidget {
-  /// Whether playback is running - a rebuffer counts as running, exactly as it
-  /// does for the bottom bar, since the film resumes without a press.
+  /// Whether playback is running. A rebuffer counts as running, since the film
+  /// resumes without a press.
   final bool playing;
 
   /// The localized "Play"/"Pause" the semantics layer announces.
@@ -546,8 +475,8 @@ class PlayerCenterPlayButton extends StatelessWidget {
                 // new is composited over the platform view.
                 color: Colors.black.withValues(alpha: 0.34),
               ),
-              // 0.52 is the Netflix/Prime proportion - a glyph inside a disc.
-              // Filling the disc reads as a bare icon with a smudge behind it.
+              // 0.52 keeps the glyph inside the disc; filling it reads as a
+              // bare icon with a smudge behind it.
               child: Icon(
                 playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                 color: Colors.white,
@@ -604,13 +533,10 @@ class _PlayerActionButtonState extends State<PlayerActionButton> {
 
   @override
   Widget build(BuildContext context) {
-    // The ten-foot ramp, and the reason it exists: the only two chips in the
-    // player are Skip Intro/Outro and Unlock, and the skip chip is the one
-    // control in the whole player on a clock. A 12 dp label with a 20 dp glyph
-    // is a squint from a sofa, so the band is missed rather than skipped.
-    // Same shape, bigger numbers - not a capability branch, the same
-    // ergonomic ramp player_panel_metrics.dart applies, and above the 14 sp
-    // floor that file documents.
+    // The ten-foot ramp: same shape, bigger numbers, matching the ramp
+    // player_panel_metrics.dart applies and above the 14 sp floor it
+    // documents. A 12 dp label with a 20 dp glyph is a squint from a sofa, and
+    // the skip chip is the one control in the player on a clock.
     final double glyph = widget.isTv ? 26 : 20;
     final double labelSize = widget.isTv ? 18 : 12;
     final double minHeight = widget.isTv ? 52 : 44;
@@ -623,18 +549,9 @@ class _PlayerActionButtonState extends State<PlayerActionButton> {
     final showTvFocusRing = widget.isTv && _focused;
 
     // [MergeSemantics], for the same reason [PlayerIconButton] carries one.
-    // Without it this button dumps as *two* nodes — the annotation above owns
-    // the name and the button flag, the [InkWell] below owns the tap:
-    //
-    //     id=4 label="Subtitles" btn=true  actions=[focus]
-    //       id=5 label="Subtitles" btn=false actions=[tap|focus]
-    //
-    // so a reader stops on the row twice and says the name twice, and the stop
-    // that can actually be activated is not the one flagged as a button. The
-    // label happened to reach the inner node only because the visible [Text]
-    // below repeats it, which is luck rather than design: the icon-only
-    // sibling had no such text and was silent. Merging collapses both into one
-    // named, activatable node.
+    // Without it the annotation above owns the name and the button flag while
+    // the [InkWell] below owns the tap, so a reader stops on the row twice and
+    // the stop that can be activated is not the one flagged as a button.
     return MergeSemantics(
       child: Semantics(
         button: true,
@@ -698,11 +615,9 @@ class _PlayerActionButtonState extends State<PlayerActionButton> {
                     children: [
                       Icon(widget.icon, color: color, size: glyph),
                       const SizedBox(width: 6),
-                      // Excluded, not because the text is decorative, but
-                      // because the [Semantics] above already carries this
-                      // exact string: once the subtree merges, an included
-                      // Text makes the node read "Subtitles\nSubtitles" and a
-                      // reader says the name twice.
+                      // The [Semantics] above already carries this string.
+                      // Once the subtree merges, an included Text makes the
+                      // node read the label twice.
                       ExcludeSemantics(
                         child: Text(
                           widget.label,

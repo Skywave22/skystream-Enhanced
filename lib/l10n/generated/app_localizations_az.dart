@@ -99,9 +99,6 @@ class AppLocalizationsAz extends AppLocalizations {
   String get seekDuration => 'Sarma müddəti';
 
   @override
-  String get bufferDepth => 'Bufer dərinliyi';
-
-  @override
   String get defaultResizeMode => 'Standart ölçü rejimi';
 
   @override
@@ -468,9 +465,6 @@ class AppLocalizationsAz extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Sarma müddətini seç';
-
-  @override
-  String get selectBufferDepth => 'Bufer dərinliyini seç';
 
   @override
   String get subtitleSettings => 'Altyazı parametrləri';
@@ -937,6 +931,11 @@ class AppLocalizationsAz extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName tapılmadı. Daxili pleyer başladılır.';
   }
@@ -1204,7 +1203,10 @@ class AppLocalizationsAz extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi keyfiyyət tərcihi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Mobil keyfiyyət tərcihi';
@@ -1659,4 +1661,18 @@ class AppLocalizationsAz extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Skreperlərinizin heç birində bu başlıq yoxdur.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

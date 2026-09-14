@@ -14,8 +14,9 @@ import '../../../core/addons/data/debrid_service.dart';
 import '../../../core/addons/models/addon_meta.dart';
 import '../../../core/addons/models/addon_stream_source.dart';
 import '../../../core/domain/entity/multimedia_item.dart';
-import '../../../core/router/app_router.dart';
 import '../../../core/services/download_service.dart';
+import '../../details/presentation/playback_launcher.dart';
+import '../../settings/presentation/player_settings_provider.dart';
 import '../../sources/presentation/source_sheet_widgets.dart';
 
 /// Add-on sources sheet: play or download a title using **only** the links
@@ -181,19 +182,26 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
       return;
     }
 
+    // Which player opens this is a setting, so it is the launcher's call, not
+    // the sheet's. Resolved here rather than inside the launcher because the
+    // sheet is about to pop and a cold settings box would otherwise finish
+    // loading after its context is gone.
+    final launcher = ref.read(playbackLauncherProvider);
+    await ref.read(playerSettingsProvider.future);
+    if (!mounted) return;
+
     Navigator.of(context).pop();
     unawaited(
-      PlayerRoute(
-        $extra: PlayerRouteExtra(
-          item: widget.item,
-          videoUrl: converter.videoUrlFor(
-            contentId: widget.request.contentId,
-            videoId: widget.request.videoId,
-          ),
-          episode: converter.episodeFor(widget.episode, widget.request.videoId),
-          preloadedStreams: streams,
+      launcher.playResolved(
+        context,
+        item: widget.item,
+        videoUrl: converter.videoUrlFor(
+          contentId: widget.request.contentId,
+          videoId: widget.request.videoId,
         ),
-      ).push<void>(context),
+        episode: converter.episodeFor(widget.episode, widget.request.videoId),
+        streams: streams,
+      ),
     );
   }
 

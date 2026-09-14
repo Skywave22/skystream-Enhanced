@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Doppeltippen zum Suchen",
   "swipeToSeek": "Wischen zum Suchen",
   "seekDuration": "Sprungdauer",
-  "bufferDepth": "Puffertiefe",
   "defaultResizeMode": "Standard-Anpassungsmodus",
   "hardwareDecoding": "Hardware-Dekodierung",
   "network": "Netzwerk",
@@ -177,7 +176,6 @@
   "left": "Links",
   "right": "Rechts",
   "selectSeekDuration": "Sprungdauer wählen",
-  "selectBufferDepth": "Puffertiefe wählen",
   "subtitleSettings": "Untertitel-Einstellungen",
   "size": "Größe: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi-Qualitätspräferenz",
   "mobileQualityPreference": "Mobilfunk-Qualitätspräferenz",
   "anyNoPreference": "Beliebig (keine Präferenz)",
   "subtitleAccounts": "Untertitel-Konten",

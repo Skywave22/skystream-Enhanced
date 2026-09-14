@@ -16,31 +16,20 @@ import '../../../../shared/widgets/loading_indicator.dart';
 /// Hands the D-pad highlight back to the cell a viewer opened, when they come
 /// back to a lazily built collection — a grid, or a rail.
 ///
-/// WHY IT IS NEEDED AT ALL. The framework already remembers the focused child
-/// of a route's focus scope, so in the simple case popping a details page puts
-/// the highlight back by itself. It stops working the moment the collection
-/// rebuilds its cells while the viewer is away, which the bookmarks grid does
-/// on the most ordinary journey there is: bookmark toggled on a details page →
-/// `Library.refresh()` → a list one item shorter → every cell after the change
-/// now sits at a lower index → `SliverChildBuilderDelegate` sees a different
-/// [ValueKey] at that index → the old tile element is torn down → its
-/// [FocusNode] is disposed → the scope's memory of the focused child dies with
-/// it → the next D-pad press starts traversal from the top-left card. That is
-/// the "highlight snapped to the first poster" a viewer sees halfway down a
-/// long grid.
+/// A route's focus scope remembers its own focused child, but that restoration
+/// stops working the moment the collection rebuilds its cells while the viewer
+/// is away: a bookmark toggled on the details page leaves the list one item
+/// shorter, `SliverChildBuilderDelegate` sees a different [ValueKey] at that
+/// index, the tile element is torn down and its [FocusNode] disposed, and the
+/// next D-pad press starts from the top-left card.
 ///
-/// WHY THE NODE LIVES HERE AND NOT IN THE CELL. This object is owned by the
-/// collection's [State], so it outlives any number of tile rebuilds — which is
-/// the whole point, since a tile rebuild is what breaks the framework's own
-/// restoration. A per-tile node (`useFocusNode`, or a node created in the
-/// tile's `initState`) is disposed by the very rebuild it would have to
-/// survive, and calling `requestFocus` on it afterwards throws.
+/// The node lives here, owned by the collection's [State], so it outlives any
+/// number of tile rebuilds. A per-tile node is disposed by the very rebuild it
+/// would have to survive, and calling `requestFocus` on it afterwards throws.
+/// One node, not one per cell: only one cell is ever the return target, and a
+/// map keyed by item would have to be pruned on every list change.
 ///
-/// ONE node, not one per cell: only one cell is ever the return target, and a
-/// map of nodes keyed by item would have to be pruned every time the list
-/// changes — pruning being exactly the disposal hazard this design avoids.
-///
-/// HOW TO USE IT, in three lines:
+/// Usage:
 /// ```dart
 /// late final _focusReturn = GridFocusReturn(onTargetChanged: () => setState(() {}));
 /// // ... in the item builder:
@@ -52,9 +41,8 @@ import '../../../../shared/widgets/loading_indicator.dart';
 /// (`CardsWrapper` via `MultimediaCard.focusNode` here) and must not dispose
 /// it: the node belongs to this object, which disposes it with the collection.
 ///
-/// This class is deliberately free of anything specific to bookmarks. It lives
-/// in this file only because this is the first grid to adopt it; the moment a
-/// second one does, lift it verbatim into `lib/shared/widgets/`.
+/// Nothing here is specific to bookmarks. Lift it into `lib/shared/widgets/`
+/// as soon as a second collection needs it.
 class GridFocusReturn {
   GridFocusReturn({required VoidCallback onTargetChanged, String? debugLabel})
     : _onTargetChanged = onTargetChanged,
@@ -79,20 +67,15 @@ class GridFocusReturn {
 
   /// Aims at [id] and puts the highlight back on it after the next frame.
   ///
-  /// Call it when the pushed route has been popped. It is a safe no-op in all
-  /// three ways the target can fail to be there:
-  ///  * the cell was scrolled out of the build while the viewer was away — the
-  ///    node was never attached, so [FocusNode.context] is null;
-  ///  * the item was removed while the viewer was away (the bookmark deleted
-  ///    on the details page) — no cell claims the node, same null context;
-  ///  * the tile was disposed — its element is unmounted, so the context that
-  ///    [FocusAttachment.detach] leaves behind reports `mounted == false`.
+  /// Call it when the pushed route has been popped. A safe no-op when the cell
+  /// is not there — scrolled out of the build, removed from the list, or
+  /// disposed — all of which leave [FocusNode.context] null or unmounted.
   ///
   /// The null check is not decoration. `FocusNode.requestFocus` on a node with
   /// no parent does not fail loudly; it sets an internal
-  /// `_requestFocusWhenReparented` flag and steals the highlight later, the
-  /// instant that cell happens to be built again — which on a grid is when the
-  /// viewer scrolls past it, long after they stopped caring.
+  /// `_requestFocusWhenReparented` flag and steals the highlight the instant
+  /// that cell is built again, which on a grid is when the viewer scrolls past
+  /// it long after they stopped caring.
   void restoreTo(Object id) {
     if (_disposed) return;
     _target = id;
@@ -143,17 +126,14 @@ class _BookmarksTabState extends ConsumerState<BookmarksTab>
 
   /// Whether this device draws a focus highlight worth putting back.
   ///
-  /// The same question, asked the same way, as the gesture rows in
-  /// `player_settings_screen.dart`: a hardware fact, read from the hardware.
-  /// The mobile operating systems minus the leanback boxes and Apple TVs that
+  /// The mobile operating systems, minus the leanback boxes and Apple TVs that
   /// run them without a touchscreen. `DeviceProfile.isTv` is the single
   /// authority for "this is a television"; window shape never reaches this
   /// decision, so a phone in landscape is still a phone.
   ///
-  /// On a touchscreen there is no highlight on screen to restore — nothing was
-  /// visibly focused when the viewer tapped the poster — so restoring one
-  /// would paint a ring the viewer never asked for and hand the next hardware
-  /// key press a different starting point.
+  /// On a touchscreen nothing was visibly focused when the viewer tapped the
+  /// poster, so restoring a ring would paint one they never asked for and give
+  /// the next hardware key press a different starting point.
   bool get _restoresFocus {
     final platform = Theme.of(context).platform;
     final profile = ref.read(deviceProfileProvider).asData?.value;
@@ -167,9 +147,8 @@ class _BookmarksTabState extends ConsumerState<BookmarksTab>
   /// Opens a bookmark and, on the way back, puts the highlight where the
   /// viewer left it.
   ///
-  /// The await is the whole mechanism: `push` completes when the details page
-  /// is popped, which is the one moment we know the viewer is looking at this
-  /// grid again.
+  /// The await is the mechanism: `push` completes when the details page is
+  /// popped, which is the moment the viewer is looking at this grid again.
   Future<void> _openDetails(MultimediaItem item) async {
     await DetailsRoute(
       $extra: DetailsRouteExtra(item: item),

@@ -100,9 +100,6 @@ class AppLocalizationsHi extends AppLocalizations {
   String get seekDuration => 'सीक अवधि';
 
   @override
-  String get bufferDepth => 'बफर डेप्थ';
-
-  @override
   String get defaultResizeMode => 'डिफ़ॉल्ट रिसाइज मोड';
 
   @override
@@ -467,9 +464,6 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'सीक अवधि चुनें';
-
-  @override
-  String get selectBufferDepth => 'बफर डेप्थ चुनें';
 
   @override
   String get subtitleSettings => 'उपशीर्षಕ सेटिंग्स';
@@ -934,6 +928,11 @@ class AppLocalizationsHi extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName $headers नहीं भेज सकता। आंतरिक प्लेयर का उपयोग किया जा रहा है।';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName का पता नहीं चला। आंतरिक प्लेयर शुरू हो रहा है।';
   }
@@ -1199,7 +1198,11 @@ class AppLocalizationsHi extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi गुणवत्ता प्राथमिकता';
+  String get unmeteredQualityPreference =>
+      'Wi-Fi और वायर्ड गुणवत्ता प्राथमिकता';
+
+  @override
+  String get playerNotOnThisDevice => 'इस डिवाइस पर उपलब्ध नहीं';
 
   @override
   String get mobileQualityPreference => 'मोबाइल गुणवत्ता प्राथमिकता';
@@ -1655,4 +1658,18 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'आपके किसी भी स्क्रैपर के पास यह टाइटल नहीं है।';
+
+  @override
+  String get subtitleDefault => 'डिफ़ॉल्ट रूप से उपशीर्षक';
+
+  @override
+  String get subtitleDefaultAuto => 'स्वतः';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'वीडियो उसी उपशीर्षक के साथ शुरू होता है जो उसका स्रोत चुनता है; स्रोत में उपलब्ध होने पर आपकी उपशीर्षक भाषा को प्राथमिकता दी जाती है।';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'वीडियो बिना किसी उपशीर्षक के शुरू होता है। आप प्लेयर के उपशीर्षक मेन्यू से इसे कभी भी चालू कर सकते हैं।';
 }

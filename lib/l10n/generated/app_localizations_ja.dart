@@ -99,9 +99,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get seekDuration => 'スキップ秒数';
 
   @override
-  String get bufferDepth => 'バッファの深さ';
-
-  @override
   String get defaultResizeMode => 'デフォルトの画面モード';
 
   @override
@@ -459,9 +456,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'スキップ秒数を選択';
-
-  @override
-  String get selectBufferDepth => 'バッファの深さを選択';
 
   @override
   String get subtitleSettings => '字幕の設定';
@@ -911,6 +905,11 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName が見つかりません。内部プレイヤーを起動します。';
   }
@@ -1171,7 +1170,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi 画質設定';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'モバイルデータ通信 画質設定';
@@ -1624,4 +1626,18 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get sourcesEmptyNothingFound => 'どのスクレイパーにもこのタイトルはありません。';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

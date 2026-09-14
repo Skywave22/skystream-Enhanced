@@ -99,9 +99,6 @@ class AppLocalizationsBg extends AppLocalizations {
   String get seekDuration => 'Продължителност на търсене';
 
   @override
-  String get bufferDepth => 'Дълбочина на буфера';
-
-  @override
   String get defaultResizeMode => 'Режим на преоразмеряване';
 
   @override
@@ -466,9 +463,6 @@ class AppLocalizationsBg extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Избери продължителност на търсене';
-
-  @override
-  String get selectBufferDepth => 'Избери дълбочина на буфера';
 
   @override
   String get subtitleSettings => 'Настройки на субтитри';
@@ -920,6 +914,11 @@ class AppLocalizationsBg extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName не е открит.';
   }
@@ -1188,7 +1187,10 @@ class AppLocalizationsBg extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Предпочитание за качество при Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference =>
@@ -1645,4 +1647,18 @@ class AppLocalizationsBg extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Никой от вашите скрейпъри няма това заглавие.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

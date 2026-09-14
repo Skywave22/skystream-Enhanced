@@ -45,11 +45,10 @@ class _WaveformEqualizerState extends State<WaveformEqualizer>
 
   /// Honour the OS 'Remove animations' / 'Reduce motion' switch.
   ///
-  /// A `repeat()` that never ends is precisely the motion that setting exists
-  /// to stop - and unlike an implicit animation, which the framework shortens
-  /// to 1% of its duration on its own, a looping controller keeps requesting
-  /// frames forever whatever the user asked for. Read through [MediaQuery] so
-  /// that toggling the setting takes effect without a restart.
+  /// Unlike an implicit animation, which the framework shortens to 1% of its
+  /// duration on its own, a looping controller keeps requesting frames
+  /// forever. Read through [MediaQuery] so that toggling the setting takes
+  /// effect without a restart.
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -155,10 +154,6 @@ class SearchScopeSwitcher extends StatefulWidget {
   State<SearchScopeSwitcher> createState() => _SearchScopeSwitcherState();
 }
 
-// A fourth looping controller used to live here, pulsing at 1 Hz for the life
-// of the search screen. Nothing was ever built from its value: it drove no
-// widget, so it was pure vsync with no pixels behind it. Deleted rather than
-// guarded.
 class _SearchScopeSwitcherState extends State<SearchScopeSwitcher> {
   @override
   Widget build(BuildContext context) {
@@ -188,7 +183,7 @@ class _SearchScopeSwitcherState extends State<SearchScopeSwitcher> {
           // Sliding indicator pill
           AnimatedAlign(
             duration: const Duration(milliseconds: 350),
-            curve: Curves.easeOutBack, // Bouncy overshoot slide
+            curve: Curves.easeOutBack,
             alignment: isLive ? Alignment.centerRight : Alignment.centerLeft,
             child: FractionallySizedBox(
               widthFactor: 0.5,
@@ -210,7 +205,6 @@ class _SearchScopeSwitcherState extends State<SearchScopeSwitcher> {
               ),
             ),
           ),
-          // Buttons
           Row(
             children: [
               Expanded(
@@ -313,7 +307,7 @@ class _SearchScopeSwitcherState extends State<SearchScopeSwitcher> {
   }
 }
 
-/// Redesigned static widescreen/desktop search control bar.
+/// The widescreen and desktop search control bar.
 class SearchHeaderBar extends ConsumerStatefulWidget {
   final TextEditingController textController;
   final FocusNode searchFocusNode;
@@ -357,7 +351,6 @@ class _SearchHeaderBarState extends ConsumerState<SearchHeaderBar> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Static Search Field (Wrapped in GestureDetector so tapping anywhere focuses the text field)
             GestureDetector(
               onTap: () {
                 if (!widget.searchFocusNode.hasFocus) {
@@ -495,7 +488,6 @@ class _SearchHeaderBarState extends ConsumerState<SearchHeaderBar> {
 
             const SizedBox(height: 16),
 
-            // Toggle scope switcher below
             AnimatedOpacity(
               opacity: isCompact ? 0.0 : 1.0,
               duration: const Duration(milliseconds: 300),
@@ -510,7 +502,7 @@ class _SearchHeaderBarState extends ConsumerState<SearchHeaderBar> {
                         liveTvFocusNode: widget.liveTvFocusNode,
                         onChanged: (val) {
                           ref.read(searchFilterProvider.notifier).set(val);
-                          // Sync current text to search query instantly on scope switch
+                          // Re-run the current text against the new scope.
                           final text = widget.textController.text.trim();
                           ref.read(searchQueryProvider.notifier).set(text);
                         },

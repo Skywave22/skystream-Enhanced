@@ -8,24 +8,22 @@ import '../widgets/player_stream_widgets.dart';
 
 /// The seek bar for the VLC engine.
 ///
-/// Deliberately thin: it holds only the drag position and the seek latch, and
-/// renders through the shared [PlayerScrubber]. Nothing here decides what the
-/// chrome looks like, so the overlay cannot drift from the shared design —
-/// there is one scrubber implementation and both engines feed it.
+/// Thin by design: it holds only the drag position and the seek latch, and
+/// renders through the shared [PlayerScrubber], so the overlay cannot drift
+/// from the design the other engine gets.
 ///
 /// It listens to the controller directly rather than through Riverpod, so a
 /// position tick rebuilds this widget and nothing above it.
 ///
-/// The latch: when a seek is handed to the engine the controller keeps
-/// publishing the engine's own position (a faked one would poison the resume
-/// point writer), so for up to a snapshot round-trip the thumb would jump back
-/// to where playback *was* and the clock with it. This widget holds the seek
-/// target in its place until the engine has evidently honoured the seek, or
-/// the media stops, or a timeout longer than the controller's stall delay has
-/// passed - so a genuine post-seek stall shows the spinner with the thumb still
-/// on the target, and only then falls back to the truth. Relative D-pad steps
-/// chain from the latched target as a side effect, because the seek bar reads
-/// its start value from what is displayed.
+/// The latch: after a seek the controller keeps publishing the engine's own
+/// position (a faked one would poison the resume point writer), so for up to a
+/// snapshot round-trip the thumb would jump back to where playback was. This
+/// widget holds the seek target in its place until the engine has evidently
+/// honoured the seek, the media stops, or a timeout longer than the
+/// controller's stall delay passes - so a genuine post-seek stall shows the
+/// spinner with the thumb still on the target. Relative D-pad steps chain from
+/// the latched target as a side effect, because the bar reads its start value
+/// from what is displayed.
 class VlcProgressBar extends StatefulWidget {
   const VlcProgressBar({
     required this.controller,
@@ -40,17 +38,17 @@ class VlcProgressBar extends StatefulWidget {
 
   final VlcPlayerController controller;
 
-  /// Ten-foot sizing for the bar the remote actually seeks with - passed
-  /// straight to [PlayerScrubber], which is where the numbers live.
+  /// Ten-foot sizing, passed straight to [PlayerScrubber], where the numbers
+  /// live.
   final bool isTv;
 
   /// Decided by the app from the item and URL, not by the engine.
   ///
   /// libVLC derives its own `isLive` as "no duration and not seekable", which
-  /// is false for any live stream with a DVR window - SUN NXT reports a
-  /// three-hour `timeShiftBufferDepth` and is seekable, so the engine calls it
-  /// VOD and the bar renders a three-hour timeline with an absolute position
-  /// inside it. The app knows better from the manifest and the content type.
+  /// is false for any live stream with a DVR window: those report a
+  /// `timeShiftBufferDepth` and are seekable, so the engine calls them VOD and
+  /// the bar renders an absolute timeline over the shift window. The app knows
+  /// better from the manifest and the content type.
   final bool isLive;
 
   /// Painted as bands on the track so the viewer can see an intro coming.
@@ -60,17 +58,16 @@ class VlcProgressBar extends StatefulWidget {
   /// Called when a drag begins, so the overlay can hold its chrome open.
   final VoidCallback? onSeekStart;
 
-  /// Called with the position handed to the engine, so the overlay can
-  /// restart its hide timer and count its next relative step from the seek
-  /// that just happened rather than from the one it made itself. Fires for a
-  /// pointer release and for the D-pad, whose Left/Right presses are
-  /// coalesced by the seek bar and committed as one seek after the presses
-  /// stop.
+  /// Called with the position handed to the engine, so the overlay can restart
+  /// its hide timer and count its next relative step from the seek that just
+  /// happened rather than from the one it made itself. Fires for a pointer
+  /// release and for a D-pad burst, whose Left/Right presses the bar coalesces
+  /// into one seek.
   ///
   /// Exactly one end follows each [onSeekStart], with a null target when the
-  /// bar gave the seek up instead of committing it - the overlay holds its
-  /// chrome open between the two, and a start with no end pins the bars up
-  /// for the rest of the session.
+  /// bar gave the seek up instead of committing it: the overlay holds its
+  /// chrome open between the two, and a start with no end pins the bars up for
+  /// the rest of the session.
   final void Function(Duration? target)? onSeekEnd;
 
   @override
@@ -102,8 +99,7 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
 
   /// Must exceed [VlcPlayerController.stallIndicatorDelay]: a seek the engine
   /// is slow to honour raises `isStalled` at that delay, and the spinner
-  /// should appear over a thumb that is still on the target. Only after the
-  /// stall is on screen does the thumb fall back to the engine's truth.
+  /// should appear over a thumb that is still on the target.
   Duration get _latchTimeout =>
       widget.controller.stallIndicatorDelay + const Duration(milliseconds: 500);
 
@@ -147,12 +143,13 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
     widget.onSeekEnd?.call(target);
   }
 
-  /// A seek is in flight and this bar has just lost the ability to commit it:
+  /// Reports the end of a seek this bar can no longer commit, and lets the
+  /// frozen thumb go with it.
+  ///
   /// [PlayerScrubber] nulls `onChangeEnd` the frame `canSeek` goes false, so
   /// the end the burst was promised can never arrive from below - which
   /// happens on every failover, recovery and episode advance, where the
-  /// duration drops back to zero under the finger. Report the end here, after
-  /// the frame that noticed, and let the frozen thumb go with it.
+  /// duration drops back to zero under the finger.
   void _abandonSeek() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -185,11 +182,9 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
 
   /// Whether [value] shows the engine has taken the seek: it landed within
   /// tolerance of [target], or it has moved past the target in the direction
-  /// of the seek. Progress ticks that merely continue from [from] - the
-  /// stale read-back before the engine has honoured the seek - hold the
-  /// latch; so does a tick somewhere between origin and target, which after a
-  /// chained backward burst may be the previous seek landing rather than
-  /// this one.
+  /// of the seek. A tick that merely continues from [from], or one somewhere
+  /// between origin and target, holds the latch - after a chained burst that
+  /// may be the previous seek landing rather than this one.
   static bool _seekHonoured(
     VlcPlayerValue value, {
     required Duration target,
@@ -205,9 +200,9 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
   }
 
   /// A latch is only meaningful while the engine may still arrive at the
-  /// target. Paused is fine - a paused seek still lands - but a stopped,
-  /// ended, errored or unloaded engine never will, and neither will one whose
-  /// duration has gone back to zero because the media changed under it.
+  /// target. Paused is fine - a paused seek still lands - but a stopped, ended
+  /// or errored engine never will, and neither will one whose duration has
+  /// gone back to zero because the media changed under it.
   static bool _stillPlayable(VlcPlayerValue value) {
     if (value.duration <= Duration.zero) return false;
     return switch (value.state) {
@@ -247,11 +242,10 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
       builder: (context, value, _) {
         final duration = value.duration;
         final hasDuration = duration > Duration.zero;
-        // Live is a verdict - the app's (item type / URL shape) or the
-        // engine's, which every native computes as playing/paused && no
-        // length && not seekable. A length that has not arrived yet is not a
-        // verdict: seekable media with an unknown duration keeps its scrubber
-        // and shows '--:--' until the engine reports one.
+        // Live is a verdict - the app's or the engine's, which every native
+        // computes as playing/paused && no length && not seekable. A length
+        // that has not arrived yet is not a verdict: seekable media with an
+        // unknown duration keeps its scrubber until the engine reports one.
         final isLive = widget.isLive || value.isLive;
         // Drag, track tap and D-pad steps on the bar need a scale.
         final canSeek = !isLive && value.isSeekable && hasDuration;
@@ -265,8 +259,7 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
           hasDuration: hasDuration,
           // libVLC reports buffering as a 0..100 percentage of the current
           // fill operation, not of the media, and it sits at 100 during steady
-          // playback. Treating that as "buffered ahead" would paint the whole
-          // track, so the buffer band stays empty until there is a real figure.
+          // playback, so the band stays empty until there is a real figure.
           bufferRatio: 0,
           canSeek: canSeek,
           isLive: isLive,

@@ -99,9 +99,6 @@ class AppLocalizationsAs extends AppLocalizations {
   String get seekDuration => 'সিক ডিউৰেচন';
 
   @override
-  String get bufferDepth => 'বাফাৰ ডেপথ';
-
-  @override
   String get defaultResizeMode => 'ডিফল্ট ৰিচাইজ মোড';
 
   @override
@@ -466,9 +463,6 @@ class AppLocalizationsAs extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'সিক ডিউৰেচন বাছক';
-
-  @override
-  String get selectBufferDepth => 'বাফাৰ ডেপথ বাছক';
 
   @override
   String get subtitleSettings => 'চাবটাইটল ছেটিংছ';
@@ -932,6 +926,11 @@ class AppLocalizationsAs extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName ধৰা পৰা নাই। অভ্যন্তৰীণ প্লেয়াৰ আৰম্ভ হৈছে।';
   }
@@ -1203,7 +1202,10 @@ class AppLocalizationsAs extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi গুণগত অগ্ৰাধিকাৰ';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'মবাইল গুণগত অগ্ৰাধিকাৰ';
@@ -1657,4 +1659,18 @@ class AppLocalizationsAs extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'আপোনাৰ কোনো স্ক্ৰেপাৰৰ ওচৰত এই শিৰোনাম নাই।';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

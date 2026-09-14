@@ -5,9 +5,9 @@
 
 // The one copy of this renderer, compiled into both Darwin pods. ios/ and
 // macos/ each carry a symlink to it inside their Sources tree because
-// CocoaPods only globs inside the pod root: a `../darwin/**` entry in
-// source_files matches nothing and says nothing. The embedder header is the
-// only line that differs between the two platforms.
+// CocoaPods only globs inside the pod root, so a `../darwin/**` entry in
+// source_files matches nothing. The embedder header is the only line that
+// differs between the two platforms.
 #if TARGET_OS_OSX
 #import <FlutterMacOS/FlutterMacOS.h>
 #else
@@ -20,11 +20,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// A Flutter texture fed straight out of libVLC into a CVPixelBuffer pool.
 ///
-/// The alternative is a platform view - an AppKitView on macOS, a UiKitView on
-/// iOS - and a platform view forces the embedder to slice every Flutter widget
-/// drawn above the video into its own overlay surface. Rendering the video as
-/// a texture instead puts it back inside the Flutter layer tree, where the
-/// controls above it are just more painting.
+/// The alternative, a platform view, forces the embedder to slice every
+/// Flutter widget drawn above the video into its own overlay surface. A
+/// texture keeps the video inside the Flutter layer tree, where the controls
+/// above it are just more painting.
 ///
 /// Attaching one of these replaces the media player's drawable: a player is
 /// either view-backed or texture-backed, never both.
@@ -52,8 +51,7 @@ NS_ASSUME_NONNULL_BEGIN
 ///
 /// This is the size to hand Flutter for aspect and layout. `VLCMediaPlayer`'s
 /// own `videoSize` is measured from its drawable, and a texture-backed player
-/// has no drawable, so it reports 0 or a stale value - which stretched 1080p
-/// into the wrong box while 4K happened to come back right.
+/// has no drawable, so it reports 0 or a stale value.
 @property(nonatomic, readonly) CGSize codedSize;
 
 /// Stops libVLC calling in and drops every retained frame. Idempotent, and

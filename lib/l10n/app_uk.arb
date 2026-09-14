@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Подвійне натискання для перемотування",
   "swipeToSeek": "Свайп для перемотування",
   "seekDuration": "Тривалість перемотування",
-  "bufferDepth": "Глибина буфера",
   "defaultResizeMode": "Режим масштабування за замовчуванням",
   "hardwareDecoding": "Апаратне декодування",
   "network": "Мережа",
@@ -177,7 +176,6 @@
   "left": "ліворуч",
   "right": "праворуч",
   "selectSeekDuration": "Оберіть тривалість перемотування",
-  "selectBufferDepth": "Оберіть глибину буфера",
   "subtitleSettings": "Налаштування субтитрів",
   "size": "Розмір: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Якість через Wi-Fi",
   "mobileQualityPreference": "Якість через мобільну мережу",
   "anyNoPreference": "Без переваг",
   "subtitleAccounts": "Акаунти субтитрів",

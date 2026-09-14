@@ -1,23 +1,10 @@
-// Audit W25 + W26 — the parts of the Android app that live in XML and Kotlin,
-// where no widget test can reach them.
+// The parts of the Android app that live in XML and Kotlin, where no widget
+// test can reach them.
 //
 // These are source guards, and they are honest about it: they pin the text of
 // the manifest, the two themes, the backup rules and MainActivity, not the
-// behaviour of a device. Each one is here because the defect it describes was
-// found in the tree and would come back silently, with nothing else in the
-// suite noticing:
-//
-//   * the cutout attribute was in values/styles.xml and missing from
-//     values-night/styles.xml, so the same handset showed a different amount
-//     of picture depending on a theme setting;
-//   * the app had no backup rules at all, so the flutter_secure_storage
-//     ciphertext went to Google Drive and came back undecryptable;
-//   * the PiP media-control receiver was registered RECEIVER_EXPORTED under a
-//     bare "media_control" action, which any app on the device could send.
-//
-// Verified on a built APK as well — see the merged manifest and the resource
-// table dumped from app-debug.apk — because a text match is not proof that
-// the resource compiler agreed.
+// behaviour of a device, and a text match is not proof that the resource
+// compiler agreed.
 
 import 'dart:io';
 
@@ -92,8 +79,8 @@ void main() {
     test('secure storage is excluded from backup and device transfer', () {
       // The values file holds the credential ciphertext; the key file holds
       // the AES key wrapped by an Android Keystore key that never leaves the
-      // device, so a restored copy is not merely a leak, it is undecryptable
-      // and produces a silent signed-out state on the new handset.
+      // device, so a restored copy is undecryptable and produces a silent
+      // signed-out state on the new handset.
       const List<String> prefsFiles = <String>[
         'FlutterSecureStorage.xml',
         'FlutterSecureKeyStorage.xml',
@@ -179,9 +166,9 @@ void main() {
   group('picture-in-picture window shape', () {
     test('MainActivity shapes the window from the video size', () {
       // A source guard, not a behavioural one: the aspect ratio only exists on
-      // a device. It is here because the Dart half is pinned by
-      // player_platform_service_test and this is the other end of the same
-      // wire — arguments that arrive and are then dropped would look green.
+      // a device. The Dart half is pinned by player_platform_service_test;
+      // this is the other end of the same wire, where arguments that arrive
+      // and are then dropped would still look green.
       final String source = _read(_mainActivity);
 
       expect(source, contains('builder.setAspectRatio(it)'));

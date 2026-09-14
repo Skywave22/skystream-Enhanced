@@ -1,29 +1,22 @@
-/// Skip Outro, from the screen down: what the press actually does to the
-/// session, and who owns the bottom-right corner while it is happening.
+/// Skip Outro, from the screen down: what the press does to the session, and
+/// which prompt owns the bottom-right corner while it happens.
 ///
-/// The press means "I am done with this episode". Before this it was answered
-/// by seeking *further into* the episode — to the end of the credits band and
-/// no further — which on any encode whose credits end before the file does
-/// leaves the viewer watching a next-episode preview or a logo tail until the
-/// up-next card's own fifteen-second window opens on its own. It now raises
-/// that card at once, through the card the player already has: one countdown,
-/// one advance path, nothing to keep in step.
+/// The press means the viewer is done with the episode, so it raises the
+/// up-next card at once rather than seeking to the end of the credits band,
+/// which on an encode whose credits end before the file does leaves a
+/// next-episode preview or a logo tail playing.
 ///
-/// Two rules hold the rest of it together and both are load-bearing:
+/// The seek still happens, before anything advances, and it lands past the
+/// completion line rather than on the band's end: `PlaybackTracker.finish()`
+/// judges the session from the last sample taken while playing and
+/// `_markedWatched` needs `sample.isComplete`, so an advance issued from
+/// inside an outro that started at 83 % reports a `scrobbleStop` to Trakt and
+/// Simkl where the viewer earned a play.
 ///
-///  * OWNER DECISION 7. The seek happens BEFORE anything advances, and it
-///    lands past the completion line rather than on the band's end.
-///    `PlaybackTracker.finish()` judges the session from the last sample taken
-///    while playing, and `_markedWatched` needs `sample.isComplete` — so an
-///    advance issued from inside an outro that started at 83 % reports a
-///    `scrobbleStop` to Trakt and Simkl where the viewer earned a play, on
-///    accounts this app has no way to correct.
-///  * ONE PROMPT PER CORNER. The chip and the up-next card are both
-///    bottom-right, and the card is a later child of the screen's Stack, so
-///    the chip used to survive underneath it: a tap that lands on the card on
-///    touch, and an invisible D-pad stop inside the card's rectangle on a
-///    remote, for the whole overlap window — which for a typical outro is
-///    every second the card is up.
+/// Only one prompt owns the corner. The chip and the up-next card are both
+/// bottom-right and the card is a later child of the screen's Stack, so a
+/// surviving chip is a tap that lands on the card on touch and an invisible
+/// D-pad stop inside the card's rectangle on a remote.
 library;
 
 import 'package:dio/dio.dart' show Dio;
@@ -44,8 +37,8 @@ import 'package:skystream/l10n/generated/app_localizations.dart';
 import 'fake_vlc_engine.dart';
 import 'vlc_screen_harness.dart';
 
-/// Both segment sources are opt-in and off by default — `QuietSettings` in the
-/// harness says so — so a test that wants a chip at all has to turn one on.
+/// Both segment sources are opt-in and off by default in the harness, so a
+/// test that wants a chip at all has to turn one on.
 class _SkipOn extends SettingsRepository {
   _SkipOn() : super(StorageService());
 
@@ -219,7 +212,6 @@ void main() {
       },
     );
 
-    // OWNER DECISION 7, and the whole reason the seek was not simply deleted.
     testWidgets(
       'and seeks past the completion line first, so the play is not '
       'under-reported',
@@ -284,9 +276,9 @@ void main() {
   });
 
   group('one advance, however the card is summoned', () {
-    // The card's `_settled` latch has a second entry point now. Left open, the
-    // countdown finishing behind an advance that end-of-media had already
-    // started would open two media and skip an episode nobody asked to skip.
+    // The card's `_settled` latch has a second entry point. Left open, a
+    // countdown finishing behind an advance that end-of-media already started
+    // opens two media and skips an episode nobody asked to skip.
     testWidgets(
       'the summoned countdown running out opens exactly one media',
       variant: texturePlatform,
@@ -309,8 +301,8 @@ void main() {
         await settle(tester);
         expect(downloads(), isNotNull, reason: 'the advance started');
 
-        // And the outgoing engine delivers its end of media late, into the
-        // transition - the exact race `_advance` reports `playing` for.
+        // The outgoing engine delivers its end of media late, into the
+        // transition - the race `_advance` reports `playing` for.
         await sendEvent(tester, snapshot(state: 'ended'));
         await settle(tester);
 
@@ -367,12 +359,10 @@ void main() {
       },
     );
 
-    // The asymmetry the new method exists for, and it has two halves.
-    // `_maybeOfferNextEpisode` early-returns on a refusal; the deliberate path
-    // CLEARS it. Left standing, the refusal would veto the press twice over -
-    // once by keeping the card down, and again through owner decision 2, which
-    // holds the advance back at end of media for a declined episode. So the
-    // press has to raise the card AND the episode has to actually follow.
+    // `_maybeOfferNextEpisode` early-returns on a refusal; a deliberate press
+    // clears it instead. Left standing, the refusal would both keep the card
+    // down and hold the advance back at end of media, so the press has to
+    // raise the card AND the episode has to actually follow.
     testWidgets(
       'a refusal in the automatic window does not veto a deliberate press',
       variant: texturePlatform,
@@ -472,11 +462,10 @@ void main() {
       },
     );
 
-    // The remote is very likely sitting ON the chip at the instant it goes -
-    // the press that raised the card is the press that was aimed at it - so
-    // where focus lands is part of the fix. The card owns a FocusScopeNode and
-    // autofocuses Play now; the chip must not have left the remote on the
-    // route scope or the key sink first, where `bare && _isTv &&
+    // The press that raises the card is the press aimed at the chip, so the
+    // remote is on the chip at the instant it goes. The card owns a
+    // FocusScopeNode and autofocuses Play now; the chip must not leave the
+    // remote on the route scope or the key sink, where `bare && _isTv &&
     // _isDirectional` answers every arrow with `handled`.
     testWidgets(
       'the remote follows the card off the chip it was sitting on',

@@ -25,7 +25,6 @@
   "doubleTapToSeek": "더블 탭하여 탐색",
   "swipeToSeek": "스와이프하여 탐색",
   "seekDuration": "탐색 시간",
-  "bufferDepth": "버퍼 깊이",
   "defaultResizeMode": "기본 화면 크기 모드",
   "hardwareDecoding": "하드웨어 디코딩",
   "network": "네트워크",
@@ -177,7 +176,6 @@
   "left": "왼쪽",
   "right": "오른쪽",
   "selectSeekDuration": "탐색 시간 선택",
-  "selectBufferDepth": "버퍼 깊이 선택",
   "subtitleSettings": "자막 설정",
   "size": "크기: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi 화질 설정",
   "mobileQualityPreference": "모바일 데이터 화질 설정",
   "anyNoPreference": "선택 안 함",
   "subtitleAccounts": "자막 계정",

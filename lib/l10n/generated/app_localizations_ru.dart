@@ -99,9 +99,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get seekDuration => 'Длительность перемотки';
 
   @override
-  String get bufferDepth => 'Глубина буфера';
-
-  @override
   String get defaultResizeMode => 'Режим масштабирования по умолчанию';
 
   @override
@@ -472,9 +469,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Выберите длительность перемотки';
-
-  @override
-  String get selectBufferDepth => 'Выберите глубину буфера';
 
   @override
   String get subtitleSettings => 'Настройки субтитров';
@@ -937,6 +931,11 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName не найден.';
   }
@@ -1207,7 +1206,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Качество при Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Качество при мобильной сети';
@@ -1663,4 +1665,18 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Ни у одного из ваших скрейперов нет этого названия.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

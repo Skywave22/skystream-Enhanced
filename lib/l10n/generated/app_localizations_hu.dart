@@ -99,9 +99,6 @@ class AppLocalizationsHu extends AppLocalizations {
   String get seekDuration => 'Keresési időtartam';
 
   @override
-  String get bufferDepth => 'Puffer mélysége';
-
-  @override
   String get defaultResizeMode => 'Alapértelmezett méretezési mód';
 
   @override
@@ -469,9 +466,6 @@ class AppLocalizationsHu extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Keresési időtartam kiválasztása';
-
-  @override
-  String get selectBufferDepth => 'Puffer mélységének kiválasztása';
 
   @override
   String get subtitleSettings => 'Felirat beállításai';
@@ -928,6 +922,11 @@ class AppLocalizationsHu extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName nem található.';
   }
@@ -1196,7 +1195,10 @@ class AppLocalizationsHu extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi minőségi preferencia';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Mobilhálózati minőségi preferencia';
@@ -1650,4 +1652,18 @@ class AppLocalizationsHu extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Egyik scraperében sincs meg ez a cím.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

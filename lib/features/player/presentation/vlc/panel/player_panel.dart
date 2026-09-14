@@ -1,42 +1,29 @@
 /// The player's side panel: Sources, Audio, Subtitles, Episodes and Files in
-/// one right-anchored drawer instead of four bottom sheets.
+/// one right-anchored drawer instead of four bottom sheets. The shape lives in
+/// player_panel_shell.dart.
 ///
-/// A sheet is the wrong container for any of this away from a phone held
-/// upright — see player_panel_shell.dart, which owns the shape — but the reason
-/// they are one panel rather than four is the remote. Four sheets are four
-/// journeys out to a button row and back; a panel with a tab strip is one, and
-/// a viewer comparing a source against its audio tracks never leaves it.
+/// Opening moves focus onto the row that is selected now, not row one. Closing
+/// returns focus to the control that opened the panel, which falls out of the
+/// panel being a route: the scope below keeps its focused child and gets it
+/// back when this one is popped. That is also why the chrome must be held open
+/// while the panel is up - the button focus returns to has to still be there.
+/// Every row is one focus stop ([PanelRow]), the tab strip is ordinary
+/// focusable buttons rather than a scrollable [TabBar], and nothing here
+/// hand-routes an arrow key.
 ///
-/// FOCUS, which is where the sheets it replaces fell down:
+/// Data is live: the screen publishes a [PanelData] through a
+/// `ValueListenable` and the panel rebuilds from it, so a failover, a late
+/// probe or a torrent poll moves the tick, the chips and the badges in place.
+/// The row a list opens on and focuses is decided once, from the value at
+/// open, and a later value never scrolls or refocuses.
 ///
-///   * Opening moves focus onto the row that is selected now, not row one, so
-///     the first press changes something the viewer chose rather than finding
-///     the list.
-///   * Closing returns focus to the control that opened the panel. That falls
-///     out of the panel being a route: the scope below keeps its focused child
-///     and gets it back when this one is popped, which is also why the chrome
-///     must be *held* open while the panel is up — the button focus returns to
-///     has to still be there.
-///   * Every row is one focus stop ([PanelRow]), tab switching is a row of
-///     ordinary focusable buttons rather than a scrollable [TabBar], and
-///     nothing here hand-routes an arrow key.
+/// Every size, inset and text alpha comes from [PlayerPanelMetrics], installed
+/// once here and read off the context by the rows, badges, subheaders and tabs
+/// below. The television ramp is about 1.2x the type, a 48 dp overscan inset
+/// and paddings that make a row and a tab one whole focus target.
 ///
-/// DATA is live and arrives as one value: the screen publishes a [PanelData]
-/// through a `ValueListenable` and the panel rebuilds from it, so a failover,
-/// a late probe or a torrent poll moves the tick, the chips and the badges in
-/// place. The row a list opens on and focuses is decided once, from the value
-/// at open, and a later value never scrolls or refocuses - see
-/// player_panel_data.dart and player_anchored_list.dart.
-///
-/// TEN-FOOT: every size, inset and text alpha in the panel comes from
-/// [PlayerPanelMetrics], installed once here and read off the context by the
-/// rows, badges, subheaders and tabs below. The touch ramp is the literal set
-/// these widgets were written with, so a phone, a tablet and a desktop window
-/// are unchanged; the television ramp is about 1.2x the type, a 48 dp overscan
-/// inset and paddings that make a row and a tab one whole focus target.
-///
-/// COMPOSITING: the panel is drawn over a platform view. It animates in with a
-/// [SlideTransition] — a transform, not a window-sized opacity layer — and its
+/// The panel is drawn over a platform view. It animates in with a
+/// [SlideTransition] - a transform, not a window-sized opacity layer - and its
 /// surface is opaque, with no blur anywhere. The five rules in
 /// vlc_player_controls.dart apply here in full.
 library;
@@ -70,8 +57,7 @@ enum PlayerPanelTab { sources, audio, subtitles, episodes, files }
 /// does not exist.
 ///
 /// Audio and Subtitles are always present: an empty list is still something to
-/// say. One episode is a film with a list around it, and one file in a torrent
-/// is not a pack; neither is a choice, so neither gets a tab.
+/// say. One episode or one file is not a choice, so neither gets a tab.
 Set<PlayerPanelTab> availablePanelTabs({
   required int sourceCount,
   required int episodeCount,
@@ -86,26 +72,22 @@ Set<PlayerPanelTab> availablePanelTabs({
 
 /// Opens the panel over the player and resolves when it closes.
 ///
-/// The future is the whole point of the return type: the caller holds the
-/// chrome open for the life of it (`ChromeVisibilityController.whileHeld`), so
-/// the bars cannot vanish underneath a panel and the control that opened it is
-/// still on screen to take focus back.
+/// The caller holds the chrome open for the life of the future
+/// (`ChromeVisibilityController.whileHeld`), so the bars cannot vanish
+/// underneath a panel and the control that opened it is still on screen to
+/// take focus back.
 ///
-/// [data] is live: the screen publishes a new [PanelData] whenever a probe
-/// answers, a failover moves the tick or a torrent poll lists another file,
-/// and the panel follows without being reopened. See player_panel_data.dart
-/// for what it carries and why the callbacks are not in it.
+/// [data] is live: the panel follows a new [PanelData] without being reopened.
 ///
 /// [onOpened] hands back the panel's own context so the screen can register it
-/// with its one guarded Back path — on a television Back arrives both as a
-/// route pop and as a key event, and without a single owner one press can close
-/// the panel and leave playback in the same frame.
+/// with its one guarded Back path. On a television Back arrives both as a
+/// route pop and as a key event, and without a single owner one press can
+/// close the panel and leave playback in the same frame.
 ///
 /// [episodeProgress] is how the Episodes tab knows which episodes have been
 /// seen. It is a function rather than data because the panel has no
 /// `ProviderScope` to read the repositories from and because the answer must
-/// not be computed for rows nobody scrolled to - see
-/// [EpisodeProgressLookup]. Omitted, the tab looks exactly as it did before.
+/// not be computed for rows nobody scrolled to.
 Future<void> showPlayerPanel(
   BuildContext context, {
   required VlcPlayerController controller,
@@ -227,8 +209,8 @@ class PlayerPanel extends StatefulWidget {
   final VoidCallback onClose;
   final bool isTv;
 
-  /// Whether a row should take focus as the panel opens. False on touch, where
-  /// a focus ring nobody asked for is just a mark on the screen.
+  /// Whether a row takes focus as the panel opens. False on touch, where a
+  /// focus ring nobody asked for is just a mark on the screen.
   final bool focusOnOpen;
 
   final ValueChanged<int>? onPickSource;
@@ -246,9 +228,9 @@ class PlayerPanel extends StatefulWidget {
 
 class _PlayerPanelState extends State<PlayerPanel> {
   /// The data as it stood when the panel opened. The row each list opens on
-  /// and focuses is decided from this and never revisited: a failover or a
-  /// torrent poll after open ticks a different row, it does not scroll the
-  /// list or move focus under the viewer's thumb.
+  /// and focuses is decided from this and never revisited, so a failover or a
+  /// torrent poll after open ticks a different row rather than scrolling the
+  /// list or moving focus.
   late final PanelData _opened = widget.data.value;
 
   /// The tab the viewer is on - the one they opened, or the one they picked.
@@ -262,26 +244,22 @@ class _PlayerPanelState extends State<PlayerPanel> {
 
   late Future<_PanelTracks> _tracks;
 
-  /// The engine's track revision the list was last read under. The engine
-  /// owns both the list and the selection: the tick and the focused row are
-  /// read off `controller.value` inside the tab, and when this revision moves
-  /// - a side-car landing after the panel opened, a stream announcing its
-  /// audio late - the list is re-read here without a Retry. There is no
-  /// selection state in the panel at all.
+  /// The engine's track revision the list was last read under. The engine owns
+  /// both the list and the selection, so when the revision moves - a side-car
+  /// landing after the panel opened, a stream announcing its audio late - the
+  /// list is re-read here without a Retry. The panel holds no selection state.
   late int _seenRevision;
 
   /// Whether the viewer has switched tab. Only the tab the panel opened on
   /// autofocuses a row: after a switch, focus belongs on the tab button that
-  /// was just pressed, and dragging it into the new list would strand a remote
-  /// one press away from the strip it came from.
+  /// was just pressed.
   bool _switchedTab = false;
 
   /// Whether the track list has been re-read since the last tab switch. A
-  /// reload - Retry, or the engine's revision moving - swaps the Future and
-  /// the spinner unmounts every row, the focused one included, so focus falls
-  /// back to the route scope - and on a switched-to tab nothing would claim it
-  /// again. A reload while the viewer is in the list means the rows may
-  /// autofocus once more, and the active row is where they land.
+  /// reload swaps the Future and the spinner unmounts every row, the focused
+  /// one included, so on a switched-to tab nothing would claim focus again;
+  /// after a reload the rows may autofocus once more, landing on the active
+  /// row.
   bool _reloadedSinceSwitch = false;
 
   @override
@@ -312,8 +290,8 @@ class _PlayerPanelState extends State<PlayerPanel> {
     super.dispose();
   }
 
-  /// Every controller notification, most of them position ticks. Only a
-  /// moved revision does anything: the tick itself is the tab's business.
+  /// Every controller notification, most of them position ticks. Only a moved
+  /// revision does anything: the tick itself is the tab's business.
   void _onEngine() {
     final revision = widget.controller.value.trackRevision;
     if (revision == _seenRevision || !mounted) return;
@@ -321,8 +299,8 @@ class _PlayerPanelState extends State<PlayerPanel> {
     _reloadTracks();
   }
 
-  /// Asked for at the moment the viewer wants to see them, which is the only
-  /// point at which the answer is both needed and reliable.
+  /// Read when the viewer asks for them, the only point at which the engine's
+  /// answer is reliable.
   Future<_PanelTracks> _loadTracks() async {
     final audio = await widget.controller.getAudioTracks();
     final subtitle = await widget.controller.getSubtitleTracks();
@@ -336,13 +314,12 @@ class _PlayerPanelState extends State<PlayerPanel> {
     return _PanelTracks(audio: audio, subtitle: subtitle, info: info);
   }
 
-  /// Re-reads the lists, from Retry or from the engine's revision moving.
-  /// Either way the rows remount and re-anchor on the active one - see
-  /// [_reloadedSinceSwitch].
+  /// Re-reads the lists, from Retry or from the engine's revision moving. The
+  /// rows remount and re-anchor on the active one.
   void _reloadTracks() {
     // Block body on purpose: `=> setState(() => _tracks = _loadTracks())`
-    // returns the assigned Future out of the callback, which trips
-    // setState's own assertion before it ever calls markNeedsBuild.
+    // returns the assigned Future out of the callback, which trips setState's
+    // own assertion before it ever calls markNeedsBuild.
     setState(() {
       _tracks = _loadTracks();
       _reloadedSinceSwitch = true;
@@ -357,11 +334,10 @@ class _PlayerPanelState extends State<PlayerPanel> {
   }
 
   void _select(PlayerPanelTab tab) {
-    // Both, not just [_shown]: while live data has substituted a tab, the tab
-    // on screen is not the one that would come back, and pressing it is the
-    // viewer saying "this one". Returning early there would leave [_tab] on
-    // the vanished tab, and the panel would switch itself back the moment the
-    // data returned - moving focus with it on a remote.
+    // Both, not just [_shown]: while live data has substituted a tab, pressing
+    // the tab on screen is the viewer choosing it. Returning early would leave
+    // [_tab] on the vanished tab, and the panel would switch itself back the
+    // moment the data returned.
     if (tab == _tab && tab == _shown) return;
     setState(() {
       _tab = tab;
@@ -378,15 +354,14 @@ class _PlayerPanelState extends State<PlayerPanel> {
       MediaQuery.sizeOf(context),
       isTv: widget.isTv,
     );
-    // The panel's own type scale, insets and text alphas. Installed once,
-    // here, because the panel is a PopupRoute and inherits nothing from the
-    // screen's tree; everything below - rows, badges, subheaders, the tab
-    // strip - reads it off the context rather than taking a parameter.
+    // The panel is a PopupRoute and inherits nothing from the screen's tree,
+    // so its type scale, insets and text alphas are installed once here and
+    // everything below reads them off the context.
     final metrics = PlayerPanelMetrics.forTv(widget.isTv);
 
     return Actions(
       actions: <Type, Action<Intent>>{
-        // Escape, from a desktop keyboard. Back is deliberately NOT handled
+        // Escape, from a desktop keyboard. Back is deliberately not handled
         // here: on Android it arrives as a route pop the Navigator already
         // owns, and taking it twice would close the panel and the player.
         DismissIntent: CallbackAction<DismissIntent>(
@@ -415,11 +390,10 @@ class _PlayerPanelState extends State<PlayerPanel> {
                 // build.
                 final shown = tabs.contains(_tab) ? _tab : tabs.first;
                 if (shown != _shown) {
-                  // The data, not the viewer, changed what is on screen - the
-                  // tab under them vanished, or came back. The rows they were
-                  // on are gone either way, so the remount is a fresh open, not
-                  // a switch: on a remote the new list must take focus or
-                  // nothing in the panel holds it.
+                  // The data, not the viewer, changed what is on screen. The
+                  // rows are gone either way, so the remount is a fresh open
+                  // rather than a switch: on a remote the new list must take
+                  // focus or nothing in the panel holds it.
                   _shown = shown;
                   _switchedTab = false;
                   _reloadedSinceSwitch = false;
@@ -431,10 +405,9 @@ class _PlayerPanelState extends State<PlayerPanel> {
                     Divider(height: 1, thickness: 1, color: metrics.divider),
                     Expanded(
                       // A key per tab so switching gives the new list a fresh
-                      // viewport rather than the previous tab's scroll offset -
-                      // and, across data rebuilds of the same tab, the same
-                      // element, so the list's scroll position, its one-shot
-                      // centring and every row's focus node survive.
+                      // viewport rather than the previous tab's scroll offset,
+                      // and the same element across data rebuilds of one tab so
+                      // scroll position, centring and row focus survive.
                       child: KeyedSubtree(
                         key: ValueKey<PlayerPanelTab>(shown),
                         child: _body(l10n, data, shown),
@@ -456,18 +429,10 @@ class _PlayerPanelState extends State<PlayerPanel> {
   ///
   /// The tabs sit in a [Wrap], not in a row of [Expanded]s. Five equal columns
   /// of a drawer give each tab about 62 dp of text, which ellipsises
-  /// `Subtitles` in English and cannot begin to hold
-  /// `ಉಪಶೀರ್ಷಿಕೆಗಳು` or `उपशीर्षक` — and a tab strip whose labels
-  /// are cut off is a strip a viewer has to guess at. Intrinsically-sized tabs
-  /// take the width their word needs and fall onto a second line when the
-  /// words run out of room. This is still one focus stop per tab and still no
-  /// [Scrollable], so directional traversal walks the rows natively and the
-  /// remote never has to scroll a strip it cannot see the end of.
-  ///
-  /// What the [Wrap] took away, and [PlayerPanelMetrics.tabMinWidth] gives
-  /// back, is the floor the five [Expanded]s used to provide for free: a tab
-  /// is as wide as its word, and `Files` at the touch ramp's 13 sp is 37 dp of
-  /// Roboto - half a thumb - with the next tab 4 dp away.
+  /// `Subtitles` in English and cannot hold the Hindi or Kannada labels at
+  /// all. Intrinsically-sized tabs take the width their word needs and fall
+  /// onto a second line when the words run out of room, still one focus stop
+  /// per tab and still no [Scrollable].
   Widget _header(
     AppLocalizations l10n,
     List<PlayerPanelTab> tabs,
@@ -544,8 +509,8 @@ class _PlayerPanelState extends State<PlayerPanel> {
         );
       case PlayerPanelTab.audio:
       case PlayerPanelTab.subtitles:
-        // A reload re-reads the list and unmounts every row on the way, so on
-        // a switched-to tab it may autofocus again - see [_reloadedSinceSwitch].
+        // A reload unmounts every row, so on a switched-to tab the list may
+        // autofocus again.
         return _tracksTab(
           l10n,
           data,
@@ -569,7 +534,7 @@ class _PlayerPanelState extends State<PlayerPanel> {
         return PlayerFilesTab(
           files: data.files,
           currentIndex: data.currentFileIndex,
-          // A server id, like currentIndex. No file was playing at open: an
+          // A server id, like currentIndex. No file playing at open means an
           // id no file has, which the tab reads as "the first row".
           anchorIndex: _opened.currentFileIndex ?? -1,
           autofocus: autofocus,
@@ -613,8 +578,6 @@ class _PlayerPanelState extends State<PlayerPanel> {
               : tracks.info?.subtitleTracks ?? const <VlcMediaTrackInfo>[],
           target: data.subtitleTarget,
           isTv: widget.isTv,
-          // Focus can only be placed once the list it lands in exists, and
-          // these arrive a frame or two after the panel does.
           autofocus: autofocus,
           onTracksChanged: _reloadTracks,
         );
@@ -684,10 +647,9 @@ class _PanelTabButtonState extends State<_PanelTabButton> {
             behavior: HitTestBehavior.opaque,
             onTap: widget.onPressed,
             // A floor on the width, because a Wrap gives a tab exactly the
-            // width of its word: `Files` is 37 dp of Roboto at the touch
-            // ramp's 13 sp, and three of those 4 dp apart is a mis-tap, not a
-            // tab strip. The height was already one target; this is the other
-            // axis. The label stays centred in whatever the floor gives it.
+            // width of its word: `Files` is 37 dp of Roboto at the touch ramp's
+            // 13 sp, and three of those 4 dp apart is a mis-tap rather than a
+            // tab strip.
             child: ConstrainedBox(
               constraints: BoxConstraints(minWidth: metrics.tabMinWidth),
               child: AnimatedContainer(

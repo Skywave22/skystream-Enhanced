@@ -1,19 +1,15 @@
 /// Translating HTTP request headers into what libVLC can actually transmit.
 ///
-/// libVLC 3.x has **no general mechanism for per-request HTTP headers**. Its
-/// HTTP access module exposes exactly two as options — `http-user-agent` and
-/// `http-referrer` — and nothing else. There is no `http-header` option; the
-/// name appears in no VLC 3.x build. Passing one produces a libvlccore warning
-/// ("unknown option") that `--quiet` suppresses, and the header is dropped.
+/// libVLC 3.x has no general mechanism for per-request HTTP headers. Its HTTP
+/// access module exposes exactly two as options — `http-user-agent` and
+/// `http-referrer` — and nothing else. There is no `http-header` option;
+/// passing one produces a libvlccore "unknown option" warning that `--quiet`
+/// suppresses, and the header is dropped silently, so a caller can hand over a
+/// correct header map, see no error, and watch the server answer 403.
 ///
-/// This matters because it is silent. A caller can hand over a complete and
-/// correct header map, see no error, and watch the server answer 403 because
-/// the request went out bare. Everything here exists to make that failure
-/// visible and to deliver the two headers that can be delivered.
-///
-/// For `Cookie`, `Authorization`, `Origin` and everything else, there is no
+/// For `Cookie`, `Authorization`, `Origin` and everything else there is no
 /// option to translate to. The host application has to solve it above this
-/// package — usually by proxying the media through a local server that injects
+/// package, usually by proxying the media through a local server that injects
 /// the headers itself. [unsupportedVlcHeaders] tells it when that is needed.
 library;
 

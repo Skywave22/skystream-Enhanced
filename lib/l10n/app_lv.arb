@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Dubultskāriens, lai meklētu",
   "swipeToSeek": "Pārvilkt, lai meklētu",
   "seekDuration": "Meklēšanas ilgums",
-  "bufferDepth": "Bufera dziļums",
   "defaultResizeMode": "Noklusējuma izmēru maiņas režīms",
   "hardwareDecoding": "Aparatūras dekodēšana",
   "network": "Tīkls",
@@ -177,7 +176,6 @@
   "left": "kreiso",
   "right": "labo",
   "selectSeekDuration": "Izvēlēties meklēšanas ilgumu",
-  "selectBufferDepth": "Izvēlēties bufera dziļumu",
   "subtitleSettings": "Subtitru iestatījumi",
   "size": "Izmērs: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi kvalitātes preference",
   "mobileQualityPreference": "Mobilo datu kvalitātes preference",
   "anyNoPreference": "Jebkura (bez preferences)",
   "subtitleAccounts": "Subtitru konti",

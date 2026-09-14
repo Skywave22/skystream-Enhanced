@@ -99,9 +99,6 @@ class AppLocalizationsHe extends AppLocalizations {
   String get seekDuration => 'משך חיפוש';
 
   @override
-  String get bufferDepth => 'עומק באפר';
-
-  @override
   String get defaultResizeMode => 'מצב שינוי גודל ברירת מחדל';
 
   @override
@@ -464,9 +461,6 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'בחר משך חיפוש';
-
-  @override
-  String get selectBufferDepth => 'בחר עומק באפר';
 
   @override
   String get subtitleSettings => 'הגדרות כתוביות';
@@ -915,6 +909,11 @@ class AppLocalizationsHe extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName לא נמצא.';
   }
@@ -1182,7 +1181,10 @@ class AppLocalizationsHe extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'העדפת איכות Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'העדפת איכות נתונים ניידים';
@@ -1636,4 +1638,18 @@ class AppLocalizationsHe extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'לאף אחד מהסקרייפרים שלך אין את הכותר הזה.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

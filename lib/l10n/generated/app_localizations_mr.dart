@@ -99,9 +99,6 @@ class AppLocalizationsMr extends AppLocalizations {
   String get seekDuration => 'शोध कालावधी';
 
   @override
-  String get bufferDepth => 'बफर डेप्थ';
-
-  @override
   String get defaultResizeMode => 'डीफॉल्ट रिसाइझ मोड';
 
   @override
@@ -465,9 +462,6 @@ class AppLocalizationsMr extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'शोध कालावधी निवडा';
-
-  @override
-  String get selectBufferDepth => 'बफर डेप्थ निवडा';
 
   @override
   String get subtitleSettings => 'उपशीर्षक (Subtitle) सेटिंग्ज';
@@ -933,6 +927,11 @@ class AppLocalizationsMr extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName आढळला नाही. अंतर्गत प्लेअर सुरू होत आहे.';
   }
@@ -1196,7 +1195,10 @@ class AppLocalizationsMr extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'वाय-फाय गुणवत्ता प्राधान्य';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'मोबाईल गुणवत्ता प्राधान्य';
@@ -1651,4 +1653,18 @@ class AppLocalizationsMr extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'तुमच्या कोणत्याही स्क्रॅपरकडे हे शीर्षक नाही.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

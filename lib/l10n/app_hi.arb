@@ -25,7 +25,6 @@
   "doubleTapToSeek": "सीक करने के लिए डबल टैप करें",
   "swipeToSeek": "सीक करने के लिए स्वाइप करें",
   "seekDuration": "सीक अवधि",
-  "bufferDepth": "बफर डेप्थ",
   "defaultResizeMode": "डिफ़ॉल्ट रिसाइज मोड",
   "hardwareDecoding": "हार्डवेयर डिकोडिंग",
   "network": "नेटवर्क",
@@ -129,7 +128,6 @@
   "left": "बायां",
   "right": "दायां",
   "selectSeekDuration": "सीक अवधि चुनें",
-  "selectBufferDepth": "बफर डेप्थ चुनें",
   "subtitleSettings": "उपशीर्षಕ सेटिंग्स",
   "size": "आकार: {size}",
   "background": "पृष्ठभूमि",
@@ -257,6 +255,7 @@
   "sourceWithParam": "स्रोत: {source}",
   "sizeWithParam": "आकार: {size}",
   "usingInternalPlayerError": "त्रुटि: {error}। आंतरिक प्लेयर का उपयोग किया जा रहा है।",
+  "externalPlayerCannotSendHeaders": "{playerName} {headers} नहीं भेज सकता। आंतरिक प्लेयर का उपयोग किया जा रहा है।",
   "playerNotDetected": "{playerName} का पता नहीं चला। आंतरिक प्लेयर शुरू हो रहा है।",
   "seasonWithEpisodes": "सीजन {number} ({count} एपिसोड)",
   "cloudflare": "क्लाउडफ़्लेयर",
@@ -353,7 +352,8 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi गुणवत्ता प्राथमिकता",
+  "unmeteredQualityPreference": "Wi-Fi और वायर्ड गुणवत्ता प्राथमिकता",
+  "playerNotOnThisDevice": "इस डिवाइस पर उपलब्ध नहीं",
   "mobileQualityPreference": "मोबाइल गुणवत्ता प्राथमिकता",
   "anyNoPreference": "कोई भी (कोई प्राथमिकता नहीं)",
   "subtitleAccounts": "उपशीर्षक खाते",
@@ -467,5 +467,9 @@
   "sourcesEmptyNoScrapers": "कोई स्क्रैपर चालू नहीं है। 'Nuvio Plugins' में एक जोड़ें।",
   "sourcesEmptyAllFailed": "सभी स्क्रैपर विफल रहे। अपना कनेक्शन जाँचें या स्क्रैपर अपडेट करें।",
   "sourcesEmptySomeFailed": "कोई लिंक नहीं मिला। {total} में से {failed} स्क्रैपर विफल रहे।",
-  "sourcesEmptyNothingFound": "आपके किसी भी स्क्रैपर के पास यह टाइटल नहीं है।"
+  "sourcesEmptyNothingFound": "आपके किसी भी स्क्रैपर के पास यह टाइटल नहीं है।",
+  "subtitleDefault": "डिफ़ॉल्ट रूप से उपशीर्षक",
+  "subtitleDefaultAuto": "स्वतः",
+  "subtitleDefaultAutoDetail": "वीडियो उसी उपशीर्षक के साथ शुरू होता है जो उसका स्रोत चुनता है; स्रोत में उपलब्ध होने पर आपकी उपशीर्षक भाषा को प्राथमिकता दी जाती है।",
+  "subtitleDefaultOffDetail": "वीडियो बिना किसी उपशीर्षक के शुरू होता है। आप प्लेयर के उपशीर्षक मेन्यू से इसे कभी भी चालू कर सकते हैं।"
 }

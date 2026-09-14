@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Dubbeltikken om te spoelen",
   "swipeToSeek": "Vegen om te spoelen",
   "seekDuration": "Spoelduur",
-  "bufferDepth": "Bufferdiepte",
   "defaultResizeMode": "Standaard weergavemodus",
   "hardwareDecoding": "Hardwaredecodering",
   "network": "Netwerk",
@@ -177,7 +176,6 @@
   "left": "links",
   "right": "rechts",
   "selectSeekDuration": "Selecteer spoelduur",
-  "selectBufferDepth": "Selecteer bufferdiepte",
   "subtitleSettings": "Ondertitelinstellingen",
   "size": "Grootte: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Kwaliteitsvoorkeur voor wifi",
   "mobileQualityPreference": "Kwaliteitsvoorkeur voor mobiel netwerk",
   "anyNoPreference": "Geen voorkeur",
   "subtitleAccounts": "Ondertitelaccounts",

@@ -25,7 +25,6 @@
   "doubleTapToSeek": "शोधण्यासाठी दोनदा टॅप करा",
   "swipeToSeek": "शोधण्यासाठी स्वाइप करा",
   "seekDuration": "शोध कालावधी",
-  "bufferDepth": "बफर डेप्थ",
   "defaultResizeMode": "डीफॉल्ट रिसाइझ मोड",
   "hardwareDecoding": "हार्डवेअर डिकोडिंग",
   "network": "नेटवर्क",
@@ -177,7 +176,6 @@
   "left": "डावी",
   "right": "उजवी",
   "selectSeekDuration": "शोध कालावधी निवडा",
-  "selectBufferDepth": "बफर डेप्थ निवडा",
   "subtitleSettings": "उपशीर्षक (Subtitle) सेटिंग्ज",
   "size": "आकार: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "वाय-फाय गुणवत्ता प्राधान्य",
   "mobileQualityPreference": "मोबाईल गुणवत्ता प्राधान्य",
   "anyNoPreference": "काहीही प्राधान्य नाही",
   "subtitleAccounts": "उपशीर्षक खाती",

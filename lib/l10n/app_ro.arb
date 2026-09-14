@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Atingere dublă pentru derulare",
   "swipeToSeek": "Glisare pentru derulare",
   "seekDuration": "Durata derulării",
-  "bufferDepth": "Adâncimea bufferului",
   "defaultResizeMode": "Mod de redimensionare implicit",
   "hardwareDecoding": "Decodare hardware",
   "network": "Rețea",
@@ -177,7 +176,6 @@
   "left": "Stânga",
   "right": "Dreapta",
   "selectSeekDuration": "Selectează durata derulării",
-  "selectBufferDepth": "Selectează adâncimea bufferului",
   "subtitleSettings": "Setări subtitrări",
   "size": "Dimensiune: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Preferință calitate Wi-Fi",
   "mobileQualityPreference": "Preferință calitate mobilă",
   "anyNoPreference": "Fără preferință",
   "subtitleAccounts": "Conturi de subtitrări",

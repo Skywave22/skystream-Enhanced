@@ -1,24 +1,12 @@
 /// Turning a `PlayerRouteExtra` into something an engine can actually open.
 ///
-/// This exists because `PlayerRouteExtra.videoUrl` is **not a URL**. It is an
-/// opaque token handed to the active plugin's `loadStreams()`, and plugins are
-/// free to put anything in it — an episode page, a `tmdb:` id, or a JSON array
-/// of candidate sources. Phase 5's VlcPlayerScreen assumed it was a URI and
-/// called `Uri.parse` on it, which threw a FormatException the first time a
-/// real plugin stream was played:
+/// `PlayerRouteExtra.videoUrl` is not a URL. It is an opaque token handed to
+/// the active plugin's `loadStreams()`, and plugins are free to put anything
+/// in it — an episode page, a `tmdb:` id, or a JSON array of candidate
+/// sources — so it must never be handed to `Uri.parse`.
 ///
-///     [{"source":"https://…","quality":"480p"},{"source":…}]
-///
-/// Resolution is entirely engine-agnostic — it ends at a [StreamResult], and
-/// nothing here knows or cares which engine opens it.
-/// So it lives here rather than in either player, and both can share it.
-///
-/// The old PlayerController still has its own private copies of these steps
-/// (`_handleSpecialProviders`, `_resolveProvider`, `_processStreams`,
-/// `_findSavedStreamIndex`, `_findFirstWorkingStream`,
-/// `_isStreamCandidateHealthy`). They are deliberately left alone: that
-/// controller is deleted in Phase 8, and refactoring 5,000 lines of shipping
-/// playback mid-migration buys nothing that deleting it will not.
+/// Resolution is engine-agnostic: it ends at a [StreamResult] and nothing here
+/// knows which engine opens it, so both players share this.
 library;
 
 import 'dart:async';
@@ -84,17 +72,12 @@ Map<String, String> playbackHeaders(StreamResult stream) {
 
 /// Turns a resolved candidate into a URL an engine can actually open.
 ///
-/// Only torrents need work: a `magnet:` link or a `.torrent` is not something
-/// any player opens directly. The torrent service downloads and seeds it, then
-/// serves it over loopback HTTP, and the engine plays that.
+/// Only torrents need work: the torrent service downloads and seeds a
+/// `magnet:` link or a `.torrent`, then serves it over loopback HTTP, and the
+/// engine plays that. The loopback hop means no headers are involved.
 ///
-/// Engine-agnostic like the rest of this file - the result is a plain URL, and
-/// the loopback hop means no headers are involved. Lifted out of
-/// `PlayerController._resolveStreamUrl` so both engines share one
-/// implementation rather than the VLC path growing a second copy.
-///
-/// Returns null when the torrent could not be prepared, which the caller should
-/// surface rather than pass to the engine.
+/// Returns null when the torrent could not be prepared, which the caller
+/// should surface rather than pass to the engine.
 Future<String?> playableUrlFor({
   required ProviderReader read,
   required StreamResult stream,
@@ -135,18 +118,16 @@ final RegExp _liveUrlShapes = RegExp(
 
 /// Whether this source should be treated as live.
 ///
-/// Mirrors the old controller's `_isLiveStream`: the item's own content type
-/// wins, then the URL scheme, then the URL's shape. Torrents and local files
-/// are always VOD however they are labelled.
+/// The item's own content type wins, then the URL scheme, then the URL's
+/// shape. Torrents and local files are always VOD however they are labelled.
+/// Decided from data both engines can see rather than from an engine report,
+/// because liveness changes buffering, seeking, progress writing and what
+/// end-of-media means.
 ///
 /// The URL-shape pass matters because plugins routinely hand back an IPTV feed
 /// typed as `movie`. Without it that stream gets VOD caching instead of
 /// `:live-caching`, writes progress against a duration that means nothing, and
 /// on a drop takes the end-of-media branch instead of reconnecting.
-///
-/// Liveness changes buffering, seeking, progress writing and what end-of-media
-/// means, so it is decided once from data both engines can see rather than
-/// waiting for the engine to report it.
 bool isLiveSource(MultimediaItem item, String url) {
   if (url.isEmpty) return item.contentType == MultimediaContentType.livestream;
   final lower = url.toLowerCase();
@@ -169,9 +150,8 @@ bool isLiveSource(MultimediaItem item, String url) {
 
 /// Why resolution gave up, as a code the UI can localize.
 ///
-/// Resolution runs with no BuildContext — it is called from the screen's
-/// initState chain and from tests — so it cannot produce a translated string
-/// itself. It names the failure instead and [describeStreamFailure] renders it.
+/// Resolution runs with no BuildContext, so it names the failure and
+/// [describeStreamFailure] renders it.
 enum StreamResolutionFailure {
   noProvider,
   nothingToPlay,
@@ -189,10 +169,10 @@ class StreamResolutionException implements Exception {
   /// The underlying error text, when there is one worth passing on.
   final String? detail;
 
-  /// The developer-facing form: what lands in logs and `toString()`. Derived
-  /// from [failure] rather than passed in, so a diagnostic can never describe
-  /// a different failure from the one the viewer is shown. English on purpose
-  /// — [describeStreamFailure] is what the viewer sees.
+  /// The developer-facing form, for logs and `toString()`. Derived from
+  /// [failure] so a diagnostic can never describe a different failure from the
+  /// one the viewer is shown. English on purpose; [describeStreamFailure] is
+  /// what the viewer sees.
   String get message => switch (failure) {
     StreamResolutionFailure.noProvider => 'No provider selected.',
     StreamResolutionFailure.nothingToPlay => 'Nothing to play.',
@@ -222,31 +202,28 @@ String describeStreamFailure(
 /// Where one candidate's health probe has got to.
 ///
 /// [trying] is reported when the probe is dispatched rather than when it
-/// answers, because the probe is a parallel race and "which of these are we
-/// waiting on" is the only question a viewer staring at a spinner has.
+/// answers, because the probes run as a parallel race.
 enum ProbeOutcome { trying, healthy, unhealthy }
 
 /// Resolves [videoUrl] for [item] into playable streams.
 ///
-/// [preloadedStreams] short-circuits the plugin call — the source sheets
-/// aggregate across plugins before navigating and pass the result through.
+/// [preloadedStreams] short-circuits the plugin call, for callers that have
+/// already aggregated sources across plugins. It is taken as given — neither
+/// re-sorted, re-filtered nor overridden by watch history — so its first entry
+/// is what opens.
 ///
 /// [probeCandidates] health-checks that many of the top candidates in parallel
 /// and returns the first healthy one, so a dead link fails over before the
-/// engine ever sees it instead of spinning on a connect timeout. Pass 0 to
-/// skip probing.
+/// engine spins on a connect timeout. Pass 0 to skip probing.
 ///
-/// Resolution is otherwise a single Future that answers once, which left the
-/// UI with nothing to say for however long the plugin call and the probe took.
-/// [onCandidates] fires as soon as the ordered list exists — indices in every
-/// later report and in [ResolvedPlayback] are indices into exactly that list —
-/// and [onProbe] fires for each candidate as it is dispatched and again as it
-/// settles. Both are optional and neither changes what is resolved.
+/// [onCandidates] fires as soon as the ordered list exists; indices in every
+/// later report and in [ResolvedPlayback] are indices into that list.
+/// [onProbe] fires for each candidate as it is dispatched and again as it
+/// settles. Neither changes what is resolved.
 ///
-/// [stopProbing] is the viewer saying "stop waiting": completing it ends the
-/// race early with the best answer the probes have actually produced, which is
-/// the preferred candidate when they have produced none. Distinct from
-/// [isCancelled], which abandons resolution altogether.
+/// Completing [stopProbing] ends the race early with the best answer the
+/// probes have produced, or the preferred candidate when they have produced
+/// none. Distinct from [isCancelled], which abandons resolution altogether.
 Future<ResolvedPlayback> resolvePlayback({
   required ProviderReader read,
   required MultimediaItem item,
@@ -276,8 +253,12 @@ Future<ResolvedPlayback> resolvePlayback({
     );
   }
 
+  // A list handed in is a choice the viewer already made: the sheets put the
+  // tapped source first and have ranked the rest themselves.
+  final handPicked = preloaded.isNotEmpty;
+
   List<StreamResult> raw;
-  if (preloaded.isNotEmpty) {
+  if (handPicked) {
     raw = preloaded;
   } else {
     try {
@@ -296,9 +277,11 @@ Future<ResolvedPlayback> resolvePlayback({
     throw const StreamResolutionException(StreamResolutionFailure.noStreams);
   }
 
+  // Ranking that list again opens a source nobody picked, and a filter can
+  // drop the picked one out of it altogether.
   var didFallback = false;
   final settings = await _playerSettings(read);
-  final streams = settings == null
+  final streams = handPicked || settings == null
       ? raw
       : await _byQuality(raw, settings, (v) => didFallback = v);
   if (streams.isEmpty) {
@@ -306,7 +289,7 @@ Future<ResolvedPlayback> resolvePlayback({
   }
   onCandidates?.call(streams);
 
-  final saved = _savedStreamIndex(read, item, streams);
+  final saved = handPicked ? 0 : _savedStreamIndex(read, item, streams);
   final index = probeCandidates <= 1
       ? saved
       : await _firstHealthyStream(
@@ -372,16 +355,24 @@ Future<PlayerSettings?> _playerSettings(ProviderReader read) async {
   }
 }
 
-/// Wi-Fi → wifiQuality, mobile → mobileQuality. If the filter leaves nothing it
-/// is dropped rather than failing playback, and [onFallback] reports that.
+/// Metered link → mobileQuality, unmetered → wifiQuality. If the filter leaves
+/// nothing it is dropped rather than failing playback, and [onFallback] reports
+/// that.
+///
+/// Asked once, when playback is resolved, and deliberately not re-asked on a
+/// handover: the candidate order is also what failover walks, and the walk
+/// records which indices it has tried, so re-sorting mid-session would make
+/// that record point at different sources. A viewer who leaves Wi-Fi keeps the
+/// rendition they are watching until something else reopens the media, which
+/// is the same answer every other player gives.
 Future<List<StreamResult>> _byQuality(
   List<StreamResult> streams,
   PlayerSettings settings,
   void Function(bool) onFallback,
 ) async {
-  final preference = await isOnWifi()
-      ? settings.wifiQuality
-      : settings.mobileQuality;
+  final preference = await isOnMeteredNetwork()
+      ? settings.mobileQuality
+      : settings.wifiQuality;
   final filtered = filterStreamsByQuality(
     streams,
     preference,

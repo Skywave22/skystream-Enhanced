@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Chạm hai lần để tua",
   "swipeToSeek": "Vuốt để tua",
   "seekDuration": "Thời gian tua",
-  "bufferDepth": "Độ sâu bộ đệm",
   "defaultResizeMode": "Chế độ thu phóng mặc định",
   "hardwareDecoding": "Giải mã phần cứng",
   "network": "Mạng",
@@ -177,7 +176,6 @@
   "left": "trái",
   "right": "phải",
   "selectSeekDuration": "Chọn thời gian tua",
-  "selectBufferDepth": "Chọn độ sâu bộ đệm",
   "subtitleSettings": "Cài đặt phụ đề",
   "size": "Kích thước: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Ưu tiên chất lượng Wi-Fi",
   "mobileQualityPreference": "Ưu tiên chất lượng di động",
   "anyNoPreference": "Bất kỳ (không ưu tiên)",
   "subtitleAccounts": "Tài khoản phụ đề",

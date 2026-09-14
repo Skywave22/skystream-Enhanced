@@ -113,7 +113,8 @@ jobs:
             "MAL_CLIENT_ID": "${{ secrets.MAL_CLIENT_ID }}",
             "MAL_CLIENT_SECRET": "${{ secrets.MAL_CLIENT_SECRET }}",
             "ANILIST_CLIENT_ID": "${{ secrets.ANILIST_CLIENT_ID }}",
-            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}"
+            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}",
+            "OPENSUBTITLES_API_KEY": "${{ secrets.OPENSUBTITLES_API_KEY }}"
           }
           JSON_EOF
 
@@ -196,7 +197,8 @@ jobs:
             "MAL_CLIENT_ID": "${{ secrets.MAL_CLIENT_ID }}",
             "MAL_CLIENT_SECRET": "${{ secrets.MAL_CLIENT_SECRET }}",
             "ANILIST_CLIENT_ID": "${{ secrets.ANILIST_CLIENT_ID }}",
-            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}"
+            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}",
+            "OPENSUBTITLES_API_KEY": "${{ secrets.OPENSUBTITLES_API_KEY }}"
           }
           JSON_EOF
 
@@ -272,7 +274,8 @@ jobs:
             "MAL_CLIENT_ID": "${{ secrets.MAL_CLIENT_ID }}",
             "MAL_CLIENT_SECRET": "${{ secrets.MAL_CLIENT_SECRET }}",
             "ANILIST_CLIENT_ID": "${{ secrets.ANILIST_CLIENT_ID }}",
-            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}"
+            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}",
+            "OPENSUBTITLES_API_KEY": "${{ secrets.OPENSUBTITLES_API_KEY }}"
           }
           JSON_EOF
 
@@ -397,7 +400,8 @@ jobs:
             "MAL_CLIENT_ID": "${{ secrets.MAL_CLIENT_ID }}",
             "MAL_CLIENT_SECRET": "${{ secrets.MAL_CLIENT_SECRET }}",
             "ANILIST_CLIENT_ID": "${{ secrets.ANILIST_CLIENT_ID }}",
-            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}"
+            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}",
+            "OPENSUBTITLES_API_KEY": "${{ secrets.OPENSUBTITLES_API_KEY }}"
           }
           JSON_EOF
 
@@ -500,7 +504,8 @@ jobs:
             "MAL_CLIENT_ID": "${{ secrets.MAL_CLIENT_ID }}",
             "MAL_CLIENT_SECRET": "${{ secrets.MAL_CLIENT_SECRET }}",
             "ANILIST_CLIENT_ID": "${{ secrets.ANILIST_CLIENT_ID }}",
-            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}"
+            "ANIMESKIP_CLIENT_ID": "${{ secrets.ANIMESKIP_CLIENT_ID }}",
+            "OPENSUBTITLES_API_KEY": "${{ secrets.OPENSUBTITLES_API_KEY }}"
           }
           JSON_EOF
 

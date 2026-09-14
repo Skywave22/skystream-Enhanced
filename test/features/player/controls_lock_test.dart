@@ -1,26 +1,18 @@
 /// The screen lock, phone and tablet only.
 ///
-/// On a phone there is nothing between the player and a pocket, a lap, a child
-/// or a handset propped on a chest. Every one of those fires a real gesture:
-/// the chrome toggle, a ±10 s double-tap seek, a free horizontal scrub, a
-/// vertical brightness or volume change, or a jump to 2x. The scrub and the
-/// long-press are both destructive and near-silent - the viewer looks back and
-/// the film is somewhere else, with nothing on screen to say why.
+/// A pocket, a lap or a child fires the same five screen-wide gestures a
+/// viewer does: the chrome toggle, a ±10 s double-tap seek, a free horizontal
+/// scrub, a vertical brightness or volume change, and a jump to 2x. The scrub
+/// and the long-press are destructive and near-silent.
 ///
-/// So the contract this file holds has two halves and both are load-bearing:
+/// Locked, nothing the player owns answers a finger: not one of the five
+/// gestures, not the centre play/pause, not the skip chip, and not the unlock
+/// chip while it is faded out. Off touch the lock does not exist at all -
+/// `VlcPlayerControls.locked` is null on a television and on a desktop, so
+/// there is no padlock to render and no locked branch to reach.
 ///
-///  * **Locked, nothing the player owns answers a finger.** Not one of the
-///    five gestures, not the centre play/pause, not the skip chip - and the
-///    unlock chip itself is dead while it is faded out, or the very first
-///    accidental contact would undo the lock.
-///  * **The lock does not exist off touch.** Not hidden, not disabled:
-///    `VlcPlayerControls.locked` is null on a television and on a desktop, so
-///    there is no padlock to render and no locked branch to reach. A remote
-///    has no accidental surface, and the only key a TV lock could eat - Back -
-///    is already the load-bearing "hide the bars".
-///
-/// Every other controls suite forces `isTv: true`, which is exactly the build
-/// the lock is absent from, so this file hosts its own phone profile.
+/// Every other controls suite forces `isTv: true`, which is the build the lock
+/// is absent from, so this file hosts its own phone profile.
 library;
 
 import 'package:flutter/gestures.dart';
@@ -102,10 +94,9 @@ Widget _host(Widget child, {required bool isTv, required bool isDesktopOS}) {
 
 /// [desktop] sets both halves of what a desktop is, because the two are set
 /// separately in production and only ever agree there: the device profile's
-/// `isDesktopOS`, which is what the lock reads, and `onToggleFullscreen`,
-/// which is what the rest of the file calls desktop. [locked] null stands for
-/// "the screen offers no lock", which is what a television and a desktop are
-/// handed.
+/// `isDesktopOS`, which is what the lock reads, and `onToggleFullscreen`.
+/// [locked] null stands for "the screen offers no lock", which is what a
+/// television and a desktop are handed.
 Future<VlcPlayerController> _pump(
   WidgetTester tester, {
   bool isTv = false,
@@ -181,11 +172,10 @@ Future<void> _tapAt(WidgetTester tester, Offset at) async {
 
 /// Presses a control and waits for the press to actually resolve.
 ///
-/// A plain `pump()` is not enough anywhere in this tree. The bars are wrapped
-/// in the controls' own gesture absorber, which registers a double-tap and a
-/// long-press of its own, and a double-tap recogniser holds the arena open
-/// until its timeout - so a button's tap is delivered ~300 ms after the finger
-/// leaves, not on the frame after it.
+/// A plain `pump()` is not enough anywhere in this tree: the bars sit inside
+/// the controls' own gesture absorber, which registers a double-tap of its
+/// own, and a double-tap recogniser holds the arena open until its timeout, so
+/// a button's tap is delivered ~300 ms after the finger leaves.
 Future<void> _press(WidgetTester tester, Finder finder) async {
   await tester.tap(finder);
   await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
@@ -240,11 +230,11 @@ void main() {
     testWidgets('nor does a desktop, where the pointer is precise', (
       tester,
     ) async {
-      // Read off the device profile rather than off `onToggleFullscreen`, and
-      // this test is why: dart:io reports the *host*, so a screen-level test
-      // on a Mac looks like a desktop whatever profile it overrode - which
-      // would have made the lock unreachable in every screen test there is.
-      // Both halves are set here, because in production they always agree.
+      // The lock reads the device profile, not `onToggleFullscreen`: dart:io
+      // reports the host, so a screen-level test on a Mac would look like a
+      // desktop whatever profile it overrode, and the lock would be
+      // unreachable in every screen test. Both halves are set here because in
+      // production they always agree.
       final locked = ValueNotifier(false);
       addTearDown(locked.dispose);
       await _pump(tester, desktop: true, locked: locked);
@@ -257,9 +247,7 @@ void main() {
     testWidgets('and a touch build offered no lock has no padlock either', (
       tester,
     ) async {
-      // The other half of "by construction": with `locked` null there is
-      // nothing to render from at all, which is the state every screen test
-      // that predates this feature runs in.
+      // With `locked` null there is nothing to render from at all.
       await _pump(tester);
 
       expect(_padlock(await _english()), findsNothing);
@@ -269,18 +257,16 @@ void main() {
   });
 
   group('locked', () {
-    /// Locks through the padlock, the way a viewer does, and returns the
-    /// notifier so a test can read the answer back.
+    /// Locks through the padlock, the way a viewer does.
     Future<void> lock(WidgetTester tester) async {
       await _press(tester, _padlock(await _english()));
     }
 
     testWidgets('locking swallows every screen-wide gesture', (tester) async {
-      // THE LOAD-BEARING TEST. All five gestures the player owns are
-      // registered on one screen-wide GestureDetector, and locking rebuilds
-      // that detector with a bare onTap. Each is checked against what reached
-      // the engine, not against what is on screen: a guard that merely hid
-      // the readout would leave the seek.
+      // All five gestures the player owns are registered on one screen-wide
+      // GestureDetector, and locking rebuilds that detector with a bare onTap.
+      // Each is checked against what reached the engine, not against what is
+      // on screen: a guard that merely hid the readout would leave the seek.
       final engine = FakeVlcEngine();
       final locked = ValueNotifier(false);
       addTearDown(locked.dispose);
@@ -338,9 +324,8 @@ void main() {
     testWidgets('and every one of them fires when it is not locked', (
       tester,
     ) async {
-      // The control for the test above. Without it a typo in any of those
-      // five gesture drivers would read as a green lock, which is the one
-      // way this whole file could lie.
+      // The control for the test above: without it a typo in any of the five
+      // gesture drivers would read as a green lock.
       final engine = FakeVlcEngine();
       final locked = ValueNotifier(false);
       addTearDown(locked.dispose);
@@ -373,10 +358,9 @@ void main() {
     testWidgets('a tap while locked shows only the unlock chip', (
       tester,
     ) async {
-      // A segment under the position, so the skip chip would be on screen -
-      // it lives outside the chrome gate precisely so hiding the bars does
-      // not take it away, which makes it the one control the lock has to
-      // withdraw by name.
+      // A segment under the position, so the skip chip is on screen. It lives
+      // outside the chrome gate, so hiding the bars does not take it away and
+      // the lock has to withdraw it by name.
       final locked = ValueNotifier(false);
       addTearDown(locked.dispose);
       await _pump(tester, locked: locked, skipSegments: _segmentHere());
@@ -407,8 +391,8 @@ void main() {
     testWidgets('the chip rides the chrome clock', (tester) async {
       // No second timer and no second opacity controller: the chip goes
       // through the same `_fading` the bars do, so it appears on a touch and
-      // leaves on the same three seconds. Read off the fade's target rather
-      // than waited for, so this does not depend on the animation.
+      // leaves on the same three seconds. Read off the fade's target so this
+      // does not depend on the animation.
       final locked = ValueNotifier(false);
       addTearDown(locked.dispose);
       await _pump(tester, locked: locked);
@@ -439,9 +423,7 @@ void main() {
     testWidgets('a faded-out chip does not answer a touch', (tester) async {
       // `AnimatedOpacity` at zero paints nothing and still hit-tests. Without
       // an IgnorePointer of its own the chip would be an invisible target at
-      // the bottom of a locked screen, and the first accidental contact would
-      // land on it - which is the one failure that would make the whole
-      // feature worthless.
+      // the bottom of a locked screen for the first accidental contact to hit.
       final locked = ValueNotifier(false);
       addTearDown(locked.dispose);
       await _pump(tester, locked: locked);
@@ -490,22 +472,20 @@ void main() {
     });
 
     testWidgets('the chip answers a game controller A', (tester) async {
-      // The item's one dependency on W1.1. The lock is touch-only, but the
-      // chip is a [PlayerActionButton] and every player control that takes
-      // Select has to take a pad's A as well - a Shield remote and an Android
-      // phone with a controller paired both send it.
+      // The lock is touch-only, but the chip is a [PlayerActionButton] and
+      // every player control that takes Select has to take a pad's A as well -
+      // an Android phone with a controller paired sends it.
       final locked = ValueNotifier(false);
       addTearDown(locked.dispose);
       await _pump(tester, locked: locked);
       await lock(tester);
 
-      // [PlayerActionButton] wraps an [InkWell] in a [Focus], and the InkWell
+      // [PlayerActionButton] wraps an [InkWell] in a [Focus] and the InkWell
       // makes a node of its own, so the button owns two focus stops at
-      // identical geometry. Either will do here and the inner one is what
-      // traversal actually lands on: the key handler lives on the outer
-      // wrapper, and a key event that is not claimed by the focused node
-      // bubbles up through its ancestors to reach it. Resolved from the icon
-      // upwards rather than by node label, because neither node carries one.
+      // identical geometry. Either will do: the key handler lives on the outer
+      // wrapper, and an event the focused node does not claim bubbles up to
+      // it. Resolved from the icon upwards because neither node carries a
+      // label.
       final node = Focus.of(tester.element(find.byIcon(Icons.lock_rounded)));
       node.requestFocus();
       await tester.pump();

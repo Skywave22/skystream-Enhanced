@@ -99,9 +99,6 @@ class AppLocalizationsSv extends AppLocalizations {
   String get seekDuration => 'Spolningstid';
 
   @override
-  String get bufferDepth => 'Buffertdjup';
-
-  @override
   String get defaultResizeMode => 'Standardvisningsläge';
 
   @override
@@ -468,9 +465,6 @@ class AppLocalizationsSv extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Välj spolningstid';
-
-  @override
-  String get selectBufferDepth => 'Välj buffertdjup';
 
   @override
   String get subtitleSettings => 'Undertextinställningar';
@@ -927,6 +921,11 @@ class AppLocalizationsSv extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName hittades inte.';
   }
@@ -1195,7 +1194,10 @@ class AppLocalizationsSv extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Kvalitetsinställning för Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Kvalitetsinställning för mobilnät';
@@ -1649,4 +1651,18 @@ class AppLocalizationsSv extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Ingen av dina scrapers har den här titeln.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

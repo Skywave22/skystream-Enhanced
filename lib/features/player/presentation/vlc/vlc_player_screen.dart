@@ -49,15 +49,9 @@ import 'vlc_player_controls.dart';
 
 /// Playback on the VLC engine.
 ///
-/// Built up over the migration notes phases 5 through 6.8: engine-owned
-/// tracks, resolution of the route's plugin token into a real stream, headers
-/// that libVLC can actually transmit, progress and resume, completion and
-/// scrobbling, and source failover.
-///
-/// The screen is the only place the pieces meet, and it stays a hub rather than
-/// an implementation: liveness, resume, failover, recovery, ClearKey, side-car
-/// subtitles and the platform's PiP and orientation all live in files that can
-/// be tested without an engine. What is left here is when to call them.
+/// A hub: liveness, resume, failover, recovery, ClearKey, side-car subtitles
+/// and the platform's PiP and orientation all live in files that can be tested
+/// without an engine. What is left here is when to call them.
 class VlcPlayerScreen extends ConsumerStatefulWidget {
   const VlcPlayerScreen({
     required this.item,
@@ -69,7 +63,7 @@ class VlcPlayerScreen extends ConsumerStatefulWidget {
 
   final MultimediaItem item;
 
-  /// The plugin's resolution token, **not** a URL. See [resolvePlayback].
+  /// The plugin's resolution token, not a URL. See [resolvePlayback].
   final String videoUrl;
 
   final Episode? episode;
@@ -84,13 +78,11 @@ class VlcPlayerScreen extends ConsumerStatefulWidget {
 
 enum _Stage { resolving, playing, failed }
 
-/// What an end-of-media advance did, which is the whole question the ended
-/// card answers.
+/// What an end-of-media advance did, which is what the ended card answers.
 ///
-/// A bool would have to conflate "an advance is already in flight, leave it
-/// alone" with "nothing follows, put the card up", and the outgoing engine
-/// really does deliver a late `ended` while the next episode is loading - so
-/// that conflation would raise a card over an episode about to play.
+/// The outgoing engine delivers a late `ended` while the next episode is
+/// loading, so "an advance is in flight" and "nothing follows" must stay
+/// distinct or a card is raised over an episode about to play.
 enum _Advance {
   /// The next episode is loading, or an advance already in flight owns the
   /// transition. There is nothing to card.
@@ -100,10 +92,17 @@ enum _Advance {
   finished,
 
   /// An episode follows, but the viewer declined it during the credits, so it
-  /// was not started. Owner decision 2: the refusal is honoured, and the card
-  /// offers the episode back rather than the advance taking it anyway.
+  /// was not started. The refusal is honoured and the card offers the episode
+  /// back rather than the advance taking it anyway.
   declined,
 }
+
+/// libVLC's output latency, in milliseconds (`--network-caching`), and the one
+/// number that decides how long a newly selected audio or subtitle track stays
+/// silent: a stream started mid-playback has to fill this buffer before it
+/// emits, while the picture, already full, carries on. Live uses the same
+/// value, so the two cannot drift apart.
+const int kNetworkCachingMs = 3000;
 
 /// How many times one source is re-opened before moving to the next. Only
 /// applies to a source that actually produced frames — one that never played is
@@ -139,11 +138,8 @@ const Duration _kBackEcho = Duration(milliseconds: 300);
 /// How long a locked screen gives the viewer to confirm that Back really did
 /// mean "leave", after the first press was spent revealing the unlock chip.
 ///
-/// Two seconds is long enough to be a deliberate second press and short enough
-/// that a stray contact minutes later starts the two-press sequence over
-/// rather than finishing one nobody remembers beginning — which is the whole
-/// point of a lock. Comfortably longer than [_kBackEcho], so the same-press
-/// echo is always swallowed inside it.
+/// Longer than [_kBackEcho], so the same-press echo is always swallowed
+/// inside it.
 const Duration _kLockBackEscape = Duration(seconds: 2);
 
 /// The opaque panel that covers the video between `setMedia` and the first
@@ -151,59 +147,42 @@ const Duration _kLockBackEscape = Duration(seconds: 2);
 /// never shown a black rectangle with a seek bar over it — is worth a test.
 const Key openingOverlayKey = Key('player-opening-overlay');
 
-/// How far from the end the up-next card appears. Matches the old overlay
-/// (38da335:player_controller.dart:2132) and the card's own countdown, so the
-/// offer and the advance land at roughly the same moment.
+/// How far from the end the up-next card appears. Matches the card's own
+/// countdown, so the offer and the advance land at roughly the same moment.
 const Duration _kNextEpisodeLeadIn = Duration(seconds: 15);
 
 class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     with WidgetsBindingObserver, WindowListener {
   /// The screen owns the controller, and its lifetime is exactly this State's.
-  ///
-  /// This is the ownership the migration plan calls for and the old player got
-  /// wrong: PlayerController is ref.keepAlive()'d while PlayerScreen owns and
-  /// disposes the actual Player, which is why per-session state leaked across
-  /// episodes there. Starting correct is free; retrofitting it is not.
   late final VlcPlayerController _controller;
 
-  /// Whether the bars are up. Owned here rather than by the controls because
-  /// two decisions about them are the screen's: Back puts them away before it
-  /// ever pops (see [_hideChromeForBack]), and they must outlive the controls,
-  /// which come and go with [_sawFrames] across every failover and episode
-  /// advance. The controls are lent it and neither construct nor dispose one.
+  /// Whether the bars are up. Owned here rather than by the controls: Back
+  /// puts them away before it ever pops (see [_hideChromeForBack]), and they
+  /// must outlive the controls, which come and go with [_sawFrames] across
+  /// every failover and episode advance.
   late final ChromeVisibilityController _chrome;
 
   /// Armed when Back has just put the bars away; while it runs a second Back
-  /// is the same press arriving again. Held as a Timer rather than a timestamp
-  /// for the same reason [_skipCooldown] is: teardown can cancel it, and the
-  /// test clock can run it out.
+  /// is the same press arriving again. A Timer rather than a timestamp so
+  /// teardown can cancel it and the test clock can run it out.
   Timer? _backEcho;
 
   /// Whether the screen is locked against accidental touches.
   ///
-  /// Owned here, not by [VlcPlayerControls], and that is the fix for
-  /// 38da335's one fatal flaw: its `_isLocked` lived in a widget State that
-  /// the screen's Back handling could not see, so an edge swipe left the
-  /// player while locked - on an Android phone, the one device the lock
-  /// existed for. Back is decided in [_handleBack]; the flag it is decided
-  /// against has to be readable from there. It also outlives the controls,
-  /// which are rebuilt from scratch on every failover and episode advance.
+  /// Owned here, not by [VlcPlayerControls]: Back is decided in [_handleBack]
+  /// and has to be able to read this, and it outlives the controls, which are
+  /// rebuilt on every failover and episode advance.
   ///
-  /// Lent to the controls only on `PlayerFormFactor.isTouch`, so on a
-  /// television and on a desktop there is no padlock and no chip to build
-  /// from - absent by construction rather than hidden. Never written from
-  /// here except to *clear* it; only the padlock sets it.
+  /// Lent to the controls only on `PlayerFormFactor.isTouch`, so there is no
+  /// padlock on a television or a desktop. Never written from here except to
+  /// clear it; only the padlock sets it.
   final ValueNotifier<bool> _locked = ValueNotifier<bool>(false);
 
   /// The window in which a second Back means "I really do want out".
   ///
   /// Armed by the first Back arriving on a locked screen, which is spent on
-  /// revealing the unlock chip instead of leaving. Same shape as [_backEcho]
-  /// and cancelled in the same place, but deliberately a second field rather
-  /// than a second meaning for that one: [_backEcho] is 300 ms and answers
-  /// "is this the same press arriving twice", this is two seconds and answers
-  /// "is this a deliberate second press". Conflating them would make one
-  /// press delivered twice by the platform read as an escape.
+  /// revealing the unlock chip. Deliberately separate from [_backEcho]:
+  /// merging them would make one press delivered twice read as an escape.
   Timer? _lockEscape;
 
   _Stage _stage = _Stage.resolving;
@@ -221,11 +200,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// Why the last source was given up on, shown under the source line while
   /// the next one opens. Its own field rather than a write to [_status]:
   /// [_failAttempt] and the [_openAttempt] it calls run in one synchronous
-  /// stretch, so a reason written to the status line was replaced by the
-  /// source name before a frame was ever drawn - which is why "the source
-  /// stopped responding" never appeared despite the comment that said it
-  /// would. Cleared by the first frame, which is the moment it stops being
-  /// news.
+  /// stretch, so the status line is overwritten before a frame is drawn.
+  /// Cleared by the first frame.
   String? _failReason;
   bool _disposed = false;
 
@@ -236,37 +212,31 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// running. Teardown writes this rather than asking the engine, because by
   /// then the engine reports zero — see playback_progress.dart.
   ///
-  /// Scoped to **one attempt**: it is also the answer to "did this source ever
-  /// play", and a sample left over from the previous source answers for the
-  /// wrong media. Where to resume is a separate question, kept in
-  /// [_resumePosition], because that one does have to outlive the attempt.
+  /// Scoped to one attempt: a sample left over from the previous source would
+  /// answer for the wrong media. Where to resume outlives the attempt and is
+  /// kept in [_resumePosition].
   ProgressSample? _sample;
 
   /// Whether the current attempt has produced any playback at all.
   ///
-  /// Distinct from `_sample != null`, which is the stricter question of
-  /// whether there is anything worth writing to history: a livestream reports
-  /// no duration and a short clip is below the resumable threshold, so neither
-  /// ever produces a sample, and neither should be mistaken for a source that
-  /// failed to start.
+  /// Distinct from `_sample != null`: a livestream reports no duration and a
+  /// short clip is below the resumable threshold, so neither produces a sample
+  /// despite playing.
   bool _sawFrames = false;
 
   /// Whether the engine has been handed this attempt's media yet.
   ///
-  /// Until it has, every tick describes the outgoing media: `setMedia` is the
-  /// last await in an open, and the engine keeps playing what it had through
-  /// the download lookup, the resolve and the proxy handshake before it. A
-  /// tick from there says playback is alive, and nothing else - it is not this
-  /// attempt's first frame, and its position is not a resume point for media
-  /// that may be a different episode.
+  /// Until it has, every tick describes the outgoing media: the engine keeps
+  /// playing what it had through the download lookup, the resolve and the
+  /// proxy handshake that precede `setMedia`. Such a tick means playback is
+  /// alive and nothing more.
   bool _handedToEngine = false;
 
   /// Where playback should pick up: the last position actually observed, or
   /// the stored resume point until the first sample lands.
   ///
-  /// Survives failover by design. Losing the viewer's place is the one thing
-  /// recovery must never do, and it is exactly what happens if the position is
-  /// read back from a controller that `setMedia` has already zeroed.
+  /// Survives failover, because `setMedia` has already zeroed the controller's
+  /// own position by the time a retry runs.
   Duration _resumePosition = Duration.zero;
 
   /// Identifies this media session. Stamped onto every sample so a value that
@@ -281,8 +251,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   ResumePoint? _initialResume;
 
   /// The candidate list as soon as resolution knows it, which is well before
-  /// it knows which one to open. Held apart from [_resolved] because the whole
-  /// point is to have something to show the viewer *during* that decision.
+  /// it knows which one to open. Held apart from [_resolved] so there is
+  /// something to show the viewer during that decision.
   List<StreamResult> _candidates = const <StreamResult>[];
 
   /// How each probed candidate is doing, in the order the probes were
@@ -290,22 +260,19 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// reading `trying` is the source the player is waiting on.
   final Map<int, ProbeOutcome> _probes = <int, ProbeOutcome>{};
 
-  /// Identifies the resolve in flight. Bumped by every [_start], and carried
-  /// by the callbacks that resolve hands out, so an answer from a resolve that
-  /// has been superseded can be dropped rather than written.
+  /// Identifies the resolve in flight. Bumped by every [_start] and carried by
+  /// the callbacks resolve hands out, so an answer from a superseded resolve is
+  /// dropped rather than written.
   ///
-  /// The probe race deliberately reports a candidate that answers after the
-  /// race is over (see `stream_resolver.dart`'s `record`), and a HEAD or
-  /// ranged GET can take seconds. By then an episode advance may have started
-  /// another resolve, and both [_candidates] and [_probes] are keyed by index
-  /// into a list that is no longer the one on screen.
+  /// Late probes are real: the race reports candidates that answer after it is
+  /// over, and [_candidates] and [_probes] are keyed by index into a list an
+  /// episode advance may already have replaced.
   int _resolveGeneration = 0;
 
   /// The media the published source list describes.
   ///
   /// The keep-previous rule in [_publishPanelData] needs to tell a re-resolve
-  /// of *this* episode from an advance to the next one; nothing else on the
-  /// screen distinguishes them at the moment the list is published.
+  /// of this episode from an advance to the next one.
   Object? _publishedSourcesMedia;
 
   /// Completed when the viewer refuses to wait for the health probe. Null once
@@ -334,6 +301,18 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   int _attemptIndex = 0;
   int _attemptRetries = 0;
 
+  /// Whether [SubtitleDefault.off] still applies to the media this attempt
+  /// opened. Read the whole rule on [_applySubtitleDefault]; false for the
+  /// entire life of the screen under [SubtitleDefault.auto], which is what
+  /// makes Auto exactly what it was before the setting existed.
+  bool _subtitlesOffPending = false;
+
+  /// The subtitle id the Off rule last asked the engine to drop. A run of
+  /// ticks still naming it is the same fact restated, not a second one to act
+  /// on - without this the rule would re-send `disableSubtitle` four times a
+  /// second at an engine that is ignoring it.
+  int? _subtitleOffAsked;
+
   /// Candidates opened during the current failover walk, so the walk can wrap
   /// past the end of the list without becoming a loop. Cleared once a source
   /// has played for [_kHealthyPlayback] — see [_onProgress].
@@ -351,10 +330,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// How long the current attempt has been running, and how long since the
   /// position last moved. Together they are the watchdog's whole input.
   ///
-  /// Counted by the watchdog's own tick rather than read off the wall clock. A
-  /// clock correction mid-play - NTP, a television coming out of standby -
-  /// would otherwise read as a stall and fail a healthy source over; and a
-  /// count the test clock drives is the only kind a test can hurry.
+  /// Counted by the watchdog's own tick rather than off the wall clock: a
+  /// clock correction mid-play - NTP, a television leaving standby - would
+  /// otherwise read as a stall and fail a healthy source over.
   Duration _attemptAge = Duration.zero;
   Duration _stalledFor = Duration.zero;
 
@@ -365,17 +343,14 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// The tallest adaptive rendition this session may be handed.
   ///
-  /// Seeded in [initState] from what the device and the panel can be shown to
-  /// manage — see [adaptiveMaxHeightFor] — and lowered a rung at a time by
-  /// [_checkVideoHealth] when the decoder proves it cannot keep up with what
-  /// it was given. Seeded value goes on the instance config; a lowered one is
-  /// carried per-media, because the instance's options are fixed at
-  /// construction and this has to change without a new engine.
+  /// Seeded in [initState] — see [adaptiveMaxHeightFor] — and lowered a rung
+  /// at a time when the decoder proves it cannot keep up. The seeded value
+  /// goes on the instance config; a lowered one is carried per-media, because
+  /// the instance's options are fixed at construction.
   late int _adaptiveMaxHeight;
 
   /// The seeded cap, kept so a step-down can be recognised as one. Media
-  /// options stay untouched while the two agree, which keeps every open the
-  /// engine sees identical to the one it saw before this existed.
+  /// options stay untouched while the two agree.
   late final int _deviceAdaptiveMaxHeight;
 
   /// The decoder counters when the current measurement window opened, and how
@@ -401,8 +376,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   ///
   /// Drives the chrome as well as the watchdog: at PiP size the bars are an
   /// unreadable smear over most of the frame, so the window renders the video
-  /// and nothing else (the old overlay did the same,
-  /// 38da335:...skystream_player_controls.dart:1025).
+  /// and nothing else.
   bool _inPip = false;
 
   /// Mirrors the engine's playing flag so the PiP window's middle button can be
@@ -430,44 +404,34 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// enum.
   Duration _lastSeenPosition = Duration.zero;
 
-  /// The last non-zero length the engine reported for *this* attempt.
+  /// The last non-zero length the engine reported for this attempt.
   ///
   /// [_handleEnded] tells a finished film from a truncated one by numbers, and
-  /// [_sample] is not always there to supply them: it is refused for anything
-  /// shorter than [kMinResumableDuration] and never written at all for a
-  /// source whose length libVLC never learned. Held per attempt, exactly as
-  /// [_sample] is - a length left behind by the previous candidate answers for
-  /// the wrong media - and sticky within one, because the engine reports zero
-  /// again the moment it reaches the end.
+  /// [_sample] is refused below [kMinResumableDuration] and never written for
+  /// a source whose length libVLC never learned. Per attempt, and sticky
+  /// within one: the engine reports zero again the moment it reaches the end.
   Duration _lastSeenDuration = Duration.zero;
 
   /// Desktop window state, mirrored so the button icon can follow it.
   ///
   /// Written only from the window's own events and the seed read in
-  /// [initState] - never from our own toggle. The window is moved by things
-  /// this screen never hears about otherwise: main.dart's app-wide F11
-  /// handler, the macOS green button, the Window menu. Mirroring the toggle
-  /// instead left the flag stale after every one of them, which showed the
-  /// wrong icon and made Escape inert, since the controls gate it on this.
+  /// [initState], never from our own toggle: the window is also moved by the
+  /// app-wide F11 handler, the macOS green button and the Window menu.
   bool _isFullscreen = false;
 
   /// Whether the window has spoken for itself yet.
   ///
-  /// The seed read and the window's own events race: a read issued during
-  /// [initState] can complete after an event that has already moved the flag,
-  /// and would then write a value the window left behind. Anything the window
-  /// says outranks the seed, so the seed stands down once one has arrived.
+  /// The seed read issued during [initState] can complete after an event that
+  /// has already moved the flag, so anything the window says outranks it.
   bool _windowSpoke = false;
 
   /// How the video is scaled, seeded once from the viewer's default resize
   /// mode and then left alone.
   ///
-  /// Deliberately not reactive to the setting: `VlcPlayer` pushes `setFit` to
-  /// the running player whenever this changes, and the controls' own resize
-  /// button pushes there too. A value that moved under them would overwrite
-  /// whatever the viewer had just picked.
-  /// Mutable: the resize button reports through onFitChanged, and on the
-  /// texture platforms this is the value that actually does the work.
+  /// Deliberately not reactive to the setting: a value that moved under the
+  /// controls would overwrite whatever the viewer had just picked. Mutable
+  /// because the resize button reports back through onFitChanged, and on the
+  /// texture platforms this is the value that does the work.
   late VlcVideoFit _fit;
 
   /// The source sheet's own context while it is open, so Back has something to
@@ -496,19 +460,15 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// The viewer said no. One refusal per episode - re-offering the card three
   /// seconds later is the behaviour "cancel" exists to prevent. Honoured at
-  /// end of media too (owner decision 2): a declined episode does not start
-  /// itself when the credits run out.
+  /// end of media too: a declined episode does not start itself when the
+  /// credits run out.
   bool _nextEpisodeDeclined = false;
 
   /// Why playback stopped with nothing playing after it, or null while it is
   /// still going. Non-null is what puts [EndedCard] up.
   ///
-  /// Deliberately not a [_Stage]. `body: switch (_stage)` swaps the Scaffold's
-  /// child, and the playing branch's first child is always [VlcPlayer] so that
-  /// nothing unmounts the native view out from under the engine - the comment
-  /// above that branch records the episode restarting every time PiP shrank
-  /// the window. A stage for this would tear the view down and force Start
-  /// Over to rebuild it.
+  /// Deliberately not a [_Stage]: switching on the stage swaps the Scaffold's
+  /// child, and that would unmount the native view out from under the engine.
   EndedKind? _ended;
 
   /// Whether the start-over affordance is up, and whether this session has
@@ -532,11 +492,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   int? _torrentFileIndex;
 
   /// What the side panel shows, published by [_publishPanelData] from every
-  /// place one of its inputs changes. The panel listens for as long as it is
-  /// up, so a failover, a late probe or a torrent poll reaches it in place;
-  /// the panel itself decides its anchor row once from the value at open.
-  /// Screen-owned rather than a provider because none of its inputs lives in
-  /// one, and a plain notifier is what a panel with no ProviderScope can read.
+  /// place one of its inputs changes, so a failover, a late probe or a torrent
+  /// poll reaches an open panel in place. Screen-owned rather than a provider
+  /// because none of its inputs lives in one.
   final ValueNotifier<PanelData> _panelData = ValueNotifier<PanelData>(
     PanelData.empty,
   );
@@ -569,23 +527,26 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// Nullable because most of this file runs from async continuations and
   /// engine callbacks that can outlive the route; the text they produce is
   /// never worth throwing over.
-  AppLocalizations? get _l10n =>
-      (!mounted || _disposed) ? null : AppLocalizations.of(context);
+  ///
+  /// [_container] doubles as "dependencies have been handed over": resolution
+  /// starts in [initState] and its progress callbacks are free to answer
+  /// before the first await, where reading an inherited widget is an
+  /// assertion. Nothing is lost - [didChangeDependencies] puts the first line
+  /// up.
+  AppLocalizations? get _l10n => (!mounted || _disposed || _container == null)
+      ? null
+      : AppLocalizations.of(context);
 
   /// The shortest side of the surface the video will be shown on, in physical
   /// pixels, or 0 when that is not a ceiling worth applying.
   ///
-  /// Shortest side because the player is landscape and a rendition's *height*
-  /// is what `--adaptive-maxheight` names: a 2400x1080 handset and a 1920x1080
-  /// television both want 1080. Physical pixels because that is the only unit
-  /// a rendition can be compared against — logical dp on Android TV is half
-  /// the panel, and main.dart clamps the reported density on top of that.
+  /// Shortest side because the player is landscape and `--adaptive-maxheight`
+  /// names a height: a 2400x1080 handset and a 1920x1080 television both want
+  /// 1080. Physical pixels because that is the unit a rendition compares
+  /// against; logical dp on Android TV is half the panel.
   ///
-  /// Zero on a desktop, and this is a capability difference rather than a
-  /// platform preference: a window is resized, maximised and full-screened
-  /// mid-playback, so its height at the moment the engine is built is not a
-  /// ceiling on anything. A television panel and a handset panel cannot
-  /// change for the life of the session.
+  /// Zero on a desktop, where the window is resized and full-screened
+  /// mid-playback, so its height at construction is not a ceiling on anything.
   ///
   /// Read off the implicit view rather than a `MediaQuery`, because the engine
   /// is constructed in [initState], where an inherited widget may not be
@@ -613,8 +574,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // The desktop shell stacks its title bar over every route; over this one
     // that is a 48px bar on the back button and an invisible pointer-eating
     // strip the rest of the time. Raised for the whole life of the screen,
-    // including the resolving and failed stages, which are just as much the
-    // player's window as playback is.
+    // including the resolving and failed stages.
     setImmersiveRoute(active: true);
     // The window is the source of truth for full screen. Subscribed before
     // the seed read is issued so nothing that happens during its await is
@@ -635,15 +595,21 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         const PlayerSettings();
     _fit = _fitFromSettings(settings.defaultResizeMode);
     _deviceAdaptiveMaxHeight = _adaptiveMaxHeight = adaptiveMaxHeightFor(
-      // Unresolved is not "capable". The provider is warmed at startup and is
-      // normally already data by the time a player opens, but a cold deep link
-      // can beat it here, and the whole point of the cap is that the answer
-      // when nothing is known is the conservative one.
+      // Unresolved is not "capable": a cold deep link can beat the provider
+      // here, and the conservative answer is the right one when nothing is
+      // known.
       tier:
           ref.read(deviceProfileProvider).asData?.value.tier ??
           DeviceTier.standard,
       panelHeightPx: _panelHeightPx(),
-      hardwareDecoding: settings.hardwareDecoding,
+      // What the silicon will do, not what the user asked for: the preference
+      // below only reaches a decoder on Android, so Windows and Linux decode
+      // in software however it is set and Darwin decodes on VideoToolbox
+      // however it is set.
+      hardwareDecode: hardwareDecodeAvailable(
+        platform: defaultTargetPlatform,
+        preference: settings.hardwareDecoding,
+      ),
     );
 
     _controller = VlcPlayerController(
@@ -654,54 +620,50 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       eventThrottleInterval: const Duration(milliseconds: 250),
       config: VlcPlayerConfig(
         network: VlcNetworkConfig(
-          // VOD default from user settings (buffer depth); a live source overrides it per-media in _openAttempt.
-          networkCaching: settings.readaheadSeconds > 0
-              ? (settings.readaheadSeconds * 1000).clamp(1000, 60000)
-              : 3000,
-          userAgent: kDefaultBrowserUserAgent,
-          // The mpv path pins hls-bitrate=max because FFmpeg treats HLS variant
-          // bitrate as metadata and never switches on it. libVLC does adapt, but
-          // its estimator starts pessimistic and can sit on a low rendition for
-          // a long stretch, so pin the highest for the same reason.
+          // --network-caching is output latency, not read-ahead: every
+          // elementary stream has to accumulate this much before it emits
+          // anything. That cost is invisible at startup, where all the streams
+          // fill together, and very visible afterwards - selecting a different
+          // audio or subtitle track starts a stream from empty, so the picture
+          // carries on while the new track stays silent for exactly one
+          // caching interval. Measured at 60s when this carried a buffer
+          // depth in minutes; a seek masked it, because a seek refills every
+          // stream at once.
           //
-          // "Highest" with no ceiling is what handed a 2016 television box the
-          // 4K rung of every HLS stream it opened. The ceiling is the other
-          // half of the same decision and belongs beside it.
+          // So it is pinned to the same interval a live source uses. libVLC 3
+          // has no read-ahead-in-seconds control for this to stand in for, and
+          // a large value here buys nothing but the silence above.
+          networkCaching: kNetworkCachingMs,
+          userAgent: kDefaultBrowserUserAgent,
+          // libVLC does adapt, but its estimator starts pessimistic and can
+          // sit on a low rendition for a long stretch, so pin the highest.
+          // Highest with no ceiling hands a weak device the 4K rung of every
+          // HLS stream, so the ceiling below is the other half of the choice.
           adaptiveLogic: VlcAdaptiveLogic.highest,
           adaptiveMaxHeight: _adaptiveMaxHeight,
         ),
         subtitleStyle: subtitleStyleFrom(settings),
-        // Off by default; see [PlayerDiagnostics]. The only way to get libVLC's
-        // own account of a playback out of a machine nobody here owns.
+        // Off by default; see [PlayerDiagnostics].
         verbose: PlayerDiagnostics.verboseVlcLog,
-        // The user's hardware-decoding preference. libVLC has no equivalent for
-        // the tone-mapping settings that sat beside this one, but it does have
-        // --avcodec-hw.
+        // The user's hardware-decoding preference, which reaches a decoder on
+        // Android only: every other platform renders through libVLC's vmem
+        // callbacks, and libvlc_video_set_callbacks sets `avcodec-hw = "none"`
+        // on the media player itself (VLC 3.0.21 lib/media_player.c:1113),
+        // below the instance in the variable-inheritance chain.
         //
-        // Reaches the decoder on Android only. Darwin, Windows and Linux all
-        // render through libVLC's vmem callbacks, and libvlc_video_set_callbacks
-        // sets `avcodec-hw = "none"` on the media player itself
-        // (VLC 3.0.21 lib/media_player.c:1113) - which sits below the instance
-        // in the variable-inheritance chain, so it beats whatever this emits.
-        //
-        // What that costs differs by platform, which is why it is worth stating
-        // rather than leaving as one rule. Windows and Linux have no hardware
-        // decoder outside avcodec - DXVA2/D3D11VA and VA-API/VDPAU are all
-        // avcodec accelerators - so they are software-decode-only however this
-        // switch is set. Darwin decodes on VideoToolbox, a standalone `video
-        // decoder` module that `avcodec-hw` has no authority over, so it keeps
-        // its hardware path however this switch is set. The switch is therefore
-        // inert in *both* directions on Darwin, not just the off one.
-        // See VlcDecodingConfig.hardwareAcceleration.
+        // Windows and Linux have no hardware decoder outside avcodec, so they
+        // are software-decode-only either way. Darwin decodes on VideoToolbox,
+        // which `avcodec-hw` has no authority over, so it keeps its hardware
+        // path either way. See VlcDecodingConfig.hardwareAcceleration.
         decoding: VlcDecodingConfig(
           hardwareAcceleration: settings.hardwareDecoding
               ? VlcHardwareAcceleration.automatic
               : VlcHardwareAcceleration.disabled,
         ),
       ),
-      // Verified present in both shipped libVLC builds (VLCKit 3.7.3 and
-      // libvlc-all 3.7.0) - see FORK.md section 8 for why option names are
-      // checked against the binary rather than assumed.
+      // Present in both shipped libVLC builds (VLCKit 3.7.3 and libvlc-all
+      // 3.7.0); see FORK.md section 8 on checking option names against the
+      // binary.
       options: const <String>['--http-reconnect'],
     );
 
@@ -717,12 +679,12 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Wires the PiP window's transport buttons to the controller.
   ///
-  /// Without this the buttons Android draws under the shrunken video do
-  /// nothing at all: they are broadcasts into `MainActivity`, which forwards
-  /// them over the channel and has had no listener on this side.
+  /// The buttons Android draws under the shrunken video are broadcasts into
+  /// `MainActivity`, forwarded over the channel; without a listener here they
+  /// do nothing.
   ///
-  /// Both callbacks arrive from the platform thread while the Flutter UI is
-  /// not being touched, hence the mounted/disposed guard before any setState.
+  /// Both callbacks arrive from the platform thread, hence the
+  /// mounted/disposed guard before any setState.
   void _attachPip() {
     _platform.attachPipListener(
       onAction: (action) => switch (action) {
@@ -752,18 +714,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// and overshooting the duration would trip the end-of-media handler and
   /// advance an episode the viewer only meant to skip forward in.
   ///
-  /// Counted from the published position and nothing else, unlike the
-  /// controls' own arrows, which chain off their last target for ~1.5 s
-  /// because the engine has not read the seek back yet. No chain can straddle
-  /// this: [VlcPlayerControls] is built only while `!_inPip`, so the State
-  /// holding that chain is unmounted before Android can draw a PiP window to
-  /// press these buttons in - `_enterPip` sets `_inPip` in the same frame it
-  /// asks, ahead of the platform's own `pipModeChanged` - and leaving PiP
-  /// builds a fresh one whose chain is empty. That is what
-  /// pip_engine_continuity_test.dart asserts when it expects no
-  /// `VlcPlayerControls` in PiP and one again after. So there is nothing here
-  /// to re-base, and reaching into the controls to say so would widen their
-  /// surface for a chain that cannot exist.
+  /// Counted from the published position, unlike the controls' own arrows,
+  /// which chain off their last target. No chain can straddle this:
+  /// [VlcPlayerControls] is built only while `!_inPip`, so it is unmounted
+  /// before a PiP window exists to press these buttons in.
   void _seekRelative(Duration delta) {
     final value = _controller.value;
     if (!value.isSeekable) return;
@@ -777,9 +731,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Resolve the candidate list, then open the best one.
   ///
-  /// Everything that can fail is inside one try, and every failure lands on the
-  /// same error state rather than an exception in initState — which is exactly
-  /// how the JSON-token crash surfaced.
+  /// Everything that can fail is inside one try, so every failure lands on the
+  /// error state rather than as an exception out of initState.
   Future<void> _start() async {
     // Everything this run learns is stamped with this, so the previous run's
     // stragglers - a probe still in flight when the viewer advanced - can be
@@ -835,16 +788,13 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         token: _token,
       );
 
-      // Resolved from storage before the engine ever sees the media, and
-      // applied as a start position rather than a seek. That removes the whole
-      // question of when the engine is ready enough to seek — the old path
-      // carried a pending-seek percentage and a readiness race to answer it.
+      // Applied as a start position rather than a seek, which removes the
+      // question of when the engine is ready enough to seek.
       //
       // Awaited rather than read straight off Hive: whichever device wrote
       // last wins, so pausing on the television and picking up the phone
       // resumes rather than restarts. The lookup falls back to the local
-      // answer on any tracker failure, so it cannot delay startup past the
-      // trackers' own timeouts.
+      // answer on any tracker failure.
       _initialResume = await resolveResumePoint(
         read: _read,
         item: widget.item,
@@ -856,11 +806,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       // stored history entry: every later attempt, failover or hand-picked,
       // starts from wherever playback actually got to.
       _resumePosition = _initialResume?.position ?? Duration.zero;
-      // Per session, and this is the only place that is. The hint belongs to
-      // the resume point resolved just above, and the reconnect budget to the
-      // media about to be opened - carrying either into a new episode or a
-      // retry means offering a stale position or refusing to reconnect a feed
-      // that has not dropped yet.
+      // Per session. The hint belongs to the resume point resolved just above
+      // and the reconnect budget to the media about to be opened; carrying
+      // either forward offers a stale position or refuses to reconnect a feed
+      // that has not dropped.
       _resumeHintOffered = false;
       _showResumeHint = false;
       _liveReconnects = 0;
@@ -900,21 +849,17 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// One probe answered.
   ///
   /// [generation] is the resolve that dispatched it, and an answer from any
-  /// older one is dropped: the losing probes of a resolve keep running for
-  /// seconds after it returns, and [index] means nothing once another resolve
-  /// has replaced the list it indexes. Left ungated, an advance made under an
-  /// open panel painted the previous episode's 'Reachable' and 'Failed' chips
-  /// onto the new episode's rows.
+  /// older one is dropped: the losing probes keep running for seconds after a
+  /// resolve returns, and [index] means nothing once another resolve has
+  /// replaced the list it indexes.
   void _onProbe(int generation, int index, ProbeOutcome outcome) {
     if (_disposed || !mounted || generation != _resolveGeneration) return;
     setState(() {
       _probes[index] = outcome;
       _publishPanelData();
-      // Resolution returns as soon as the best healthy candidate is known, but
-      // the losing probes keep running for seconds afterwards. Past the
-      // resolving stage the line belongs to the open - and _status is only
-      // cleared on the first frame, which by then has already gone by, so a
-      // late probe would leave a wrong source name up for the whole episode.
+      // Past the resolving stage the line belongs to the open, and _status is
+      // only cleared on the first frame - so a late probe would leave a wrong
+      // source name up for the whole episode.
       if (_stage == _Stage.resolving) _status = _probingStatus() ?? _status;
     });
   }
@@ -938,12 +883,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// The viewer refuses to keep waiting.
   ///
-  /// What that means depends on what is being waited for, and there are only
-  /// two things it can be. During the probe it means stop racing and take the
-  /// best candidate proved so far — the resolver's own [stopProbing] seam, so
-  /// the answer is still the resolver's to give. During an open it means this
-  /// source has had its chance: hand it to the failover ring, which already
-  /// knows the order and when the ring is exhausted.
+  /// During the probe this means stop racing and take the best candidate
+  /// proved so far, through the resolver's own [stopProbing] seam. During an
+  /// open it means hand this source to the failover ring.
   void _skip() {
     if (_disposed || _skipping) return;
     // A remote repeats OK while held, and the button survives the press with
@@ -989,6 +931,20 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     final generation = ++_generation;
     _sawError = false;
     _sawEnded = false;
+    // Armed per attempt, because an attempt is what "a video" means to libVLC:
+    // an episode advance, a failover, a recovery, a rendition step-down and a
+    // live reconnect all hand it media that will select a subtitle for itself,
+    // and one that does so behind a viewer who asked for none is the bug this
+    // setting exists to fix. See [_applySubtitleDefault] for what that costs
+    // and why it is the right trade.
+    //
+    // Read here rather than watched: a change made in Settings while a player
+    // is open reaches the NEXT media this screen opens, never the one already
+    // on screen.
+    _subtitlesOffPending =
+        _read(playerSettingsProvider).asData?.value.subtitleDefault ==
+        SubtitleDefault.off;
+    _subtitleOffAsked = null;
     // Every way back into playback goes through here - Start Over, a failover,
     // a hand-picked source - and none of them may leave the ended card up over
     // media that is opening.
@@ -1001,15 +957,12 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _tried.add(index);
 
     // The outgoing attempt's last position goes to history before it is
-    // forgotten. Teardown used to be the backstop for this, and can no longer
-    // be: the sample it would have flushed is cleared on the next line.
+    // forgotten: the sample is cleared on the next line.
     _flushProgress();
 
     // Per attempt, not per session. "Did this source play" and the
-    // end-of-media check both ask about *this* media, and a sample left behind
-    // by the last one answers on behalf of the wrong one — which is why a dead
-    // candidate used to be opened twice at full connect timeout before
-    // failover would move past it.
+    // end-of-media check both ask about this media, and a sample left behind
+    // by the last one answers for the wrong one.
     _sample = null;
     _handedToEngine = false;
     _setSawFrames(false);
@@ -1022,8 +975,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
     final stream = resolved.streams[index];
 
-    // Which candidate is being tried, named. Nine sources failing over used to
-    // be indistinguishable from one source hanging.
+    // Which candidate is being tried, named. Sources failing over are
+    // otherwise indistinguishable from one source hanging.
     _setStatus(
       _l10n == null
           ? ''
@@ -1041,10 +994,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     final clearKey = await fetchClearKey(stream);
     if (_disposed || generation != _generation) return;
     if (clearKey == null) {
-      // Only now is the refusal honest. Widevine and PlayReady need a CDM this
-      // app does not have, and a licence server that answered with nothing
-      // usable will answer the same way again - so retrying this candidate is
-      // pointless, while the others may not be encrypted at all.
+      // Widevine and PlayReady need a CDM this app does not have, and a
+      // licence server that answered with nothing usable will answer the same
+      // way again - so this candidate gets no retry, while the others may not
+      // be encrypted at all.
       final obstacle = drmObstacleFor(stream);
       if (obstacle != null) {
         final l10n = _l10n;
@@ -1098,16 +1051,15 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         uri: mediaUri,
         httpHeaders: headers,
         startPosition: startAt,
-        // Live trades latency for jitter tolerance and never seeks, so it wants
-        // a small live buffer rather than the large VOD readahead.
+        // A live input takes its latency from --live-caching, which the
+        // instance config does not carry, so the same interval VOD gets is
+        // named here for both.
         //
-        // The rendition ceiling rides here only once it has been *lowered*
-        // from what the device was seeded with: the seeded value is already on
-        // the instance config, and repeating it per-media would change the
-        // option list every open sees for no effect at all.
+        // The rendition ceiling rides here only once it has been lowered from
+        // the seeded value, which is already on the instance config.
         mediaOptions: <String>[
-          if (_isLive) ':live-caching=3000',
-          if (_isLive) ':network-caching=3000',
+          if (_isLive) ':live-caching=$kNetworkCachingMs',
+          if (_isLive) ':network-caching=$kNetworkCachingMs',
           if (_adaptiveMaxHeight != _deviceAdaptiveMaxHeight)
             ':adaptive-maxheight=$_adaptiveMaxHeight',
         ],
@@ -1124,15 +1076,15 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
     // Register the source's subtitles with the engine rather than tracking
     // them ourselves. VLC turns each into an ordinary subtitle track, so
-    // getSubtitleTracks() returns one list containing both embedded and
-    // external entries, with one kind of id.
+    // getSubtitleTracks() returns embedded and external entries in one list
+    // with one kind of id.
     //
     // addSubtitle has no header channel at any layer, so a subtitle behind
     // the same protection as the video can only be reached by proxying it.
     //
     // Collected first and added as a batch: every native backend hardcodes
-    // libVLC's select flag to true, so firing the adds off unawaited left the
-    // viewer watching whichever platform round trip happened to finish last.
+    // libVLC's select flag to true, so unawaited adds would select whichever
+    // platform round trip finished last.
     final subtitlesNeedIdentity = stream.headers?.isNotEmpty ?? false;
     final sideCars = <Uri>[];
     final sideCarLanguages = <String?>[];
@@ -1149,12 +1101,33 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     await addSideCarSubtitles(
       _controller,
       sideCars,
-      enable: preferredSubtitleIndex(
-        sideCarLanguages,
-        _read(subtitleLanguageProvider),
-      ),
+      // Off has no preference to express: the batch still runs, because the
+      // Subtitles menu can only offer tracks that exist, but naming a language
+      // here would cost a round trip to select a track [_applySubtitleDefault]
+      // turns straight back off - and would show it for those two frames.
+      enable: _subtitlesOffPending
+          ? null
+          : preferredSubtitleIndex(
+              sideCarLanguages,
+              _read(subtitleLanguageProvider),
+            ),
     );
     if (_disposed || generation != _generation) return;
+    // Only now, and only when the engine is there to hear it. Every native
+    // hardcodes libVLC's select flag on, so an add that lands after a disable
+    // undoes it: Off can be applied after the batch, never before it.
+    //
+    // On the FIRST open of the session there is no engine yet - the VlcPlayer
+    // widget is only built once this method reaches the playing stage below,
+    // so the controller queues setMedia and every add and replays them on
+    // attach. `disableSubtitle` is not queued, it throws. That open is left to
+    // the tick path, which is what [_applySubtitleDefault] is for; this call
+    // is what spares every LATER open - a failover, a recovery, the next
+    // episode - a quarter-second of subtitles nobody asked for.
+    if (_subtitlesOffPending && _controller.isAttached) {
+      await _disableSubtitles();
+      if (_disposed || generation != _generation) return;
+    }
 
     if (_stage != _Stage.playing) {
       setState(() => _stage = _Stage.playing);
@@ -1162,6 +1135,94 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       // [_publishPanelData] - and this is the only write that turns it
       // back on, so the tick would stay off after a recovery without it.
       _publishPanelData();
+    }
+  }
+
+  /// Keeps the media this attempt opened from starting with a subtitle on,
+  /// while the Subtitles setting says [SubtitleDefault.off].
+  ///
+  /// Three things select a subtitle without being asked, at three moments
+  /// nothing on this side can order, which is why this is a standing rule on
+  /// the tick rather than a single call in the open chain:
+  ///
+  ///  * Each side-car add. Every native hardcodes libVLC's select flag on, so
+  ///    an add enables what it just added - disabling before the batch
+  ///    achieves nothing, and [_openAttempt] disables after it.
+  ///  * The same adds again, later. libVLC 3 queues an add-slave to the input
+  ///    thread, so `addSubtitle` returns before the ES exists; and on the
+  ///    first open of a session the controller has no engine yet and replays
+  ///    the whole batch on attach, long after the open chain has finished.
+  ///  * libVLC choosing an EMBEDDED track for itself as the media opens, on
+  ///    that same thread.
+  ///
+  /// None of the three is observable except as a snapshot naming a track,
+  /// which is this - and every native sends one on ESAdded as well as on the
+  /// ordinary tick.
+  ///
+  /// The rule stands down for this media the moment the viewer opens the side
+  /// panel ([_openPanel]), and that bound is the whole design. The Subtitles
+  /// tab, the device file picker and the online search all live inside the
+  /// panel and the panel has exactly one entry point, so until it has been
+  /// opened the viewer has no way to select a subtitle at all: anything
+  /// selected in that window is the media selecting for itself, and turning it
+  /// off cannot be overruling anybody. From the moment it opens, nothing here
+  /// touches the subtitle track again, so a pick stands.
+  ///
+  /// Bounding on the panel rather than on the first frame is deliberate. A
+  /// frame proves the controls exist, not that the adds have landed: on a
+  /// first open they land at attach, which can be either side of the first
+  /// frame, and a rule that had already closed would let the side-car it was
+  /// meant to catch stay on.
+  ///
+  /// What this deliberately does NOT do is remember a pick across media. A
+  /// failover, a recovery, a rendition step-down and the next episode each
+  /// re-arm it, and that media starts with subtitles off again.
+  ///
+  /// For the next episode that is right. For the other three it is a known
+  /// wrong, recorded here rather than glossed: they reopen the same content
+  /// with no user action, so a subtitle the viewer turned on by hand vanishes
+  /// mid-episode. Auto is not symmetrical here either, and the argument that
+  /// it is does not survive: Auto only overwrites a pick on a source that
+  /// ships side-cars AND matches the preferred language, and a source with
+  /// embedded subtitles alone - a direct MKV, a torrent, most debrid links -
+  /// returns from the batch untouched and keeps the viewer's track. So Off is
+  /// more forgetful than Auto exactly where it was claimed to match it.
+  /// Fixing it means separating "new content" from "same content reopened",
+  /// which the attempt generation does not currently distinguish.
+  ///
+  /// Known gap, accepted: a side-car that lands after the panel has been
+  /// opened stays on. The viewer is looking at the subtitle list when it
+  /// happens, which is the one moment they can undo it.
+  void _applySubtitleDefault(VlcPlayerValue value) {
+    if (!_subtitlesOffPending) return;
+    final active = value.activeSubtitleTrackId;
+    if (active == null) {
+      // Nothing is selected, so the last request landed. Forget which id it
+      // was: the latch exists only to stop one request per tick while it is in
+      // flight, and holding a spent id means the same track being selected
+      // again - an es-out reset, an HLS discontinuity, a seek - reads as a
+      // request already made and is never turned off. That left subtitles on
+      // under Off, permanently, with the rule silently retired.
+      _subtitleOffAsked = null;
+      return;
+    }
+    if (active == _subtitleOffAsked) return;
+    _subtitleOffAsked = active;
+    unawaited(_disableSubtitles());
+  }
+
+  /// One `disableSubtitle`, with the engine's refusal absorbed.
+  ///
+  /// Never allowed to throw: on the open chain it sits between `setMedia` and
+  /// the playing stage, and on the tick path it is unawaited, so a backend
+  /// that will not answer would take the whole attempt down or reach the zone.
+  /// A subtitle that would not turn off is a wrong default, not a dead player,
+  /// and the viewer can still turn it off by hand.
+  Future<void> _disableSubtitles() async {
+    try {
+      await _controller.disableSubtitle();
+    } on Object {
+      return;
     }
   }
 
@@ -1177,10 +1238,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
     final startAt = _controller.value.isLive ? Duration.zero : _resumePosition;
 
-    // A source the viewer picked by hand is on trial, and a trial that fails
-    // costs nothing: the session it interrupted was fine and is still there.
-    // Going back to it beats burning the failover budget on a URL nobody was
-    // watching and ending at "none of these would play".
+    // A hand-picked source is on trial: the session it interrupted was fine,
+    // so going back to it beats burning the failover budget on a URL nobody
+    // was watching.
     final revert = _revertTo;
     if (revert != null) {
       _revertTo = null;
@@ -1222,9 +1282,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       tried: _tried,
     );
     if (next == null) {
-      // Say what actually went wrong. A single-source channel refused for DRM
-      // should name the scheme, not just count to one - which the plural
-      // handles, so the reason is always carried through.
+      // Say what actually went wrong: a single-source channel refused for DRM
+      // should name the scheme rather than just count to one.
       final total = resolved.streams.length;
       return _fail(
         _l10n?.playerNoSourcesPlayableWithReason(total, reason) ??
@@ -1256,16 +1315,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// The one thing that notices a source has gone quiet.
   ///
   /// libVLC parked on a half-open socket reports neither `error` nor `ended`;
-  /// it sits in `buffering` indefinitely, and without this the viewer gets a
-  /// spinner with no recovery and no failover behind it. So the trigger is the
-  /// signal the progress path already trusts — an advancing position — rather
-  /// than the state enum, which reports `buffering` throughout healthy
-  /// playback on some builds and would have this firing constantly.
+  /// it sits in `buffering` indefinitely. So the trigger is an advancing
+  /// position rather than the state enum, which reports `buffering` throughout
+  /// healthy playback on some builds.
   ///
-  /// Escalation is deliberately shallow: a nudge, then the existing failover
-  /// ladder, which already knows how to reopen a source that was playing and
-  /// when to give up on one that was not. Three overlapping watchdogs is what
-  /// the old player had.
+  /// Escalation is deliberately shallow: a nudge, then the failover ladder.
   void _checkStall() {
     if (_disposed || _stage != _Stage.playing) return;
     final value = _controller.value;
@@ -1282,10 +1336,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         value.state != VlcPlaybackState.ended &&
         value.state != VlcPlaybackState.error;
     if (!playbackExpected) {
-      // A pause or background mid-stall ends the episode of recovery. Clear
-      // the "Reconnecting" line here too, or _resetStallClock zeroes the
-      // action flag and _onProgress never sees the recovery it would have
-      // cleared it on - the pill outlived the stall.
+      // Clear the "Reconnecting" line here too: _resetStallClock zeroes the
+      // action flag, so _onProgress would never see a recovery to clear it on.
       if (_lastStallAction != StallAction.none) _setStatus('');
       _resetStallClock();
       return;
@@ -1302,8 +1354,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       return;
     }
     // A frozen clock ends the measurement window: the counters would keep
-    // ticking over a stall that is not this device's fault and convict it of
-    // a decode failure it did not commit.
+    // ticking over a stall that is not this device's fault and read as a
+    // decode failure.
     _videoBaseline = null;
     _videoWindow = Duration.zero;
 
@@ -1320,9 +1372,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         return;
       case StallAction.nudge:
         _lastStallAction = action;
-        // The frame has been frozen for ten seconds and is about to be for
-        // longer; the spinner over it is the controls' to draw, but what is
-        // being done about it is only known here. Cleared by the next
+        // The spinner over the frozen frame is the controls' to draw, but
+        // what is being done about it is only known here. Cleared by the next
         // movement - see [_onProgress].
         _setStatus(_l10n?.playerReconnecting ?? '');
         unawaited(_nudge(value));
@@ -1340,15 +1391,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// The other watchdog: whether a picture is arriving behind the sound.
   ///
-  /// Runs only on ticks where the position moved, so it can never contradict
-  /// or duplicate the stall ladder above — that one exists for a clock that
-  /// froze, this one for the failure where the clock is perfect and the
-  /// picture is not. Audio drives libVLC's clock, so a 2016 television box
-  /// software-decoding a 4K rendition, and a vout that never opened at all,
-  /// both look like flawless playback to every other signal the screen has.
-  ///
-  /// Sampled through `getMediaStats`, which every backend already implements
-  /// and nothing has ever called.
+  /// Runs only on ticks where the position moved, so it cannot duplicate the
+  /// stall ladder above. Audio drives libVLC's clock, so a device
+  /// software-decoding a rendition it cannot manage, and a vout that never
+  /// opened at all, both look like flawless playback to every other signal.
   void _watchVideoHealth() {
     if (!_handedToEngine || _statsInFlight) return;
     // No picture is expected before the engine has produced one, and the
@@ -1366,10 +1412,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     try {
       stats = await _controller.getMediaStats();
     } on Object {
-      // A backend that will not answer is not evidence of anything. It also
-      // must not keep the flag raised: a detached controller throws on every
-      // call, and one swallowed failure would otherwise stop the probe for
-      // the life of the session.
+      // A backend that will not answer is not evidence of anything, and the
+      // flag must not stay raised: a detached controller throws on every call.
       _statsInFlight = false;
       return;
     }
@@ -1408,10 +1452,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         return;
       case VideoHealth.absent:
         // Nothing has reached the screen for a whole window while the clock
-        // ran. Handed to the ladder rather than reported, because the ladder
-        // already knows how to reopen a source once and how to move on when
-        // reopening does not help - and because from the viewer's side this
-        // is precisely a source that never started.
+        // ran. Handed to the ladder, which already knows how to reopen a
+        // source once and when to move on.
         _recover(
           _l10n?.playerReasonSourceNeverStarted ?? 'the source never started',
         );
@@ -1423,20 +1465,13 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// Asks for one rung less of the same stream and reopens where we are.
   ///
   /// Not a failover: the source is fine, the request was too big for this
-  /// device. Walking the ladder here would abandon a stream whose audio is
-  /// perfect in favour of mirrors that will be decoded by the same silicon,
-  /// and would end on "none of the sources would play" for a title the device
-  /// can show at 1080p all day.
+  /// device, and its mirrors would be decoded by the same silicon.
   ///
-  /// Bounded twice over. Each step is a whole rung, so at most three can
-  /// happen before [stepDownFrom] returns null at the floor; and the reopen
-  /// is handed the current retry count rather than a fresh one, so it cannot
-  /// refill the failover budget a genuinely broken source is spending.
+  /// Bounded twice: [stepDownFrom] returns null at the floor, and the reopen
+  /// carries the current retry count so it cannot refill the failover budget.
   void _stepDownRendition() {
     final next = stepDownFrom(_adaptiveMaxHeight);
-    // Already asking for the least this app will ask for. Another rung down
-    // would not be decodable either, and reopening on a loop is worse than
-    // the slideshow.
+    // Already at the floor. Reopening on a loop is worse than the slideshow.
     if (next == null) return;
     _adaptiveMaxHeight = next;
     unawaited(
@@ -1478,9 +1513,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Network restore short-circuits the wait.
   ///
-  /// The watchdog would get there on its own, but a viewer who has just walked
-  /// back into signal should not sit out the rest of the window. Scoped to a
-  /// session that is *already* stalled on purpose: `onConnectivityChanged`
+  /// Scoped to a session that is already stalled: `onConnectivityChanged`
   /// fires for interface changes that say nothing about reachability, and
   /// reopening a healthy stream on one would be a self-inflicted rebuffer.
   void _listenForNetworkRestore() {
@@ -1517,10 +1550,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       }
       _liveReconnects++;
       // The wait is spent on the overlay rather than on the last frame the
-      // feed produced. A frozen picture under a play glyph reads as a hang;
-      // the same two seconds over black, saying what is happening, read as
-      // what they are. _openAttempt would drop the flag anyway, but only
-      // after the delay.
+      // feed produced: a frozen picture under a play glyph reads as a hang.
+      // _openAttempt would drop the flag anyway, but only after the delay.
       _setSawFrames(false);
       _setStatus(_l10n?.playerReconnecting ?? '');
       final generation = _generation;
@@ -1548,21 +1579,16 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       return;
     }
     // The engine's own numbers when there is no sample. A missing sample is
-    // not evidence of an ending: it is refused below
-    // [kMinResumableDuration] and never written for a source whose length
-    // libVLC never reported, and "no sample" used to fall straight through to
-    // the card.
+    // not evidence of an ending: it is refused below [kMinResumableDuration]
+    // and never written for a source whose length libVLC never reported.
     final sample = _sample;
     final duration = sample?.duration ?? _lastSeenDuration;
     final position = sample?.position ?? _lastSeenPosition;
-    // Two ways to be a failure wearing an ending's clothes, and one reason
-    // covers both. Short of the duration is the truncated download. No
-    // duration at all is the one that cannot be measured - an HLS manifest
-    // with no EXT-X-ENDLIST on a non-live item, an unindexed MKV over HTTP, a
-    // torrent whose header never completed - and "cannot tell" is a failure,
-    // not a completion: carding it tells the viewer a stream that dropped its
-    // socket ten minutes in has finished, and spends none of the failover
-    // ladder on the sources that would have played.
+    // Two ways to be a failure wearing an ending's clothes. Short of the
+    // duration is a truncated download. No duration at all cannot be measured
+    // - an HLS manifest with no EXT-X-ENDLIST, an unindexed MKV over HTTP, a
+    // torrent whose header never completed - and "cannot tell" is treated as
+    // a failure so the failover ladder still gets its turn.
     if (duration <= Duration.zero ||
         position < duration - const Duration(seconds: 2)) {
       _failAttempt(
@@ -1571,11 +1597,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       );
       return;
     }
-    // The only place the card can be raised from. Everything above this line
-    // is a failure dressed as an ending - a dropped live feed, a truncated
-    // download, a source that never played - and each one lands on the black
-    // opening overlay with a named reason, which is correct: telling a viewer
-    // "you've finished" over a stream that broke is worse than saying nothing.
+    // The only place the card can be raised from. Everything above is a
+    // failure dressed as an ending and lands on the opening overlay with a
+    // named reason instead.
     unawaited(
       _advance(automatic: true).then((outcome) {
         if (outcome == _Advance.playing) return;
@@ -1616,9 +1640,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Polls the torrent server while a torrent is playing.
   ///
-  /// Three seconds matches the old controller. The status is only meaningful
-  /// while the engine is seeding, so polling starts with playback rather than
-  /// with the screen, and stops with it.
+  /// The status is only meaningful while the engine is seeding, so polling
+  /// starts with playback rather than with the screen, and stops with it.
   void _startTorrentPolling() {
     _torrentPoll?.cancel();
     _torrentPoll = Timer.periodic(const Duration(seconds: 3), (_) async {
@@ -1719,18 +1742,21 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Opens the side panel, on whichever of its tabs the caller asked for.
   ///
-  /// One entry point for every list the player can put on screen, because the
-  /// three things that have to be arranged around such a list — holding the
-  /// chrome open, giving Back exactly one thing to close, and handing focus
-  /// back to the control that opened it — are the same every time and were
-  /// getting arranged separately, or not at all, by four different sheets.
+  /// One entry point for every list the player can put on screen: holding the
+  /// chrome open, giving Back exactly one thing to close and handing focus
+  /// back to the control that opened it are the same every time.
   ///
-  /// The future is the reason this is not a `void`: the chrome has to be held
-  /// open for as long as the panel is up, or the bars go down underneath it and
-  /// the button focus comes back to is no longer there. The hold belongs to the
-  /// controls, which own the timer: they call this through
-  /// `ChromeVisibilityController.whileHeld`, one callback for every tab.
+  /// The future is why this is not a `void`: the chrome has to be held open
+  /// for as long as the panel is up, or the bars go down underneath it and the
+  /// button focus returns to is no longer there. Callers hold it through
+  /// `ChromeVisibilityController.whileHeld`.
   Future<void> _openPanel(PlayerPanelTab tab, {bool onTrial = true}) async {
+    // Every route the viewer has to a subtitle track is behind this call, so
+    // this is where "the media chose it" stops being the only explanation and
+    // the subtitle default stands down for this media. On open, not on close:
+    // a rule still live while the panel is up would undo the pick in the same
+    // frame the viewer made it. See [_applySubtitleDefault].
+    _subtitlesOffPending = false;
     final isTv = _form == PlayerFormFactor.tv;
     await showPlayerPanel(
       context,
@@ -1761,15 +1787,13 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// Episodes tab.
   ///
   /// Asked per row as the list builds it, never precomputed into a map: every
-  /// call costs a SHA-256 over the episode key plus up to four store reads,
-  /// and a sixty-episode season republished on every torrent poll would spend
-  /// all of it on rows nobody scrolled to. See `EpisodeProgressLookup`.
+  /// call costs a SHA-256 over the episode key plus up to four store reads.
+  /// See `EpisodeProgressLookup`.
   ///
-  /// `isWatched` is asked FIRST and short-circuits, because it is the only
-  /// authority that honours an explicit mark from the details screen: an
-  /// episode marked seen by hand at 40 % is watched, and one abandoned at 97 %
-  /// is watched rather than a row with a near-full bar. `item.url` is the
-  /// series key both stores are written under (playback_progress.dart).
+  /// `isWatched` is asked first and short-circuits, because it is the only
+  /// authority that honours an explicit mark from the details screen.
+  /// `item.url` is the series key both stores are written under
+  /// (playback_progress.dart).
   EpisodeProgress _episodeProgressFor(Episode episode) {
     final mainUrl = widget.item.url;
     if (_read(episodeWatchRepositoryProvider).isWatched(mainUrl, episode)) {
@@ -1812,16 +1836,12 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     final resolved = _resolved;
     final previous = _panelData.value;
     // Never hand an open panel an empty list mid re-resolve: on a television
-    // the focused row would unmount and nothing in the panel would hold focus.
-    // The candidates arrive first, then the resolution; until either exists
-    // the last list stands, with no tick on it.
+    // the focused row would unmount and nothing would hold focus. Until the
+    // candidates or the resolution exist, the last list stands with no tick.
     //
-    // Only for the same media, though. An advance is not a re-resolve: left
-    // unscoped, a panel open when an episode ended went on listing the
-    // finished episode's sources - untickable rows, for as long as the next
-    // one took to resolve, and picking one acted on media that was no longer
-    // playing. The new episode's own state, empty under its spinner, is the
-    // honest answer.
+    // Only for the same media. An advance is not a re-resolve: unscoped, a
+    // panel open across an episode ending would go on listing the finished
+    // episode's sources, and picking one would act on media no longer playing.
     final media = _panelMedia;
     final carryOver = media == _publishedSourcesMedia;
     final sources =
@@ -1832,15 +1852,14 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _publishedSourcesMedia = media;
     _panelData.value = PanelData(
       sources: sources,
-      // -1 whenever nothing is playing, which is a re-resolve *or* the
-      // failed stage: the candidate that just died is still in
-      // [_attemptIndex], and publishing it would badge the dead source
-      // 'Now playing' and anchor the remote on it.
+      // -1 whenever nothing is playing, which is a re-resolve or the failed
+      // stage: the candidate that just died is still in [_attemptIndex], and
+      // publishing it would badge a dead source 'Now playing'.
       currentSourceIndex: (resolved == null || _stage == _Stage.failed)
           ? -1
           : _attemptIndex,
       // A copy, so a later _probes.clear() cannot empty the chips under an
-      // open panel - which is what passing the map by reference used to do.
+      // open panel.
       probes: Map<int, ProbeOutcome>.unmodifiable(_probes),
       qualityFilteredFallback: resolved?.qualityFilteredFallback ?? false,
       // The list the next arrow walks, filtered the same way, so what the
@@ -1870,8 +1889,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     if (_disposed) return;
     // Picking the row already playing is a no-op - but in the failed stage
     // nothing is playing, and picking the candidate the ladder died on is a
-    // deliberate 'try that one again'. Swallowing it left the panel closing on
-    // a press that did nothing at all, on the screen's only recovery path.
+    // deliberate 'try that one again'.
     if (index == _attemptIndex && _stage != _Stage.failed) return;
     // The panel keeps the last list up through a re-resolve, so a pick can
     // land while nothing is resolved to switch from. Say so; the resolve in
@@ -1880,9 +1898,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       _setStatus(_l10n?.loading ?? '');
       return;
     }
-    // Carry the position across, exactly as failover does - including before
-    // the first sample lands, which is when switching source used to restart a
-    // long resume from zero.
+    // Carry the position across, exactly as failover does, including before
+    // the first sample lands.
     final at = _controller.value.isLive ? Duration.zero : _resumePosition;
     // The pick is on trial. Remember what it interrupted so its failure can put
     // that back rather than take the session down with it.
@@ -1899,11 +1916,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Switches playback to another file inside the season-pack torrent.
   ///
-  /// The pick replaces the current candidate rather than being appended, so the
-  /// failover list stays the list of *sources* and does not grow a new entry
-  /// every time somebody browses the pack. It restarts at zero on purpose: a
-  /// different file is different media, and carrying the old position into it
-  /// would drop the viewer into the middle of an episode they have not seen.
+  /// The pick replaces the current candidate rather than being appended, so
+  /// the failover list stays a list of sources. It restarts at zero: a
+  /// different file is different media.
   Future<void> _applyTorrentFile(TorrentFile picked) async {
     final resolved = _resolved;
     if (resolved == null || _disposed) return;
@@ -1948,18 +1963,17 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   ///
   /// In place rather than a fresh route because the screen already owns its
   /// controller for the State's lifetime; pushing would tear down and rebuild
-  /// the native view for no gain. The cost is that every per-episode field has
-  /// to be reset by hand here — which is exactly the bookkeeping the old path
-  /// got wrong, so the reset is a single block rather than scattered.
+  /// the native view. The cost is that every per-episode field has to be reset
+  /// by hand, so the reset is a single block rather than scattered.
+  ///
   /// [automatic] marks the end-of-media caller, and is the only one a refusal
   /// applies to: pressing Next in the chrome or on the ended card is the
-  /// viewer changing their mind, which a stale "not this time" must not veto.
+  /// viewer changing their mind.
   Future<_Advance> _advance({bool automatic = false}) async {
     // [_Advance.playing] rather than a refusal: a disposed screen has no card
     // to show, and an advance already in flight owns the transition - the
-    // outgoing engine keeps ticking through it and delivers its `ended` late,
-    // which is exactly the call that must not raise a card over the episode
-    // already loading.
+    // outgoing engine delivers its `ended` late, and that call must not raise
+    // a card over the episode already loading.
     if (_disposed || _advancing) return _Advance.playing;
     _advancing = true;
     try {
@@ -1984,11 +1998,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         return _Advance.finished;
       }
 
-      // Owner decision 2. Cancel on the up-next card used to buy fifteen
-      // seconds of credits and nothing more: the episode ended and the advance
-      // took it anyway, which is the one outcome the button exists to prevent.
-      // Nothing is rolled forward here - the viewer has not moved on - and the
-      // card offers the episode back, so a binge is still one press away.
+      // Cancel on the up-next card has to survive end of media: nothing is
+      // rolled forward here, and the card offers the episode back, so a binge
+      // is still one press away.
       if (automatic && _nextEpisodeDeclined) return _Advance.declined;
 
       rollForwardHistory(read: _read, item: widget.item, next: next);
@@ -2003,10 +2015,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   void _showEnded(EndedKind kind) {
     if (_disposed || !mounted || _ended == kind) return;
     // The card unmounts the whole controls subtree - see the build gate - and
-    // the unlock chip goes with it, so a lock left standing here would be a
-    // lock with nothing on screen to undo it. The media it was protecting is
-    // over, which is the same reason every other per-episode flag is dropped
-    // around here.
+    // the unlock chip goes with it, so a lock left standing here would have
+    // nothing on screen to undo it.
     _clearLock();
     setState(() => _ended = kind);
   }
@@ -2014,12 +2024,12 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// Plays the finished media again, from the top.
   ///
   /// Through [_start] rather than `controller.play()`: whether libVLC 3
-  /// restarts from Ended at all is an open platform question, and this
-  /// sidesteps it. It is also the only path that mints a fresh token,
-  /// recorder and tracker - which this session needs, because `finish()` has
-  /// already fired for it - and that re-resolves a URL which may well have
-  /// expired during the credits. Starting at zero comes for free:
-  /// `resolveResumePoint` returns null at or past `kCompletedFraction`.
+  /// restarts from Ended is an open question, and this sidesteps it. It is
+  /// also the only path that mints a fresh token, recorder and tracker - which
+  /// this session needs, because `finish()` has already fired - and that
+  /// re-resolves a URL which may have expired during the credits. Starting at
+  /// zero comes for free: `resolveResumePoint` returns null at or past
+  /// `kCompletedFraction`.
   void _startOver() {
     if (_disposed) return;
     _tried.clear();
@@ -2028,18 +2038,16 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _liveReconnects = 0;
     _sample = null;
     _handedToEngine = false;
-    // The refusal was made about the *previous* viewing of this episode. Left
-    // set, the whole re-watch runs with the auto-advance silently off - no
-    // up-next card in the last fifteen seconds - and ends on this same card
-    // again. The offer goes with it: it belongs to the run that just ended.
+    // The refusal was made about the previous viewing of this episode. Left
+    // set, the whole re-watch runs with the auto-advance silently off. The
+    // offer goes with it: it belongs to the run that just ended.
     _nextEpisodeDeclined = false;
     _nextEpisodeOffer = null;
     setState(() => _ended = null);
     // The finished picture comes down here, before the first await, for the
     // reason [_startEpisode] drops it in the same place: the resolve and the
-    // resume lookup can take seconds, and every one of them would otherwise be
-    // spent on a frozen last frame under a spinner-less black card that has
-    // just been dismissed.
+    // resume lookup can take seconds, and they would otherwise be spent on a
+    // frozen last frame.
     _setSawFrames(false);
     _setStatus(_l10n?.loading ?? '');
     unawaited(_start());
@@ -2100,9 +2108,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // The outgoing episode's last picture comes down here, before the first
     // await, and not in _openAttempt where every other attempt drops it.
     // Everything between here and setMedia - the download lookup, the plugin
-    // resolve, the resume lookup - can take seconds, and for all of them the
-    // viewer was left looking at a frozen frame under a play glyph with no
-    // sign anything was happening.
+    // resolve, the resume lookup - can take seconds over a frozen frame.
     _handedToEngine = false;
     _setSawFrames(false);
     _setStatus(_l10n?.loading ?? '');
@@ -2110,9 +2116,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _episode = next;
     _publishPanelData();
     // A downloaded episode plays from disk, exactly as the details screen
-    // does when it launches the first one. Streaming one the user already
-    // has on device is the difference between offline binge-watching
-    // working and not.
+    // does when it launches the first one.
     var nextUrl = next.url;
     try {
       final local = await _read(
@@ -2130,9 +2134,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     await _start();
   }
 
-  /// The episode this session is playing, resolved the way the old controller
-  /// does: an explicitly passed episode wins, otherwise match the route's token
-  /// against the series' own episode list.
+  /// The episode this session is playing: an explicitly passed episode wins,
+  /// otherwise match the route's token against the series' own episode list.
   Episode? get _currentEpisode {
     if (_episode != null) return _episode;
     final type = widget.item.contentType;
@@ -2153,6 +2156,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     final value = _controller.value;
     _syncPlayingState(value);
     _syncOrientation(value);
+    // Ahead of every early return below: a subtitle the media selected for
+    // itself is just as on during a stall, an error or the end of the file,
+    // and the window this closes has to close on the same tick whatever the
+    // state says.
+    _applySubtitleDefault(value);
     final recorder = _recorder;
     if (recorder == null) return;
 
@@ -2190,11 +2198,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
     if (running) {
       // The outgoing media is still playing through the setup of the next
-      // attempt. Its ticks keep the watchdog quiet - playback is alive - but
-      // are not the incoming attempt's first frame, and are not sampled: the
-      // recorder and the resume point may already describe the next episode,
-      // and a position from the last one written into either would resume a
-      // fresh episode forty minutes in.
+      // attempt. Its ticks keep the watchdog quiet, but are not sampled: the
+      // recorder and the resume point may already describe the next episode.
       if (!_handedToEngine) {
         if (advanced) _resetStallClock();
         return;
@@ -2254,13 +2259,12 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _setSawFrames(true);
     _resetStallClock();
     // Whatever the status line was announcing has happened - the first
-    // picture, or the position moving again after "Reconnecting…". Cleared on
-    // the first frame alone, the pill outlived every recovery it described.
+    // picture, or the position moving again after "Reconnecting…". Clearing on
+    // the first frame alone would leave the pill up through a recovery.
     if (firstFrame || recovering) _setStatus('');
     if (firstFrame) {
       _setFailReason(null);
-      // A new picture, so the bars come up over it for a moment - the same
-      // moment a freshly mounted chrome used to give itself - and on a
+      // A new picture, so the bars come up over it for a moment; on a
       // television that is also where focus lands.
       _chrome.poke();
       // The seek has already been applied as a start position, so this is a
@@ -2307,17 +2311,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// anything, so this is the flag that decides whether the viewer is looking
   /// at the video or at an opaque panel saying what is being tried.
   void _setSawFrames(bool value) {
-    // The lock belongs to the picture that was on screen when it was set. Every
-    // path that takes that picture away comes through here - a failover, a live
-    // reconnect, Start Over and, through `_startEpisode`, both the automatic
-    // advance and a hand-picked episode - so this is the one place that has to
-    // say so. Left standing, a lock set on the last episode would greet the
-    // next one with a chip over media nobody locked, and the padlock that set
-    // it is inside controls this flag has just unmounted.
+    // The lock belongs to the picture that was on screen when it was set, and
+    // every path that takes that picture away comes through here.
     //
     // Ahead of the early return on purpose: `_setSawFrames(false)` is called
-    // twice on some paths and the second call is the one that would otherwise
-    // do nothing.
+    // twice on some paths and the second call would otherwise do nothing.
     if (!value) _clearLock();
     if (_sawFrames == value) return;
     _sawFrames = value;
@@ -2326,16 +2324,12 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Fans the playing/not-playing edge out to the two things that follow it.
   ///
-  /// Only on the flip, and both callees want it that way.
-  /// `MainActivity.isPlaying` is otherwise set once, at enterPip time, so
-  /// pausing from inside the PiP window left its own button offering to pause
-  /// again. The wakelock is a platform call with no business running on every
-  /// position tick.
+  /// Only on the flip: `MainActivity.isPlaying` is otherwise set once, at
+  /// enterPip time, and the wakelock is a platform call with no business
+  /// running on every position tick.
   ///
-  /// The wakelock follows playback rather than the screen's lifetime: a player
-  /// parked on pause for twenty minutes should let the display sleep like
-  /// anything else, and the engine pausing itself on the way to the background
-  /// releases it without the screen having to know.
+  /// The wakelock follows playback rather than the screen's lifetime, so a
+  /// player parked on pause lets the display sleep.
   void _syncPlayingState(VlcPlayerValue value) {
     if (value.isPlaying == _wasPlaying) return;
     _wasPlaying = value.isPlaying;
@@ -2353,57 +2347,30 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Points the device the way the video is shaped.
   ///
-  /// Driven by the decoded size rather than by anything the app knows in
-  /// advance, because a portrait clip inside a landscape-locked player is
-  /// letterboxed down to a stripe, and because nothing in the route arguments
-  /// knows the aspect: it arrives from the engine after the first frames.
+  /// `displayVideoSize` rather than `videoSize`, which does not know which way
+  /// up the picture is: a portrait clip is stored as landscape frames plus a
+  /// 90 degree matrix, so pinning from `videoSize` would turn the device the
+  /// wrong way. A backend that knows neither reports null and this pins
+  /// nothing.
   ///
-  /// ## Why `codedVideoSize` and not `videoSize`
-  ///
-  /// Because `videoSize` does not know which way up the picture is, and this
-  /// decision is *only* about which way up the picture is.
-  ///
-  /// `videoSize` is the elementary stream's declared width and height on every
-  /// backend that reports one, and the rotation a phone camera writes lives in
-  /// a field beside it that no backend forwards — the evidence, per platform,
-  /// is on [PlayerPlatformService.applyVideoOrientation]. `codedVideoSize` is
-  /// the buffer libVLC decodes into after it has applied that rotation, so it
-  /// is the upright picture by construction.
-  ///
-  /// The three cases this leaves, all deliberate:
-  ///
-  ///  * **iOS** takes the shared NV12 texture path by default, so it reports a
-  ///    coded size and a portrait clip turns the handset portrait — including
-  ///    one shot on a phone, which is the case that used to come out backwards.
-  ///  * **Android** renders through an `AndroidView` and reports no coded
-  ///    size, so nothing is pinned and the device keeps whatever orientation
-  ///    the user's own rotation setting gives it. That is the conservative
-  ///    answer and the only honest one available from Dart: the sole size
-  ///    Android sends is the rotation-blind one, and pinning from it would be
-  ///    a coin flip on exactly the video the viewer most wants turned. Landing
-  ///    `orientation` alongside `width`/`height` in the plugin's snapshot is
-  ///    what restores the feature there; it is a change under `packages/`.
-  ///  * **macOS, Windows and Linux** are [PlayerFormFactor.desktop] and were
-  ///    never pinned, so nothing is lost by not reading the rotation-aware
-  ///    size those two desktops do happen to report.
-  ///
-  /// Fed on every tick rather than only on a size change. That is no longer
-  /// load-bearing — the service settles on a clock now, not on a count of
-  /// events — but it costs one comparison and it is what keeps a shape that
-  /// arrives late, on a tick that changed nothing else, from being missed.
+  /// [PlayerFormFactor.tv] and [PlayerFormFactor.desktop] are excluded:
+  /// `setPreferredOrientations` has no handler in the macOS, Windows or Linux
+  /// embedders, and a television is landscape by construction.
   ///
   /// No `unknown` guard: the service's own form-factor gate handles a profile
-  /// that is still resolving, and does it better than a guard here could, by
-  /// also disarming a settle that a change of form factor has invalidated.
+  /// that is still resolving, and also disarms a settle that a change of form
+  /// factor has invalidated.
   void _syncOrientation(VlcPlayerValue value) {
-    _platform.applyVideoOrientation(_form, renderedSize: value.codedVideoSize);
+    _platform.applyVideoOrientation(
+      _form,
+      renderedSize: value.displayVideoSize,
+    );
   }
 
   /// Raises the up-next card in the closing seconds of an episode.
   ///
-  /// Position-driven rather than end-of-media driven, which is the whole point:
-  /// the viewer decides during the credits, and the old overlay used the same
-  /// 15-second window (player_controller.dart:2122-2157).
+  /// Position-driven rather than end-of-media driven, so the viewer decides
+  /// during the credits.
   void _maybeOfferNextEpisode(ProgressSample sample) {
     // _advancing matters: the transition awaits a download lookup and a full
     // resolve, and a late tick from the outgoing episode would re-arm the card
@@ -2427,16 +2394,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// Raises the same card because the viewer pressed Skip Outro, rather than
   /// because the position reached the last fifteen seconds.
   ///
-  /// Beside [_maybeOfferNextEpisode] so the two cannot drift, and through the
-  /// same card for the same reason: one countdown, one advance path, and no
-  /// second overlay to keep in step with the first.
-  ///
-  /// The one deliberate asymmetry is the refusal. The automatic path
-  /// early-returns on [_nextEpisodeDeclined]; this one CLEARS it. "Not this
-  /// time, automatically" must not veto "yes, now, on purpose" - and left
-  /// standing it would veto it twice, first by refusing to raise the card at
-  /// all and then, through owner decision 2, by holding the advance back when
-  /// the credits ran out anyway.
+  /// The one deliberate asymmetry is the refusal: the automatic path
+  /// early-returns on [_nextEpisodeDeclined], this one clears it. "Not this
+  /// time, automatically" must not veto "yes, now, on purpose".
   void _offerNextEpisodeNow() {
     if (_disposed || !mounted) return;
     // The same two guards the automatic path opens with, for the same
@@ -2464,14 +2424,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     recorder.record(sample, lastStreamUrl: _lastStreamUrl, force: true);
   }
 
-  /// What the *screen* has to do about the app coming and going.
+  /// What the screen has to do about the app coming and going.
   ///
-  /// Pausing and resuming playback is deliberately not here. That policy lives
-  /// on [VlcPlayerController] (see `VlcPlayerConfig.backgroundPolicy`), so
-  /// every embedder of the engine gets it and so the "resume only what the
-  /// policy paused" bookkeeping sits next to the state that answers it. What
-  /// is left is the screen's own: the last chance to write progress, and the
-  /// watchdog's clock.
+  /// Pausing and resuming playback is deliberately not here: that policy lives
+  /// on [VlcPlayerController] (see `VlcPlayerConfig.backgroundPolicy`). What is
+  /// left is the last chance to write progress, and the watchdog's clock.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_disposed || !mounted) return;
@@ -2517,14 +2474,13 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Back, from the remote, the gesture or the on-screen button alike.
   ///
-  /// [fromChrome] marks the arrow in the top bar. The viewer can only press
-  /// that while the bars are up and is looking straight at it, so answering it
-  /// by taking the bars away would be the one wrong reading of the press.
+  /// [fromChrome] marks the arrow in the top bar. The viewer can only press it
+  /// while the bars are up, so answering by taking the bars away would be the
+  /// one wrong reading of the press.
   ///
   /// The lock comes first, ahead of everything including [_dismissOverlay]:
-  /// nothing the screen could have open can be reached from behind a lock,
-  /// and a press that got past it to pop the route would make the lock
-  /// decorative - which is precisely how the old one failed.
+  /// nothing the screen could have open is reachable from behind a lock, and a
+  /// press that got past it to pop the route would make the lock decorative.
   void _handleBack({bool fromChrome = false}) {
     if (_locked.value && _lockedBack()) return;
     if (_dismissOverlay()) return;
@@ -2542,25 +2498,13 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// What Back does on a locked screen: two presses to get out.
   ///
-  /// Reports whether the press was spent here. The first press is - it reveals
-  /// the unlock chip and nothing else, which is the answer a pocket, a lap or
-  /// a chest deserves. A second press inside [_kLockBackEscape] is taken as a
-  /// deliberate escape: the lock comes off and the press falls through to the
-  /// ordinary pop, so a viewer who cannot find the chip, or does not want it,
-  /// is never trapped.
+  /// Reports whether the press was spent here. The first press reveals the
+  /// unlock chip and nothing else. A second press inside [_kLockBackEscape]
+  /// takes the lock off and falls through to the ordinary pop, so a viewer who
+  /// cannot find the chip is never trapped.
   ///
-  /// Swallowing Back outright would have been simpler and is what the lock's
-  /// own spec asked for. It is also a brick: on Android the gesture is *the*
-  /// way out of a screen, a locked player that ignores it forever looks hung,
-  /// and the one escape left would be a chip the viewer has already failed to
-  /// find. Two presses is the same bargain the platform's own "press back
-  /// again to exit" makes.
-  ///
-  /// [_backEcho] is consulted first and for its usual reason: some devices
-  /// deliver one press twice, and the second delivery must not be read as the
-  /// deliberate second press. Its 300 ms sits well inside the two-second
-  /// window, so the sequence is echo-safe without either timer knowing about
-  /// the other's meaning.
+  /// [_backEcho] is consulted first: some devices deliver one press twice, and
+  /// the second delivery must not be read as the deliberate second press.
   bool _lockedBack() {
     if (_backEcho?.isActive ?? false) return true;
     if (_lockEscape?.isActive ?? false) {
@@ -2576,8 +2520,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // poke(), never keepAlive() and never toggle(). keepAlive is a no-op while
     // the chrome is down, which is exactly when Back is pressed on a screen
     // that has been locked and left alone; toggle() would take the chip away
-    // again on the press after. This is the one line that decides whether the
-    // lock is a lock or a brick.
+    // again on the press after.
     _chrome.poke();
     return true;
   }
@@ -2586,39 +2529,29 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// advance, an ending, a terminal failure, picture-in-picture, and the
   /// two-press escape itself.
   ///
-  /// Guarded like every other method here that teardown can still reach:
-  /// [_setSawFrames] is called from unawaited open attempts that outlive the
-  /// State, and the notifier is disposed in [dispose].
+  /// Guarded because teardown can still reach it: [_setSawFrames] is called
+  /// from unawaited open attempts that outlive the State, and the notifier is
+  /// disposed in [dispose].
   ///
-  /// It writes the flag and nothing else. Everything that has to happen
-  /// *because* the lock came off lives in [_onUnlocked] - see there for why
-  /// this method is deliberately not where it lives.
+  /// Writes the flag and nothing else; everything that follows from the lock
+  /// coming off lives in [_onUnlocked].
   void _clearLock() {
     if (_disposed) return;
     _locked.value = false;
   }
 
-  /// The one owner of the lock's off transition, whichever of the two writers
-  /// made it: this screen through [_clearLock], or the controls' unlock chip,
-  /// which holds the same notifier and sets it false itself.
+  /// The one owner of the lock's off transition, whichever writer made it:
+  /// this screen through [_clearLock], or the controls' unlock chip.
   ///
   /// The Back timers go off with the lock. [_lockEscape] left armed would make
-  /// the *next* Back on a freshly re-locked screen count as the second press
-  /// of a sequence the viewer never started, so a viewer who unlocks with the
-  /// chip and locks again inside two seconds would lose the player on one
-  /// press - the one thing a lock promises cannot happen. [_backEcho] left
-  /// armed is the same shape and smaller: for 300 ms after an unlock, Back
-  /// would be swallowed as the echo of a press already spent on revealing a
-  /// chip that has since been used.
+  /// the next Back on a freshly re-locked screen count as the second press of
+  /// a sequence the viewer never started; [_backEcho] left armed would swallow
+  /// a Back for 300 ms after an unlock.
   ///
-  /// Hung off the notifier rather than written into [_clearLock], and that is
-  /// the whole point. The flag is shared state with two writers - the padlock
-  /// sets it true, the chip sets it false - so a reset that lives on one call
-  /// path is a reset the other path can bypass, which is exactly how this
-  /// broke. Attached to the flag itself, it cannot be bypassed by any writer,
-  /// present or future. Only a real edge fires it: a [ValueNotifier] notifies
-  /// on change, so the many [_clearLock] calls over an already-unlocked
-  /// screen cost nothing.
+  /// Hung off the notifier rather than written into [_clearLock] because the
+  /// flag has two writers, and a reset on one call path is one the other can
+  /// bypass. Only a real edge fires it, so repeated [_clearLock] calls over an
+  /// already-unlocked screen cost nothing.
   void _onUnlocked() {
     if (_locked.value) return;
     _lockEscape?.cancel();
@@ -2628,32 +2561,22 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   }
 
   /// On a television Back with the bars up means "put the bars away", and only
-  /// Back over bare video means "leave" - the convention every TV player
-  /// follows, and the one the old player kept
-  /// (38da335:player_screen.dart:587-597). Reports whether the press was spent
-  /// on that.
+  /// Back over bare video means "leave". Reports whether the press was spent
+  /// on that. Paused or playing alike: [ChromeVisibilityController] hides on
+  /// demand through `toggle()` even though its clock refuses to auto-hide over
+  /// a still picture.
   ///
-  /// Paused or playing alike. There is no pause exception, and the one this
-  /// method used to carry was wrong: pausing to read the seek bar is exactly
-  /// what a viewer does in the moment before pressing Back, so the exception
-  /// turned the most ordinary press on a television into "lose the session".
-  /// The bars really do go down while paused - [ChromeVisibilityController]
-  /// hides on demand through `toggle()` even though its own clock refuses to
-  /// auto-hide over a still picture.
-  ///
-  /// A phone is still left out: it has a tap to dismiss the bars with, and a
-  /// swipe that only cleared the chrome would read as the gesture failing.
+  /// A phone is left out: it has a tap to dismiss the bars with, and a swipe
+  /// that only cleared the chrome would read as the gesture failing.
   ///
   /// A press arriving while [_backEcho] runs is swallowed whether or not the
-  /// bars are up: it is the same press again, and the first delivery has
-  /// already answered it.
+  /// bars are up: it is the same press again.
   bool _hideChromeForBack() {
     if (_backEcho?.isActive ?? false) return true;
     // The ended card unmounts the whole controls subtree, so there are no bars
-    // left to put away and the press belongs to the pop. Stated here rather
-    // than left to luck: this method claims a paused press since the pause
-    // exception was removed, and `ended` is a paused-looking state with the
-    // chrome flag still wherever the last nudge left it.
+    // left to put away and the press belongs to the pop. `ended` is a
+    // paused-looking state with the chrome flag wherever the last nudge left
+    // it, so it has to be excluded explicitly.
     if (_ended != null) return false;
     if (_form != PlayerFormFactor.tv ||
         _stage != _Stage.playing ||
@@ -2682,10 +2605,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   bool _dismissOverlay() {
     final sheet = _sheetContext;
     if (sheet == null || !sheet.mounted) return false;
-    // `mounted` is not enough. Through the panel's exit transition its element
+    // `mounted` is not enough: through the panel's exit transition its element
     // is still mounted while its route is no longer the current one, so a
-    // second Back arriving mid-animation - which is exactly what a television
-    // delivers - popped the player out from under the closing panel.
+    // second Back arriving mid-animation would pop the player out from under
+    // the closing panel.
     if (!(ModalRoute.of(sheet)?.isCurrent ?? false)) return false;
     _sheetContext = null;
     Navigator.of(sheet).pop();
@@ -2694,13 +2617,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   void _fail(String message) {
     if (_disposed) return;
-    // Same rule as [_showEnded] and [_setSawFrames], and for the same reason
-    // written out at the former: the media the lock was protecting is gone,
-    // and the failed frame unmounts the whole controls subtree, so the chip
-    // that undoes the lock has just gone with it. Left standing, Back does
-    // nothing on the first press with no feedback at all - poke() paints
-    // nothing when there are no bars to paint - on the one screen a viewer
-    // most wants to leave.
+    // Same rule as [_showEnded] and [_setSawFrames]: the failed frame unmounts
+    // the whole controls subtree, so the chip that undoes the lock goes with
+    // it and Back would do nothing on the first press.
     _clearLock();
     setState(() {
       _stage = _Stage.failed;
@@ -2729,12 +2648,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Returns a URL libVLC can open while still presenting [headers].
   ///
-  /// libVLC 3.x can transmit only User-Agent and Referer — there is no option
-  /// for Cookie, Authorization, Origin or anything custom, so those headers
-  /// cannot reach the server no matter how they are passed. When a stream needs
-  /// one, the URL is handed to the local proxy instead, which re-injects the
-  /// full set on the real request and across redirects. This is the same answer
-  /// the mpv path reached, for the same reason.
+  /// libVLC 3.x can transmit only User-Agent and Referer; there is no option
+  /// for Cookie, Authorization, Origin or anything custom. When a stream needs
+  /// one, the URL goes to the local proxy instead, which re-injects the full
+  /// set on the real request and across redirects.
   Future<Uri> _deliverableUri(Uri uri, Map<String, String> headers) async {
     if (!uri.scheme.startsWith('http')) return uri;
     if (unsupportedVlcHeaders(headers).isEmpty) return uri;
@@ -2832,8 +2749,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     if (_startedTorrent) unawaited(_read(torrentServiceProvider).stop());
     WakelockPlus.disable();
     // Hands orientation back the way this device wants it, rather than
-    // unlocking rotation app-wide: `DeviceOrientation.values` here left every
-    // other screen free to land sideways for the rest of the process.
+    // unlocking rotation app-wide, which would leave every other screen free
+    // to land sideways for the rest of the process.
     _platform.restoreOrientation(_form);
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
@@ -2946,30 +2863,21 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
             ),
           ),
           // One branch, and the VlcPlayer is the first child of it in every
-          // state this screen can be in.
-          //
-          // PiP used to have a branch of its own, returning a bare VlcPlayer.
-          // That changes the widget occupying this slot, so entering PiP
-          // rebuilt the element, VlcPlayer.dispose detached, the native player
-          // died, and re-attaching replayed the media from the position it was
-          // opened at - the episode restarted every time the window shrank.
-          // Hiding the chrome inside the same Stack keeps the element, and
-          // with it the engine.
+          // state this screen can be in. A separate PiP branch would change
+          // the widget in this slot, detaching and killing the native player,
+          // so the episode restarts every time the window shrinks. Hiding the
+          // chrome inside the same Stack keeps the element and the engine.
           _Stage.playing => Stack(
             fit: StackFit.expand,
             children: [
               // The fit is the widget's, not just the engine's: on the texture
               // path VlcPlayer draws its own FittedBox from this, and the
-              // native setFit behind it is a no-op on Windows and Linux. Left
-              // off, the viewer's default resize mode was ignored there.
+              // native setFit behind it is a no-op on Windows and Linux.
               //
-              // Offstage rather than absent under the diagnostic switch, and
-              // the distinction is the whole value of it: on the texture
-              // platforms it is VlcPlayer's own initState that attaches the
-              // native player, so a widget left out of the tree is not a
-              // player without a picture, it is no player at all. Offstage
-              // keeps the element, the State and the attach, and drops only
-              // the paint - which is exactly the half being bisected.
+              // Offstage rather than absent under the diagnostic switch: on
+              // the texture platforms VlcPlayer's own initState attaches the
+              // native player, so a widget left out of the tree is no player
+              // at all. Offstage keeps the element and drops only the paint.
               Offstage(
                 offstage: PlayerDiagnostics.suppressVideoSurface,
                 child: VlcPlayer(
@@ -2981,23 +2889,18 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                 ),
               ),
               // `setMedia` hands libVLC a URL and returns; it opens nothing.
-              // So this stage begins with the engine owing us a picture, and
-              // until it pays the video widget is an empty surface. Covering
-              // it is the only honest thing to draw - the alternative, and
-              // what this replaces, is black with a seek bar over it.
+              // So this stage begins with the video widget an empty surface,
+              // and covering it beats black with a seek bar over it.
               if (!_inPip && !_sawFrames) _openingOverlay(l10n, isTv: isTv),
               // At PiP size the frame is about a sixth of the screen: bars,
               // scrims and gesture layers are an unreadable smear over most of
               // it, and there is nothing there to tap them with anyway.
-              // `_ended == null` unmounts this whole subtree rather than
-              // fading it, which is the same rule the opening overlay follows
-              // and which deletes the dead-Play-button problem outright
-              // instead of special-casing it: [_playPause] carries
-              // `autofocus: isTv`, so leaving it mounted under the card would
-              // be two autofocus nodes in one route - a framework assertion -
-              // and its key sink would keep taking the remote back. It also
-              // makes the ended card and the up-next card structurally
-              // incapable of being on screen at once.
+              //
+              // `_ended == null` unmounts this subtree rather than fading it.
+              // The controls' play button carries `autofocus: isTv`, so
+              // leaving them mounted under the card would be two autofocus
+              // nodes in one route, and their key sink would keep taking the
+              // remote back.
               if (!_inPip && _sawFrames && _ended == null) ...[
                 // The overlay gets its own layer so a chrome repaint never
                 // forces the embedder to recomposite the video surface beneath
@@ -3024,10 +2927,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                         : null,
                     // One panel, one callback: the controls render a button
                     // per tab in [panelTabs] and open the panel on it. The
-                    // tabs come from the same helper the panel strip reads,
-                    // so a button can never open a tab that does not exist -
-                    // and Sources stays reachable on a one-source title,
-                    // where the panel still carries audio and subtitles.
+                    // tabs come from the same helper the panel strip reads, so
+                    // a button can never open a tab that does not exist.
                     onOpenPanel: (tab) => _openPanel(tab),
                     panelTabs: _panelData.value.tabs,
                     onEnterPip: _pipAvailable ? _enterPip : null,
@@ -3043,21 +2944,15 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                     onSkipOutro: _hasNextEpisode ? _offerNextEpisodeNow : null,
                     // The skip chip and the up-next card are both bottom-right
                     // and the card is a later child of this Stack, so without
-                    // this the chip would still be there underneath it: a tap
-                    // that lands on the card on touch, and an invisible focus
-                    // stop inside the card's rectangle on a remote. `_ended`
-                    // is in here for completeness rather than for effect - the
-                    // gate above unmounts these controls entirely for it - so
-                    // that the rule survives that gate changing.
+                    // this the chip stays underneath it: a tap that lands on
+                    // the card, and an invisible focus stop inside the card's
+                    // rectangle on a remote. `_ended` is here so the rule
+                    // survives the gate above changing.
                     promptVisible: _nextEpisodeOffer != null || _ended != null,
                     // Phone and tablet only, and null - not false - anywhere
                     // else: with nothing here the controls have no padlock to
-                    // render and no locked branch to reach, so the lock is
-                    // absent on a television and on a desktop by construction.
-                    // A remote has no accidental surface and a mouse has no
-                    // pocket; none of Netflix, Prime or YouTube TV ships a
-                    // lock, and the only key one could eat on a television is
-                    // Back, which is already the load-bearing "hide the bars".
+                    // render and no locked branch to reach. A remote has no
+                    // accidental surface and a mouse has no pocket.
                     locked: _form.isTouch ? _locked : null,
                     torrentStatus: _torrentStatus,
                   ),
@@ -3101,21 +2996,15 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Withholds a screen-level overlay while the screen lock is on.
   ///
-  /// The two the screen owns - the resume hint and the up-next card - are live
-  /// tap targets sitting over a picture the viewer believes is inert, and the
-  /// up-next one is there for the last fifteen seconds of every episode of
-  /// every binge: a pocket press on Play now loses the position, and one on
-  /// Cancel ends the episode *and* takes the lock off with it.
+  /// The resume hint and the up-next card are live tap targets over a picture
+  /// the viewer believes is inert: a pocket press on Play loses the position,
+  /// and one on Cancel ends the episode and takes the lock off with it.
   ///
-  /// Withheld rather than wrapped in an [IgnorePointer], which is the rule the
-  /// controls already follow for the three targets they own
-  /// (vlc_player_controls.dart:1613-1618): a dead button that is still drawn
-  /// reads as a broken player, and withholding also stops the countdown
-  /// deciding an advance from behind a surface nobody can see. The notifier is
-  /// the controls' own, so the card comes back the moment the chip unlocks.
+  /// Withheld rather than wrapped in an [IgnorePointer]: a dead button that is
+  /// still drawn reads as a broken player, and withholding also stops the
+  /// countdown deciding an advance from behind a surface nobody can see.
   ///
-  /// Off touch [_locked] is never set - the padlock is not built there - so
-  /// this is a rebuild that never fires.
+  /// Off touch [_locked] is never set, so this is a rebuild that never fires.
   Widget _unlessLocked(Widget child) => ValueListenableBuilder<bool>(
     valueListenable: _locked,
     builder: (context, locked, child) =>
@@ -3142,9 +3031,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
           ).next
         : null;
     // A declined kind with nothing to offer is not reachable through
-    // [_advance], which only reports `declined` after finding an episode - but
-    // the card asserts the pair, and degrading to Start Over beats asserting
-    // in a viewer's face if that ever stops being true.
+    // [_advance], but the card asserts the pair, so degrade to Start Over
+    // rather than assert if that stops being true.
     final effective = next == null ? EndedKind.finished : kind;
 
     return EndedCard(
@@ -3172,13 +3060,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// What to call the episode a viewer declined to move on from.
   ///
-  /// Never the series title while there is anything else to say. A plugin that
-  /// scraped its season list without episode names - common - used to fall
-  /// straight back to it, which is the "you have finished `<whole series>`"
-  /// claim two lines above exist to prevent, on episode one of sixty. The
-  /// numbers are the episode panel's own composition
-  /// (player_episodes_tab.dart:126-133), so the two read the same and this
-  /// spends no new key.
+  /// Never the series title while there is anything else to say: a plugin that
+  /// scraped its season list without episode names would otherwise claim the
+  /// whole series was finished on episode one. The numbers match the episode
+  /// panel's own composition (player_episodes_tab.dart:126-133), so the two
+  /// read the same and this spends no new key.
   String _declinedTitle(AppLocalizations l10n, Episode? episode) {
     final name = episode?.name.trim() ?? '';
     if (name.isNotEmpty) return name;
@@ -3194,9 +3080,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   }
 
   /// `Next S2 E5`, or a plain `Next` when the numbers are unknown - the
-  /// details screen's own composition
-  /// (details_layout_widgets.dart:134-143), so the two read the same and the
-  /// phase spends no new ARB key on it.
+  /// details screen's own composition (details_layout_widgets.dart:134-143),
+  /// so the two read the same and no new ARB key is spent on it.
   String _nextEpisodeLabel(AppLocalizations l10n, Episode next) {
     if (next.season > 0 && next.episode > 0) {
       return l10n.playEpisode(l10n.next, next.season, next.episode);
@@ -3207,10 +3092,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// The up-next card, with its countdown following actual playback.
   ///
-  /// The `paused` input comes through a selector rather than from this build,
-  /// because the screen deliberately does not rebuild on every playback value -
-  /// and a countdown that keeps running while the viewer has paused to read it
-  /// is exactly the behaviour the input exists to prevent.
+  /// The `paused` input comes through a selector because the screen
+  /// deliberately does not rebuild on every playback value.
   Widget _nextEpisodeCard({required bool isTv}) {
     final next = _nextEpisodeOffer!;
     final runtime = next.runtime;
@@ -3340,11 +3223,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         label: Text(l10n.playerSkipSource),
       );
 
-  /// What the parallel health probe is finding, as it finds it.
-  ///
-  /// Not the old overlay's artwork (38da335:player_loading_overlay.dart), but
-  /// the same information: which candidates are in the race, which are still
-  /// out, and which have already lost.
+  /// What the parallel health probe is finding, as it finds it: which
+  /// candidates are in the race, which are still out, and which have lost.
   Widget _probeList(AppLocalizations l10n) {
     final rows = <Widget>[];
     for (final entry in _probes.entries) {
@@ -3367,9 +3247,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
               const SizedBox(width: 8),
               // Flexible, not a fixed cap: the name yields to whatever the
               // badge and icon need, so a plugin with a paragraph for a name
-              // ellipsises instead of pushing the badge off the side. A hard
-              // maxWidth here overflowed by exactly the badge's width on a
-              // narrow panel, because it never knew how wide the row was.
+              // ellipsises instead of pushing the badge off the side.
               Flexible(
                 child: Text(
                   _candidates[entry.key].displaySource,
@@ -3392,11 +3270,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// The panel that stands in for the video until there is a video.
   ///
-  /// A plain opaque [ColoredBox] on purpose. This sits over a platform view on
+  /// A plain opaque [ColoredBox] on purpose: this sits over a platform view on
   /// macOS and iOS, where Flutter gives every layer above one its own
-  /// IOSurface — an opacity or filter layer here would be window-sized and
-  /// torn down the instant the first frame landed, which is the churn the
-  /// compositing rules in vlc_player_controls.dart exist to prevent.
+  /// IOSurface, so an opacity or filter layer here would be window-sized and
+  /// torn down the instant the first frame landed.
   ///
   /// The chrome is not merely covered but absent while this is up, so the
   /// controls' key sink is not there to compete with Skip for the remote.
@@ -3449,8 +3326,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                           style: const TextStyle(color: Colors.white70),
                         ),
                       ],
-                      // Why the source before this one was given up on. A
-                      // failover used to look like one source hanging twice.
+                      // Why the source before this one was given up on.
                       if (_failReason case final reason?) ...[
                         const SizedBox(height: 6),
                         _reasonLine(reason),

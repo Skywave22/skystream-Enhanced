@@ -65,12 +65,10 @@ void main() {
   }
 
   testWidgets('platform views never take focus', (WidgetTester tester) async {
-    // Flutter wraps every platform view in a Focus node (platform_view.dart
-    // declares _focusNode, builds Focus(...), and installs an onFocus callback
-    // that calls requestFocus). On a TV that node is a full-screen focusable
-    // candidate: when the host hides its controls, the video surface becomes
-    // the only thing left to focus, so the remote's Play/Pause stops working
-    // and focus goes invisible. ExcludeFocus removes it from traversal.
+    // Flutter wraps every platform view in a Focus node. On a TV that node is
+    // a full-screen focusable candidate: when the host hides its controls the
+    // video surface is the only thing left to focus, so the remote's
+    // Play/Pause stops working. ExcludeFocus removes it from traversal.
     for (final platform in <TargetPlatform>[
       TargetPlatform.android,
       TargetPlatform.iOS,
@@ -88,9 +86,8 @@ void main() {
               height: 180,
               child: VlcPlayer(
                 controller: controller,
-                // This test is about the PLATFORM VIEW. Every platform here
-                // defaults to the texture since 2026-09-06, so ask for the
-                // view explicitly on each.
+                // Every platform here defaults to the texture, so the
+                // platform view has to be asked for explicitly.
                 darwinRenderer: VlcDarwinRenderer.platformView,
                 androidRenderer: VlcAndroidRenderer.platformView,
               ),
@@ -148,9 +145,8 @@ void main() {
               child: VlcPlayer(
                 controller: controller,
                 fit: VlcVideoFit.fill,
-                // This test is about the PLATFORM VIEW. Every platform here
-                // defaults to the texture since 2026-09-06, so ask for the
-                // view explicitly on each.
+                // Every platform here defaults to the texture, so the
+                // platform view has to be asked for explicitly.
                 darwinRenderer: VlcDarwinRenderer.platformView,
                 androidRenderer: VlcAndroidRenderer.platformView,
               ),
@@ -328,11 +324,9 @@ void main() {
   testWidgets('scales a picture smaller than the viewport up to fill it', (
     WidgetTester tester,
   ) async {
-    // Before the fix this was Center -> FittedBox, and under loose
-    // constraints a FittedBox takes its child's natural size. A 1080p picture
-    // therefore sat at 1:1 in the middle of a larger window - only 4K filled
-    // it, and only because it had to shrink. Here the texture is 160x90 in a
-    // 320x180 viewport: it must come out 320x180, not 160x90.
+    // Under loose constraints a FittedBox takes its child's natural size, so
+    // the picture must not be left to sit at 1:1 in a larger window. A 160x90
+    // texture in a 320x180 viewport must come out 320x180.
     await runAsWindows(() async {
       final controller = VlcPlayerController();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -373,7 +367,7 @@ void main() {
       await tester.pump();
 
       // getRect follows FittedBox's paint transform, so this is the size the
-      // viewer sees. 160x90 here is the old bug.
+      // viewer sees.
       expect(tester.getRect(find.byType(Texture)).size, const Size(320, 180));
       // No coded size was reported, so nothing is clipped.
       expect(find.byType(ClipRect), findsNothing);
@@ -503,20 +497,15 @@ void main() {
   testWidgets('holds the clip a source row clear of the decoder padding', (
     WidgetTester tester,
   ) async {
-    // The coloured line along the bottom edge. Clipping at the exact boundary
-    // between the written rows and the padding is not enough: the compositor
-    // samples the texture bilinearly, so the destination row that lands on the
-    // boundary blends the last written row with the first unwritten one, and
-    // unwritten NV12 reads green. The clip therefore has to stop one whole
-    // source row short - a whole row rather than half a texel because NV12
-    // carries chroma at half height, so half a luma row is only a quarter of a
-    // chroma texel of margin.
+    // Clipping at the exact boundary between the written rows and the padding
+    // is not enough: the compositor samples bilinearly, so the destination row
+    // on the boundary blends the last written row with the first unwritten
+    // one, and unwritten NV12 reads green. NV12 carries chroma at half height,
+    // so the margin has to be a whole source row rather than half a texel.
     //
-    // macOS because that is where the NV12 buffer is: it and iOS render
-    // through the shared CVPixelBuffer sink. Windows and Linux take the same
-    // Dart path with an RGBA buffer, where a half texel would do and a whole
-    // one is still correct. Android's default is a platform view, which never
-    // reaches this code.
+    // macOS because that is where the NV12 buffer is; Windows and Linux take
+    // the same Dart path with an RGBA buffer, and Android renders through a
+    // platform view that never reaches this code.
     await runAsPlatform(TargetPlatform.macOS, () async {
       final controller = VlcPlayerController();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -528,10 +517,10 @@ void main() {
             return null;
           });
 
-      // Deliberately upscaling: 180 visible rows into 360 logical ones. That
-      // is the direction that bleeds - the destination row on the boundary
-      // maps to a source coordinate less than half a texel inside it, so its
-      // filter footprint crosses into the padding.
+      // Deliberately upscaling, 180 visible rows into 360 logical ones, which
+      // is the direction that bleeds: the destination row on the boundary maps
+      // less than half a texel inside it, so its filter footprint crosses into
+      // the padding.
       await tester.pumpWidget(
         MaterialApp(
           home: Center(
@@ -586,21 +575,12 @@ void main() {
   testWidgets(
     'clips with a hard edge, which the one-row sampling guard depends on',
     (WidgetTester tester) async {
-      // The guard above buys exactly one source row and no slack, and it is
-      // enough only while the clip boundary rounds to a whole device pixel.
-      // Clip.hardEdge draws the last device row centred at round(D) - 0.5,
-      // never past the boundary D, so the bilinear tap stops at source row
-      // `shown` - the last written one. Clip.antiAlias draws the boundary
-      // pixel at partial coverage and still samples it at its own centre, so
-      // the tap reaches shown + 0.5/m, where m is device rows per source row.
-      // Below m = 0.5 - a 1080p picture in fewer than 540 device rows, which
-      // is picture-in-picture or a small window on a 1x display - that is more
-      // than one source row and the coloured band is back.
-      //
-      // Nothing else in this file would notice: every other assertion here
-      // measures geometry, and antialiasing changes none of it. This is the
-      // only thing standing between a future `clipBehavior:` - added for
-      // smoother corners, say - and a silent return of the defect.
+      // The one-source-row inset above holds only while the clip boundary
+      // rounds to a whole device pixel. Clip.hardEdge never draws past the
+      // boundary, so the bilinear tap stops at the last written source row.
+      // Clip.antiAlias samples the boundary pixel at its own centre, reaching
+      // half a device row further - more than one source row once the picture
+      // is scaled below half size, and the coloured band is back.
       await runAsPlatform(TargetPlatform.macOS, () async {
         final controller = VlcPlayerController();
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -665,18 +645,12 @@ void main() {
   testWidgets('pressing zoom as the coded size goes stale never shrinks it', (
     WidgetTester tester,
   ) async {
-    // The owner's words were that zoom REDUCES the size, and the stale-size
-    // mechanism on its own does not say that: while the window is open the
-    // picture is small in every fit mode, and cover is still larger than
-    // contain. This is the one press that does match the words. The stale
-    // window opens on its own - a rendition change mid-play re-declares the
-    // track before the vout renegotiates its buffer - so a press that lands in
-    // the same frame takes the picture from a healthy contain straight to a
-    // stale cover, and before the clamp that was 711x400 down to 267x153.
-    //
-    // Nothing about pressing a button opens the window; the two just coincide.
-    // The assertion is therefore the invariant, not the mechanism: no change
-    // of fit may leave the picture smaller than it was on either axis.
+    // A rendition change mid-play re-declares the track before the vout
+    // renegotiates its buffer, so a change of fit landing in the same frame
+    // takes the picture from a healthy contain straight to a stale cover.
+    // Nothing about pressing a button opens that window; the two coincide, so
+    // the assertion is the invariant rather than the mechanism: no change of
+    // fit may leave the picture smaller than it was on either axis.
     await runAsPlatform(TargetPlatform.macOS, () async {
       final controller = VlcPlayerController();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -718,12 +692,10 @@ void main() {
             );
       }
 
-      // How much picture the viewer actually gets: the part of the texture
-      // that survives the clip. Neither rect alone answers it. The texture
-      // rect includes the padding the clip hides, and the clip rect is the
-      // Align box, which is the thing that inflates past the texture when the
-      // sizes fall out of step - measuring that would report a large empty
-      // box as a large picture, which is the very bug in question.
+      // How much picture the viewer gets: the part of the texture that
+      // survives the clip. Neither rect alone answers it - the texture rect
+      // includes the padding the clip hides, and the Align box inflates past
+      // the texture when the two sizes fall out of step.
       Size picture() {
         final texture = tester.getRect(find.byType(Texture));
         if (find.byType(ClipRect).evaluate().isEmpty) {
@@ -770,14 +742,13 @@ void main() {
   testWidgets('never shrinks the picture when the coded size lags behind', (
     WidgetTester tester,
   ) async {
-    // "Zoom made the video smaller." The visible size and the coded size are
-    // separate measurements that nothing keeps in step: the visible size is the
-    // media's video track as the demuxer declared it (libvlc_video_get_size
-    // reads the track info, not the video output), while the coded size is the
-    // buffer the current vout negotiated with the sink, and the Darwin renderer
-    // holds the previous one until the new vout's setup callback runs. Change
-    // media to something larger and, for that window, the visible size exceeds
-    // the texture.
+    // The visible size and the coded size are separate measurements nothing
+    // keeps in step: the visible size is the media's video track as the
+    // demuxer declared it (libvlc_video_get_size reads the track info, not the
+    // video output), while the coded size is the buffer the current vout
+    // negotiated with the sink, and the Darwin renderer holds the previous one
+    // until the new vout's setup callback runs. Change media to something
+    // larger and, for that window, the visible size exceeds the texture.
     //
     // A ratio above 1 is not a clip. Align grows past its child and pins the
     // picture top-left, so the FittedBox scales a box bigger than the picture
@@ -824,9 +795,8 @@ void main() {
           );
       await tester.pump();
 
-      // Contain in a 800x400 box, so the picture is 400 tall and 640/368 of
-      // that wide. Before the fix the Align box was 1920x1080 with the texture
-      // pinned in its top-left corner, and the picture came out 237x136.
+      // Contain in an 800x400 box, so the picture is 400 tall and 640/368 of
+      // that wide.
       final picture = tester.getRect(find.byType(Texture));
       expect(picture.height, closeTo(400, 0.01));
       expect(picture.width, closeTo(400 * 640 / 368, 0.01));

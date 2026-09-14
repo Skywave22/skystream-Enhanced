@@ -25,7 +25,6 @@
   "doubleTapToSeek": "ਸੀਕ ਕਰਨ ਲਈ ਦੋ ਵਾਰ ਟੈਪ ਕਰੋ",
   "swipeToSeek": "ਸੀਕ ਕਰਨ ਲਈ ਸਵਾਈਪ ਕਰੋ",
   "seekDuration": "ਸੀਕ ਦੀ ਮਿਆਦ",
-  "bufferDepth": "ਬਫਰ ਡੂੰਘਾਈ",
   "defaultResizeMode": "ਡਿਫੌਲਟ ਰੀਸਾਈਜ਼ ਮੋਡ",
   "hardwareDecoding": "ਹਾਰਡਵੇਅਰ ਡੀਕੋਡਿੰਗ",
   "network": "ਨੈੱਟਵਰਕ",
@@ -177,7 +176,6 @@
   "left": "ਖੱਬਾ",
   "right": "ਸੱਜਾ",
   "selectSeekDuration": "ਸੀਕ ਦੀ ਮਿਆਦ ਚੁਣੋ",
-  "selectBufferDepth": "ਬਫਰ ਡੂੰਘਾਈ ਚੁਣੋ",
   "subtitleSettings": "ਸਬਟਾਈਟਲ ਸੈਟਿੰਗਾਂ",
   "size": "ਆਕਾਰ: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi ਕੁਆਲਿਟੀ ਤਰਜੀਹ",
   "mobileQualityPreference": "ਮੋਬਾਈਲ ਕੁਆਲਿਟੀ ਤਰਜੀਹ",
   "anyNoPreference": "ਕੋਈ ਤਰਜੀਹ ਨਹੀਂ",
   "subtitleAccounts": "ਸਬਟਾਈਟਲ ਖਾਤੇ",

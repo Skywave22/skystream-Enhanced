@@ -198,10 +198,10 @@ void main() {
 
   group('runtime gating', () {
     test('nothing is rejected up front any more', () {
-      // The old gate refused any bundle whose text mentioned WebAssembly.
-      // Real providers ship polyfill branches that name it without ever
-      // running it, so that check threw away working scrapers. Failures are
-      // now reported per scraper, after an actual attempt.
+      // Real providers ship polyfill branches that name WebAssembly without
+      // ever running it, so refusing a bundle whose text mentions it throws
+      // away working scrapers. Failures are reported per scraper, after an
+      // actual attempt.
       expect(
         NuvioRuntime.unsupportedReason(
           "const c = require('cheerio-without-node-native');",
@@ -233,9 +233,7 @@ void main() {
     });
 
     test('exposes every global the real providers reach for', () {
-      // Derived by scanning the 61 providers of All-in-One-Nuvio: 18 use URL,
-      // 15 setTimeout, 8 URLSearchParams, 6 Buffer, 5 XMLHttpRequest,
-      // 3 crypto-js, plus TextEncoder, localStorage and AbortSignal.timeout.
+      // The globals the 61 providers of All-in-One-Nuvio reach for.
       for (final api in [
         'G.setTimeout',
         'G.setInterval',
@@ -747,8 +745,8 @@ void main() {
 
     test('every sendMessage payload is JSON', () {
       // flutter_js decodes each message with jsonDecode before handing it to
-      // Dart. A bare string (a log line) makes that throw, which used to kill
-      // every plugin that called console.log — 38 of the 61 real providers.
+      // Dart, so a bare string such as a log line makes that throw and kills
+      // the plugin.
       final calls = RegExp(
         r"sendMessage\(\s*'([a-z_]+)'\s*,\s*([^;]+?)\)\s*;",
       ).allMatches(js);
@@ -854,8 +852,8 @@ void main() {
         scraperName: 'A',
         settings: {'n': 1, 's': 'v', 'b': false},
       );
-      // jsonEncode succeeds only for plain values, which is exactly the
-      // constraint Isolate.send imposes on us.
+      // jsonEncode succeeds only for plain values, which is the same
+      // constraint Isolate.send imposes.
       expect(() => jsonEncode(request.toMap()), returnsNormally);
     });
 
@@ -864,8 +862,8 @@ void main() {
       addTearDown(pool.dispose);
 
       // QuickJS is not available in the test host, so this exercises the
-      // spawn / send / reply / error path rather than real scraping: the
-      // contract is that a caller always gets a JSON document back.
+      // spawn / send / reply / error path rather than real scraping: a caller
+      // always gets a JSON document back.
       final raw = await pool
           .execute(
             const NuvioEngineRequest(
@@ -891,9 +889,8 @@ void main() {
       final pool = NuvioIsolatePool(size: 2);
       addTearDown(pool.dispose);
 
-      // Eight jobs starting at once used to spawn eight isolates, because each
-      // of them checked the worker count before any of them had finished
-      // spawning.
+      // A worker has to be reserved before its spawn completes, or eight jobs
+      // starting at once all see a free slot and spawn eight isolates.
       await Future.wait([
         for (var i = 0; i < 8; i++)
           pool.execute(
@@ -1039,13 +1036,10 @@ void main() {
       expect(result[NuvioEngineHttp.errorKey], isNotNull);
     });
 
-    // The defect: `badCertificateCallback = (_, _, _) => true` on the plugin
-    // client. This is the path that decides *where the video lives*, and it
-    // replays the per-host cookie jar on every hop, so on a hostile network an
-    // on-path attacker could present a self-signed certificate, harvest the
-    // scraper's session and hand back a stream of their choosing — with
-    // playback simply working. Same defect, same fix, as the local media
-    // proxy (audit W14).
+    // This client decides where the video lives and replays the per-host
+    // cookie jar on every hop, so a `badCertificateCallback` that returns true
+    // would let an on-path attacker harvest the scraper's session and hand
+    // back a stream of their choosing.
     test('refuses a host whose certificate does not validate', () async {
       final security = SecurityContext(withTrustedRoots: false)
         ..useCertificateChainBytes(utf8.encode(_selfSignedCert))
@@ -1099,11 +1093,9 @@ void main() {
     });
   });
 
-  /// The cache used to be a plain `Map` that was never pruned: one entry per
-  /// (scraper, title, season, episode, settings) tuple, written on every
-  /// successful run and removed only when the whole service was told to clear.
-  /// A long session browsing a show grew it without any ceiling, and expired
-  /// entries were checked at read time but never actually dropped.
+  /// One entry per (scraper, title, season, episode, settings) tuple. The
+  /// cache is bounded and drops expired entries on write, rather than only
+  /// ignoring them at read time.
   group('scraper result cache', () {
     NuvioStreamResult result(String url) => NuvioStreamResult(
       scraperId: 's',
@@ -1165,8 +1157,8 @@ void main() {
       cache.store('b', [result('http://b')]);
       cache.store('c', [result('http://c')]);
 
-      // A scraper re-run overwrites its own key. That is one entry going in
-      // and one coming out, so it must not cost an unrelated entry its place.
+      // A scraper re-run overwrites its own key: one entry in, one out, so it
+      // must not cost an unrelated entry its place.
       cache.store('c', [result('http://c2')]);
 
       expect(cache.length, 3);
@@ -1177,9 +1169,8 @@ void main() {
 }
 
 // A throwaway self-signed certificate for 127.0.0.1, valid until 2126. It is
-// not in any trust store, which is exactly the point: a correct client must
-// refuse it. (Same blob as the local proxy test, kept local so neither test
-// depends on the other.)
+// in no trust store, so a correct client must refuse it. The local proxy test
+// holds the same blob, kept local so neither test depends on the other.
 const String _selfSignedCert = '''
 -----BEGIN CERTIFICATE-----
 MIIDHDCCAgSgAwIBAgIUZwxDUHTdlfONWD3vF1XEbMJcghkwDQYJKoZIhvcNAQEL

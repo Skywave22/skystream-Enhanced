@@ -73,14 +73,82 @@ class PlaybackLauncher {
         }
       });
     } else {
-      await PlayerRoute(
-        $extra: PlayerRouteExtra(
-          item: detailedItem ?? baseItem,
-          videoUrl: finalUrl,
-          episode: resolvedEpisode,
-        ),
-      ).push<void>(context);
+      await _openInternal(
+        context,
+        detailedItem ?? baseItem,
+        finalUrl,
+        episode: resolvedEpisode,
+      );
     }
+  }
+
+  /// Opens an already-resolved link in whichever player the user chose.
+  ///
+  /// [play] is for a URL that still has to go through a provider; this is for
+  /// the source sheets, which have done that themselves. [streams] is the
+  /// picker's list with the tapped row first: an external player only ever
+  /// receives that first entry, the internal one keeps the rest as failover
+  /// candidates. Callers with nothing resolved — a livestream whose item URL
+  /// is the link — pass an empty list and a playable [videoUrl].
+  Future<void> playResolved(
+    BuildContext context, {
+    required MultimediaItem item,
+    required String videoUrl,
+    Episode? episode,
+    List<StreamResult> streams = const <StreamResult>[],
+  }) async {
+    // Read through the snapshot when the provider is already warm. Callers pop
+    // themselves before handing over, and an await here would resume against a
+    // context on its way out.
+    final PlayerSettings settings =
+        _ref.read(playerSettingsProvider).value ??
+        await _ref.read(playerSettingsProvider.future);
+    if (!context.mounted) return;
+
+    final playerId = settings.preferredPlayer;
+    if (playerId == null) {
+      await _openInternal(
+        context,
+        item,
+        videoUrl,
+        episode: episode,
+        preloadedStreams: streams,
+      );
+      return;
+    }
+
+    await _launchStream(
+      context,
+      streams.isEmpty
+          ? StreamResult(url: videoUrl, source: 'Direct')
+          : streams.first,
+      item,
+      videoUrl,
+      playerId,
+      episode: episode,
+      preloadedStreams: streams,
+    );
+  }
+
+  /// Hands [videoUrl] to the built-in player.
+  ///
+  /// Every fallback in this class ends here, so a stream list resolved once is
+  /// not thrown away when the external hand-off is the thing that failed.
+  Future<void> _openInternal(
+    BuildContext context,
+    MultimediaItem item,
+    String videoUrl, {
+    Episode? episode,
+    List<StreamResult> preloadedStreams = const <StreamResult>[],
+  }) {
+    return PlayerRoute(
+      $extra: PlayerRouteExtra(
+        item: item,
+        videoUrl: videoUrl,
+        episode: episode,
+        preloadedStreams: preloadedStreams.isEmpty ? null : preloadedStreams,
+      ),
+    ).push<void>(context);
   }
 
   Future<void> _launchExternal(
@@ -146,11 +214,7 @@ class PlaybackLauncher {
               title: playerName,
               icon: Icons.play_circle_outline_rounded,
             );
-        unawaited(
-          PlayerRoute(
-            $extra: PlayerRouteExtra(item: item, videoUrl: episodeDataUrl),
-          ).push<void>(context),
-        );
+        unawaited(_openInternal(context, item, episodeDataUrl));
         return;
       }
 
@@ -185,11 +249,7 @@ class PlaybackLauncher {
             title: 'Playback Fallback',
             icon: Icons.play_circle_outline_rounded,
           );
-      unawaited(
-        PlayerRoute(
-          $extra: PlayerRouteExtra(item: item, videoUrl: episodeDataUrl),
-        ).push<void>(context),
-      );
+      unawaited(_openInternal(context, item, episodeDataUrl));
     }
   }
 
@@ -198,8 +258,44 @@ class PlaybackLauncher {
     StreamResult stream,
     MultimediaItem item,
     String episodeDataUrl,
-    String playerId,
-  ) async {
+    String playerId, {
+    Episode? episode,
+    List<StreamResult> preloadedStreams = const <StreamResult>[],
+  }) async {
+    final service = ExternalPlayerService.instance;
+    final player = service.getPlayerById(playerId);
+    final playerName = player?.displayName ?? playerId;
+
+    // A scraped link that only answers to its Referer, User-Agent or Cookie
+    // reaches the other app as a bare URL and dies there as a 403 or a black
+    // screen, with nothing on screen to say SkyStream dropped them. Say it
+    // here, before the hand-off, and play the source in the one player that
+    // can send them.
+    final dropped = player == null
+        ? const <String>[]
+        : service.unsupportedHeaders(player, stream.headers);
+    if (dropped.isNotEmpty) {
+      _ref
+          .read(notificationServiceProvider)
+          .showError(
+            AppLocalizations.of(
+              context,
+            )!.externalPlayerCannotSendHeaders(playerName, dropped.join(', ')),
+            title: playerName,
+            icon: Icons.play_circle_outline_rounded,
+          );
+      unawaited(
+        _openInternal(
+          context,
+          item,
+          episodeDataUrl,
+          episode: episode,
+          preloadedStreams: preloadedStreams,
+        ),
+      );
+      return;
+    }
+
     String playUrl = stream.url;
     if (stream.url.startsWith("magnet:") ||
         stream.url.endsWith(".torrent") ||
@@ -212,7 +308,7 @@ class PlaybackLauncher {
       }
     }
 
-    final success = await ExternalPlayerService.instance.launch(
+    final success = await service.launch(
       playUrl,
       headers: stream.headers,
       playerId: playerId,
@@ -220,9 +316,6 @@ class PlaybackLauncher {
     );
 
     if (!success && context.mounted) {
-      final playerName =
-          ExternalPlayerService.instance.getPlayerById(playerId)?.displayName ??
-          playerId;
       _ref
           .read(notificationServiceProvider)
           .showError(
@@ -231,9 +324,13 @@ class PlaybackLauncher {
             icon: Icons.play_circle_outline_rounded,
           );
       unawaited(
-        PlayerRoute(
-          $extra: PlayerRouteExtra(item: item, videoUrl: episodeDataUrl),
-        ).push<void>(context),
+        _openInternal(
+          context,
+          item,
+          episodeDataUrl,
+          episode: episode,
+          preloadedStreams: preloadedStreams,
+        ),
       );
     }
   }

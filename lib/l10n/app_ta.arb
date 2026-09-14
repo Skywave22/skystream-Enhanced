@@ -25,7 +25,6 @@
   "doubleTapToSeek": "தேடுவதற்கு இருமுறை தட்டவும்",
   "swipeToSeek": "தேடுவதற்கு ஸ்வைப் செய்யவும்",
   "seekDuration": "தேடுதல் கால அளவு",
-  "bufferDepth": "பஃபர் ஆழம்",
   "defaultResizeMode": "இயல்புநிலை மறுஅளவிடுதல் முறை",
   "hardwareDecoding": "ஹார்டுவேர் டிகோடிங்",
   "network": "பிணையம்",
@@ -177,7 +176,6 @@
   "left": "இடது",
   "right": "வலது",
   "selectSeekDuration": "தேடுதல் கால அளவைத் தேர்ந்தெடு",
-  "selectBufferDepth": "பஃபர் ஆழத்தைத் தேர்ந்தெடு",
   "subtitleSettings": "துணைத்தலைப்பு அமைப்புகள்",
   "size": "அளவு: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi தர விருப்பம்",
   "mobileQualityPreference": "மொபைல் தர விருப்பம்",
   "anyNoPreference": "விருப்பம் ஏதுமில்லை",
   "subtitleAccounts": "துணைத்தலைப்பு கணக்குகள்",

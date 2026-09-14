@@ -37,6 +37,17 @@ String getGestureLabel(PlayerGesture gesture, AppLocalizations l10n) {
   }
 }
 
+/// Returns a localized label for the subtitle default.
+///
+/// Off reuses the player's own `off` key rather than a second word for the
+/// same state: the Subtitles tab already labels its no-subtitle row with it,
+/// and this setting is a default for exactly that row.
+String subtitleDefaultLabel(SubtitleDefault value, AppLocalizations l10n) =>
+    switch (value) {
+      SubtitleDefault.auto => l10n.subtitleDefaultAuto,
+      SubtitleDefault.off => l10n.off,
+    };
+
 /// Returns a localized label for a resize mode string.
 String getResizeModeLabel(String mode, AppLocalizations l10n) {
   switch (mode.toLowerCase()) {
@@ -577,11 +588,6 @@ String formatSeekDuration(int seconds, AppLocalizations l10n) {
   return '$seconds ${l10n.sec}';
 }
 
-/// Formats readahead seconds for display (e.g. "5 min", "10 min").
-String formatReadahead(int seconds, AppLocalizations l10n) {
-  return '${seconds ~/ 60} ${l10n.min}';
-}
-
 /// Returns a human-readable name for a player ID.
 String getPlayerDisplayName(String? playerId, AppLocalizations l10n) {
   if (playerId == null) return l10n.internalPlayer;
@@ -764,40 +770,58 @@ void showResizeDialog(BuildContext context, WidgetRef ref, String current) {
   );
 }
 
-/// Shows a dialog to pick the readahead duration (5-10 min).
-void showReadaheadDialog(BuildContext context, WidgetRef ref, int current) {
+/// Shows a dialog to pick whether videos start with a subtitle showing.
+///
+/// Each choice carries a line of its own because the word alone is misread:
+/// "Off" here is the *starting* state of every video, not a switch that takes
+/// the Subtitles menu away, and the detail line is the only place that says so.
+void showSubtitleDefaultDialog(
+  BuildContext context,
+  WidgetRef ref,
+  SubtitleDefault current,
+) {
   final l10n = AppLocalizations.of(context)!;
-  // 1 to 20 minutes in 1-minute steps
-  final options = List.generate(20, (i) => (1 + i) * 60);
-
+  final options = <({SubtitleDefault value, String label, String detail})>[
+    (
+      value: SubtitleDefault.auto,
+      label: l10n.subtitleDefaultAuto,
+      detail: l10n.subtitleDefaultAutoDetail,
+    ),
+    (
+      value: SubtitleDefault.off,
+      label: l10n.off,
+      detail: l10n.subtitleDefaultOffDetail,
+    ),
+  ];
   showDialog<void>(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (ctx) => AlertDialog(
       surfaceTintColor: Colors.transparent,
-      title: Text(l10n.selectBufferDepth),
-      content: RadioGroup<int>(
+      title: Text(l10n.subtitleDefault),
+      content: RadioGroup<SubtitleDefault>(
         groupValue: current,
         onChanged: (val) {
           if (val == null) return;
-          ref.read(playerSettingsProvider.notifier).setReadaheadSeconds(val);
-          Navigator.pop<void>(context);
+          ref.read(playerSettingsProvider.notifier).setSubtitleDefault(val);
+          Navigator.pop<void>(ctx);
         },
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: options.map((sec) {
-              final bool isCurrent = sec == current;
+            children: options.map((opt) {
+              final bool isCurrent = opt.value == current;
               return _currentOption(
                 isCurrent: isCurrent,
                 child: ListTile(
                   autofocus: isCurrent,
-                  title: Text(formatReadahead(sec, l10n)),
-                  leading: Radio<int>(value: sec),
+                  title: Text(opt.label),
+                  subtitle: Text(opt.detail),
+                  leading: Radio<SubtitleDefault>(value: opt.value),
                   onTap: () {
                     ref
                         .read(playerSettingsProvider.notifier)
-                        .setReadaheadSeconds(sec);
-                    Navigator.pop<void>(context);
+                        .setSubtitleDefault(opt.value);
+                    Navigator.pop<void>(ctx);
                   },
                 ),
               );
@@ -883,8 +907,18 @@ void showDefaultPlayerDialog(
   String? currentPlayerId,
 ) {
   final l10n = AppLocalizations.of(context)!;
-  final platformPlayers = ExternalPlayerService.instance
-      .getPlayersForPlatform();
+  final service = ExternalPlayerService.instance;
+  final platformPlayers = service.getPlayersForPlatform();
+
+  // A stored id this platform does not list - a build that dropped the player,
+  // or a settings box carried over - matches no row, so the group opens with
+  // nothing selected and Cancel leaves that same id in place. Give it a row of
+  // its own instead, saying why it is not among the others.
+  final unavailable =
+      currentPlayerId != null &&
+          !platformPlayers.any((p) => p.id == currentPlayerId)
+      ? currentPlayerId
+      : null;
 
   showDialog<void>(
     context: context,
@@ -936,6 +970,21 @@ void showDefaultPlayerDialog(
                   ),
                 );
               }),
+              if (unavailable != null)
+                _currentOption(
+                  isCurrent: true,
+                  child: ListTile(
+                    autofocus: true,
+                    enabled: false,
+                    title: Text(
+                      service.getPlayerById(unavailable)?.displayName ??
+                          unavailable,
+                    ),
+                    subtitle: Text(l10n.playerNotOnThisDevice),
+                    leading: Radio<String?>(value: unavailable),
+                    trailing: const Icon(Icons.block_rounded),
+                  ),
+                ),
             ],
           ),
         ),
@@ -1237,7 +1286,12 @@ void showResetDataDialog(BuildContext context, WidgetRef ref) {
           onPressed: () async {
             Navigator.pop<void>(dialogContext);
 
-            // Clear Preferences ONLY
+            // Clear Preferences ONLY. The box takes both account usernames
+            // with it and `clearPreferences` takes the matching passwords out
+            // of the secure store; this drops the copies already in memory,
+            // so nothing renders a signed-in account between here and the
+            // restart.
+            await ref.read(playerSettingsProvider.notifier).clearCredentials();
             await ref.read(settingsRepositoryProvider).clearPreferences();
 
             // Restart App - use caller's context; dialog context may be disposed after pop
@@ -1880,6 +1934,9 @@ class _OpenSubtitlesAuthDialogState
   late final TextEditingController _passController = TextEditingController(
     text: widget.settings.osPassword,
   );
+  late final TextEditingController _keyController = TextEditingController(
+    text: widget.settings.osApiKey,
+  );
   bool _isVerifying = false;
   bool? _verifyResult;
   var _isObscure = true;
@@ -1888,6 +1945,7 @@ class _OpenSubtitlesAuthDialogState
   void dispose() {
     _userController.dispose();
     _passController.dispose();
+    _keyController.dispose();
     super.dispose();
   }
 
@@ -1901,6 +1959,7 @@ class _OpenSubtitlesAuthDialogState
         .verifyOpenSubtitles(
           _userController.text.trim(),
           _passController.text.trim(),
+          _keyController.text.trim(),
         );
     if (mounted) {
       setState(() {
@@ -1939,9 +1998,21 @@ class _OpenSubtitlesAuthDialogState
                 ),
               ),
               const SizedBox(height: 16),
+              // First, not last: without a key the provider answers every
+              // search with an empty list and the credentials below are never
+              // sent anywhere.
+              CustomTextField(
+                controller: _keyController,
+                autofocus: true,
+                textInputAction: TextInputAction.next,
+                decoration: InputDecoration(
+                  labelText: l10n.apiKey,
+                  prefixIcon: const Icon(Icons.key_rounded, size: 20),
+                ),
+              ),
+              const SizedBox(height: 12),
               CustomTextField(
                 controller: _userController,
-                autofocus: true,
                 textInputAction: TextInputAction.next,
                 decoration: InputDecoration(
                   labelText: l10n.username,
@@ -2060,6 +2131,7 @@ class _OpenSubtitlesAuthDialogState
                             .setOpenSubtitlesCredentials(
                               _userController.text.trim(),
                               _passController.text.trim(),
+                              _keyController.text.trim(),
                             );
                         Navigator.pop<void>(context);
                       },
@@ -2576,201 +2648,8 @@ class _SubSourceAuthDialogState extends ConsumerState<_SubSourceAuthDialog> {
 }
 
 // ---------------------------------------------------------------------------
-// HDR / tone-mapping + volume boost
+// Volume boost
 // ---------------------------------------------------------------------------
-
-String hdrModeLabel(HdrMode mode) => switch (mode) {
-  HdrMode.auto => 'Auto',
-  HdrMode.passthrough => 'HDR passthrough',
-  HdrMode.toneMapSdr => 'Tone-map to SDR',
-};
-
-String hdrModeDescription(HdrMode mode) => switch (mode) {
-  HdrMode.auto => 'Let the player decide. Safest default.',
-  HdrMode.passthrough =>
-    'Send HDR metadata straight to the screen so an HDR display switches into '
-        'HDR mode. Use on phones/TVs with a real HDR panel.',
-  HdrMode.toneMapSdr =>
-    'Convert HDR into SDR. Use this if HDR videos look washed out, grey or '
-        'too dark on a normal (SDR) screen.',
-};
-
-void showHdrModeDialog(
-  BuildContext context,
-  WidgetRef ref,
-  PlayerSettings settings,
-) {
-  showDialog<void>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      surfaceTintColor: Colors.transparent,
-      title: const Text('HDR mode'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            RadioGroup<HdrMode>(
-              groupValue: settings.hdrMode,
-              onChanged: (val) {
-                if (val == null) return;
-                ref.read(playerSettingsProvider.notifier).setHdrMode(val);
-                Navigator.pop<void>(ctx);
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: HdrMode.values.map((m) {
-                  final bool isCurrent = m == settings.hdrMode;
-                  return _currentOption(
-                    isCurrent: isCurrent,
-                    child: ListTile(
-                      autofocus: isCurrent,
-                      title: Text(hdrModeLabel(m)),
-                      subtitle: Text(hdrModeDescription(m)),
-                      isThreeLine: m != HdrMode.auto,
-                      leading: Radio<HdrMode>(value: m),
-                      onTap: () {
-                        ref.read(playerSettingsProvider.notifier).setHdrMode(m);
-                        Navigator.pop<void>(ctx);
-                      },
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const Divider(height: 24),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    size: 18,
-                    color: Theme.of(ctx).colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Applies to the built-in player only. Takes effect on the '
-                      'next video you start.',
-                      style: Theme.of(ctx).textTheme.bodySmall,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-void showToneMapDialog(
-  BuildContext context,
-  WidgetRef ref,
-  PlayerSettings settings,
-) {
-  showDialog<void>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      surfaceTintColor: Colors.transparent,
-      title: const Text('Tone-mapping curve'),
-      content: SingleChildScrollView(
-        child: RadioGroup<ToneMapCurve>(
-          groupValue: settings.toneMapCurve,
-          onChanged: (val) {
-            if (val == null) return;
-            ref.read(playerSettingsProvider.notifier).setToneMapCurve(val);
-            Navigator.pop<void>(ctx);
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: ToneMapCurve.values.map((c) {
-              final bool isCurrent = c == settings.toneMapCurve;
-              return _currentOption(
-                isCurrent: isCurrent,
-                child: ListTile(
-                  autofocus: isCurrent,
-                  title: Text(c.label),
-                  leading: Radio<ToneMapCurve>(value: c),
-                  onTap: () {
-                    ref
-                        .read(playerSettingsProvider.notifier)
-                        .setToneMapCurve(c);
-                    Navigator.pop<void>(ctx);
-                  },
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-void showTargetPeakDialog(
-  BuildContext context,
-  WidgetRef ref,
-  PlayerSettings settings,
-) {
-  // 0 is a sentinel for "auto-detect from the display".
-  const presets = <int, String>{
-    0: 'Auto-detect (recommended)',
-    203: '203 nits — SDR reference',
-    400: '400 nits — entry HDR',
-    600: '600 nits — HDR600',
-    1000: '1000 nits — typical HDR10',
-    1500: '1500 nits — high-end',
-    4000: '4000 nits — mastering',
-  };
-
-  // A stored peak that is not one of the presets falls back to the sentinel,
-  // so exactly one row is ever the current one.
-  final int current = presets.containsKey(settings.hdrTargetPeak)
-      ? settings.hdrTargetPeak
-      : 0;
-
-  showDialog<void>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      surfaceTintColor: Colors.transparent,
-      title: const Text('Display peak brightness'),
-      content: SingleChildScrollView(
-        child: RadioGroup<int>(
-          groupValue: current,
-          onChanged: (val) {
-            if (val == null) return;
-            ref.read(playerSettingsProvider.notifier).setHdrTargetPeak(val);
-            Navigator.pop<void>(ctx);
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: presets.entries.map((e) {
-              final bool isCurrent = e.key == current;
-              return _currentOption(
-                isCurrent: isCurrent,
-                child: ListTile(
-                  autofocus: isCurrent,
-                  title: Text(e.value),
-                  leading: Radio<int>(value: e.key),
-                  onTap: () {
-                    ref
-                        .read(playerSettingsProvider.notifier)
-                        .setHdrTargetPeak(e.key);
-                    Navigator.pop<void>(ctx);
-                  },
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-      ),
-    ),
-  );
-}
 
 void showMaxVolumeDialog(
   BuildContext context,

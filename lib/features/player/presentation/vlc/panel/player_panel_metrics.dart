@@ -1,32 +1,19 @@
 /// The panel's type scale, insets and text alphas — one ramp for a thumb, one
 /// for a sofa.
 ///
-/// The panel is the surface a television viewer reads longest and the only way
-/// to change source, track or episode without leaving playback, and every
-/// number in it was drawn for a phone: a 10 sp badge is twenty physical pixels
-/// on a 1080p panel at dp 2.0, and `secondaryText` at 65 % white disappears
-/// into a consumer set's picture modes. So the sizes live here rather than as
-/// literals in the widgets, and the widgets ask the tree which ramp they are
-/// on.
+/// Every number in the panel was drawn for a phone: a 10 sp badge is twenty
+/// physical pixels on a 1080p panel at dp 2.0, and `secondaryText` at 65 %
+/// white disappears into a consumer set's picture modes. So the sizes live here
+/// rather than as literals in the widgets, and the widgets ask the tree which
+/// ramp they are on.
 ///
-/// WHY AN INHERITED WIDGET AND NOT A THEME OR A CONSTRUCTOR ARGUMENT. The panel
-/// is a [PopupRoute] (`showPlayerPanel` pushes `_PlayerPanelRoute`), so it
-/// inherits nothing from the screen's tree and cannot read whatever the player
-/// knows about the form factor. And the parts that need the ramp — a row, a
-/// badge, a subheader — are built inside five tab widgets that this item does
-/// not own, so threading a parameter through would touch every one of them.
-/// One scope installed once in `PlayerPanel.build` reaches all of them without
-/// a single new argument.
+/// An inherited widget rather than a theme or a constructor argument: the panel
+/// is a [PopupRoute], so it inherits nothing from the screen's tree and cannot
+/// read what the player knows about the form factor, and the parts that need
+/// the ramp are built inside five tab widgets this file does not own.
 ///
-/// WHY IT IS SCOPED TO THE PANEL. A repo-wide TV scale would have to solve the
-/// bottom bar's missing overflow escape in the same change. This is the panel's
-/// ramp and nothing else's.
-///
-/// THE TOUCH RAMP IS TODAY'S LITERALS, EXACTLY. [PlayerPanelMetrics.touch] is
-/// not a redesign of the phone: every field is the number that was hard-coded
-/// in the widget before this file existed, which is what makes phone, tablet
-/// and desktop a provable no-op rather than a hopeful one. There is a test that
-/// pins each of them.
+/// [PlayerPanelMetrics.touch] is every literal the widgets carried before this
+/// file existed, so phone, tablet and desktop are unchanged.
 library;
 
 import 'package:flutter/widgets.dart';
@@ -107,21 +94,18 @@ class PlayerPanelMetrics {
 
   /// Quality, size, seeders, probe state.
   ///
-  /// On the TV ramp this is 13, and 13 is deliberately *below* the 14 sp floor
-  /// the rest of the ramp clears. Three badges plus a Now-playing chip have to
-  /// fit one line of a [drawerMinWidth] drawer, and the alternative — widening
-  /// the drawer past 460 dp — costs picture on the one screen where the panel
-  /// is covering the thing it is describing. Documented as the exception
-  /// rather than smuggled in.
+  /// 13 on the TV ramp, deliberately below the 14 sp floor the rest of it
+  /// clears: three badges plus a Now-playing chip have to fit one line of a
+  /// [drawerMinWidth] drawer, and widening the drawer past 460 dp costs picture
+  /// on the one screen where the panel covers what it is describing.
   final double badgeSize;
 
   final double subheaderSize;
   final double emptySize;
 
-  /// The Sources tab's fallback banner - the sentence that says why sources
-  /// below the viewer's quality preference are in the list. Its own rung
-  /// rather than [rowDetailSize] because the phone's 11 sp is a number that
-  /// predates this file and moving it would make the touch ramp a redesign.
+  /// The Sources tab's fallback banner — the sentence that says why sources
+  /// below the viewer's quality preference are in the list. Its own rung rather
+  /// than [rowDetailSize] because the phone's 11 sp predates this file.
   final double bannerTextSize;
 
   /// The banner's leading glyph. Smaller than [iconSize]: it sits beside one
@@ -137,22 +121,17 @@ class PlayerPanelMetrics {
   /// Floor on a tab's width, because the strip is a [Wrap] of
   /// intrinsically-sized tabs: `Files` in English is 37 dp of Roboto at 13 sp
   /// plus 8 dp of padding, and a 37 dp target between two neighbours 4 dp away
-  /// is a mis-tap. The vertical padding already makes a tab 41 dp tall; this
-  /// is the same guarantee across.
+  /// is a mis-tap. The vertical padding already makes a tab 41 dp tall; this is
+  /// the same guarantee across.
   ///
-  /// THE ONE TOUCH FIELD THAT IS NOT A PRE-EXISTING LITERAL. The strip used to
-  /// be five [Expanded]s, which gave every tab an equal ~68 dp share of the
-  /// header whatever its word was; the [Wrap] that stopped `Subtitles` being
-  /// ellipsised on a television let every tab shrink to its word instead. This
-  /// puts the floor back rather than leaving the phone paying for a TV fix.
+  /// The one touch field that is not a pre-existing literal: the [Wrap] that
+  /// stopped `Subtitles` being ellipsised on a television let every tab shrink
+  /// to its word, and this puts the floor back.
   ///
-  /// WHY IT IS 48 ON BOTH RAMPS, where every other rung goes up for the sofa.
-  /// 48 dp is a thumb, and a remote does not aim: on a television the width of
-  /// a tab decides how much focus ring the viewer sees, not whether they can
-  /// hit it, and the narrowest TV tab today is already 51 dp. Measured, a
-  /// 64 dp TV rung buys nothing in English or Hindi and pushes the Kannada
-  /// strip from one run to two - 57 dp to 116 dp of a 540 dp screen, taken out
-  /// of the list below it. So the floor is the touch floor, on both.
+  /// 48 on both ramps, where every other rung goes up for the sofa. A remote
+  /// does not aim, the narrowest TV tab is already 51 dp, and a 64 dp rung buys
+  /// nothing in English or Hindi while pushing the Kannada strip from one run
+  /// to two.
   final double tabMinWidth;
 
   final double closeButtonPadding;
@@ -168,8 +147,8 @@ class PlayerPanelMetrics {
   // --- Text alphas ---
 
   /// Second-rank text: a tab that is not selected, a row's icon, a badge's
-  /// label. 65 % white is a phone number; a television's picture modes crush
-  /// it, so the TV ramp raises it to 85 %.
+  /// label. A television's picture modes crush 65 % white, so the TV ramp
+  /// raises it to 85 %.
   final Color secondaryText;
 
   /// Third-rank text: a row's detail line, a subheader, an empty state. 45 %
@@ -181,10 +160,9 @@ class PlayerPanelMetrics {
   /// at all, which is most of what makes a badge a badge.
   final Color divider;
 
-  /// Every number as it was hard-coded before this file existed - with the one
-  /// documented exception of [tabMinWidth], which restores a floor the ramp's
-  /// own [Wrap] removed. Changing any of the others is a phone/tablet/desktop
-  /// redesign, not a TV fix.
+  /// Every number as it was hard-coded before this file existed, with the one
+  /// exception of [tabMinWidth], which restores a floor the [Wrap] removed.
+  /// Changing any of the others is a phone, tablet and desktop redesign.
   static const PlayerPanelMetrics touch = PlayerPanelMetrics(
     drawerMinWidth: 360,
     drawerMaxWidth: 480,

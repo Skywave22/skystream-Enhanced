@@ -1,28 +1,16 @@
+import 'dart:async';
+
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/storage/secure_token_storage.dart';
 import '../../../core/storage/settings_repository.dart';
+import '../../../core/storage/storage_service.dart'
+    show kOsPasswordKey, kSubDlPasswordKey;
 import '../../player/data/subtitle_providers.dart';
 import '../../../core/network/dio_client_provider.dart';
 
 part 'player_settings_provider.g.dart';
 
 enum PlayerGesture { brightness, volume, none }
-
-/// Where the OpenSubtitles account password is kept.
-///
-/// The name is unchanged from the Hive key it used to be stored under, and
-/// that is load-bearing: [SecureTokenStorage.read] looks the same key up in
-/// the legacy box on a miss, so an existing user's password moves itself into
-/// the Keychain/Keystore on the first read after upgrading and the plaintext
-/// copy is deleted in the same step.
-///
-/// These are reusable *account passwords*, not revocable tokens. In the Hive
-/// settings box they were inside Android's cloud backup and inside iOS
-/// device-to-device transfer and iTunes/Finder backups, in the clear.
-const String kOsPasswordKey = 'player_os_pass';
-
-/// Where the SubDL account password is kept. See [kOsPasswordKey].
-const String kSubDlPasswordKey = 'player_subdl_pass';
 
 /// Preferred playback quality tier. Plugins don't guarantee a specific
 /// quality but sources are sorted so the preferred tier is tried first.
@@ -56,47 +44,26 @@ enum QualityFilterMode {
   atOrBelow, // Hide sources strictly above the preferred tier (data-saver mode)
 }
 
-/// How HDR (HDR10 / HDR10+ / HLG / Dolby Vision) content is rendered.
+/// Whether a video starts with a subtitle showing.
 ///
-/// Only applies to the internal mpv/libmpv engine — the video_view engines
-/// (ExoPlayer / AVPlayer) manage HDR themselves and ignore these.
-enum HdrMode {
-  /// Let mpv decide (current behaviour, no explicit properties set).
+/// A default, not a lock. [off] decides only what the player does with media
+/// it has just opened by itself; the Subtitles menu keeps working exactly as
+/// it does today, and a track the viewer picks there stays picked for as long
+/// as that media is playing.
+///
+/// Applied per opened media, which is what "by default" has to mean here:
+/// every failover, recovery, rendition step-down, live reconnect and episode
+/// advance hands libVLC brand-new media that re-selects a subtitle on its own,
+/// so the default is re-applied to each. See `VlcPlayerScreen`'s
+/// `_applySubtitleDefault` for the whole rule.
+enum SubtitleDefault {
+  /// Today's behaviour, unchanged: whatever the source and libVLC select is
+  /// what plays, including the preferred-language side-car match in
+  /// `preferredSubtitleIndex`.
   auto,
 
-  /// Forward HDR metadata to the display so a real HDR panel switches into
-  /// HDR mode. Best on TVs/phones with genuine HDR support.
-  passthrough,
-
-  /// Tone-map HDR down to SDR. Fixes the washed-out / grey look HDR files
-  /// get on SDR panels.
-  toneMapSdr,
-}
-
-/// Tone-mapping curve used when [HdrMode.toneMapSdr] is active.
-enum ToneMapCurve { auto, spline, bt2390, bt2446a, hable, mobius, reinhard }
-
-extension ToneMapCurveX on ToneMapCurve {
-  /// mpv's `tone-mapping` property value.
-  String get mpvValue => switch (this) {
-    ToneMapCurve.auto => 'auto',
-    ToneMapCurve.spline => 'spline',
-    ToneMapCurve.bt2390 => 'bt.2390',
-    ToneMapCurve.bt2446a => 'bt.2446a',
-    ToneMapCurve.hable => 'hable',
-    ToneMapCurve.mobius => 'mobius',
-    ToneMapCurve.reinhard => 'reinhard',
-  };
-
-  String get label => switch (this) {
-    ToneMapCurve.auto => 'Auto (recommended)',
-    ToneMapCurve.spline => 'Spline — balanced',
-    ToneMapCurve.bt2390 => 'BT.2390 — reference',
-    ToneMapCurve.bt2446a => 'BT.2446a — bright scenes',
-    ToneMapCurve.hable => 'Hable — filmic',
-    ToneMapCurve.mobius => 'Mobius — preserves mid-tones',
-    ToneMapCurve.reinhard => 'Reinhard — soft highlights',
-  };
+  /// Media starts with no subtitle selected.
+  off,
 }
 
 class PlayerSettings {
@@ -110,10 +77,15 @@ class PlayerSettings {
   final int subtitleColor;
   final int subtitleBackgroundColor;
   final double subtitleBackgroundOpacity;
+
+  /// Whether a newly opened video starts with a subtitle showing.
+  /// [SubtitleDefault.auto] is what every install did before this setting
+  /// existed, so an upgrade changes nothing.
+  final SubtitleDefault subtitleDefault;
+
   final bool hardwareDecoding;
   final String?
   preferredPlayer; // null = internal, 'vlc' / 'mpv' etc. = external
-  final int readaheadSeconds;
 
   /// Quality to prefer when on Wi-Fi. Defaults to [kDefaultWifiQuality]
   /// (1080p), not 4K — see that constant for why.
@@ -125,24 +97,6 @@ class PlayerSettings {
   /// Controls whether streams below/above the quality preference are hidden.
   /// Default: [QualityFilterMode.any] (sort only, no filtering).
   final QualityFilterMode qualityFilterMode;
-
-  /// How HDR content is rendered. Default [HdrMode.auto] preserves the
-  /// previous behaviour exactly (no HDR properties are written to mpv).
-  final HdrMode hdrMode;
-
-  /// Curve used when tone-mapping HDR to SDR.
-  final ToneMapCurve toneMapCurve;
-
-  /// Per-scene peak detection. Improves highlight detail on HDR sources but
-  /// costs GPU time, so it's opt-out on weaker devices.
-  final bool hdrComputePeak;
-
-  /// Display peak luminance in nits. 0 = auto-detect from the display.
-  final int hdrTargetPeak;
-
-  /// Boosts SDR content into the HDR range. Off by default: it's an effect,
-  /// not a correction, and it looks wrong on plenty of content.
-  final bool inverseToneMapping;
 
   /// Maximum volume the player allows, as a percentage (100–200).
   /// mpv can amplify beyond the source level; 100 disables the boost.
@@ -163,7 +117,11 @@ class PlayerSettings {
   /// boolean for a button nobody draws is a preference that changes nothing.
   /// Old installs may still hold a `player_show_rotate` key in the Hive
   /// settings box; it is never read, and nothing enumerates that box, so it
-  /// costs one unread boolean and needs no migration.
+  /// costs one unread boolean and needs no migration. The same goes for
+  /// `player_readahead` and the five `player_hdr_*` / `player_tone_map` /
+  /// `player_inverse_tone_map` keys: libVLC 3 has neither a read-ahead-in-
+  /// seconds control nor mpv's tone mapping, so the settings that wrote them
+  /// went away with the engine that could have honoured them.
   final bool showPip;
   final bool showResize;
   final bool showPlaybackSpeed;
@@ -189,17 +147,12 @@ class PlayerSettings {
     this.subtitleColor = 0xFFFFFFFF, // White
     this.subtitleBackgroundColor = 0x00000000, // Transparent
     this.subtitleBackgroundOpacity = 0.5, // Default opacity (50%)
+    this.subtitleDefault = SubtitleDefault.auto,
     this.hardwareDecoding = true,
     this.preferredPlayer,
-    this.readaheadSeconds = 180,
     this.wifiQuality = kDefaultWifiQuality,
     this.mobileQuality = QualityPreference.q1080,
     this.qualityFilterMode = QualityFilterMode.any,
-    this.hdrMode = HdrMode.auto,
-    this.toneMapCurve = ToneMapCurve.auto,
-    this.hdrComputePeak = true,
-    this.hdrTargetPeak = 0,
-    this.inverseToneMapping = false,
     this.maxVolumePercent = 200,
     this.showRemainingTime = false,
     this.showPip = true,
@@ -226,18 +179,13 @@ class PlayerSettings {
     int? subtitleColor,
     int? subtitleBackgroundColor,
     double? subtitleBackgroundOpacity,
+    SubtitleDefault? subtitleDefault,
     bool? hardwareDecoding,
     String? preferredPlayer,
     bool clearPreferredPlayer = false,
-    int? readaheadSeconds,
     QualityPreference? wifiQuality,
     QualityPreference? mobileQuality,
     QualityFilterMode? qualityFilterMode,
-    HdrMode? hdrMode,
-    ToneMapCurve? toneMapCurve,
-    bool? hdrComputePeak,
-    int? hdrTargetPeak,
-    bool? inverseToneMapping,
     int? maxVolumePercent,
     bool? showRemainingTime,
     bool? showPip,
@@ -265,19 +213,14 @@ class PlayerSettings {
           subtitleBackgroundColor ?? this.subtitleBackgroundColor,
       subtitleBackgroundOpacity:
           subtitleBackgroundOpacity ?? this.subtitleBackgroundOpacity,
+      subtitleDefault: subtitleDefault ?? this.subtitleDefault,
       hardwareDecoding: hardwareDecoding ?? this.hardwareDecoding,
       preferredPlayer: clearPreferredPlayer
           ? null
           : (preferredPlayer ?? this.preferredPlayer),
-      readaheadSeconds: readaheadSeconds ?? this.readaheadSeconds,
       wifiQuality: wifiQuality ?? this.wifiQuality,
       mobileQuality: mobileQuality ?? this.mobileQuality,
       qualityFilterMode: qualityFilterMode ?? this.qualityFilterMode,
-      hdrMode: hdrMode ?? this.hdrMode,
-      toneMapCurve: toneMapCurve ?? this.toneMapCurve,
-      hdrComputePeak: hdrComputePeak ?? this.hdrComputePeak,
-      hdrTargetPeak: hdrTargetPeak ?? this.hdrTargetPeak,
-      inverseToneMapping: inverseToneMapping ?? this.inverseToneMapping,
       maxVolumePercent: maxVolumePercent ?? this.maxVolumePercent,
       showRemainingTime: showRemainingTime ?? this.showRemainingTime,
       showPip: showPip ?? this.showPip,
@@ -293,6 +236,15 @@ class PlayerSettings {
       subsourceApiKey: subsourceApiKey ?? this.subsourceApiKey,
     );
   }
+
+  /// Whether OpenSubtitles can answer at all.
+  ///
+  /// Without a key the provider returns an empty list before it sends a
+  /// request, so a stored [osUsername] is not evidence of a working account —
+  /// nothing ever logged in with it. The same two candidates the provider
+  /// itself weighs, in the same order.
+  bool get hasOpenSubtitlesKey =>
+      osApiKey.isNotEmpty || OpenSubtitlesProvider.buildTimeApiKey.isNotEmpty;
 }
 
 @Riverpod(keepAlive: true)
@@ -306,8 +258,19 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
   /// mechanism.
   SecureTokenStorage get _credentials => ref.read(secureTokenStorageProvider);
 
+  /// Resolves without an await so no consumer can observe an unresolved
+  /// [PlayerSettings].
+  ///
+  /// The player is pushed straight from Continue Watching and from both source
+  /// sheets, none of which wait for this provider; while `build` was async
+  /// those routes built the player from `const PlayerSettings()` and the
+  /// viewer's subtitle appearance, resize mode and decode preference were the
+  /// factory defaults for the rest of the session. Every value here therefore
+  /// comes out of the already-open Hive box. The two account passwords are the
+  /// exception - they live in the platform secure store, which is a channel
+  /// call - so they are folded in by [_loadAccountPasswords] when they arrive.
   @override
-  Future<PlayerSettings> build() async {
+  FutureOr<PlayerSettings> build() {
     final storage = _repository;
     final l =
         storage.getPlayerSetting<String>(
@@ -355,6 +318,14 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
         (storage.getPlayerSetting('player_sub_bg_opacity') as num?)
             ?.toDouble() ??
         0.5;
+    // Absent (a fresh install, or an upgrade from before this setting) and
+    // unrecognised (a value written by a newer build, or a corrupted box) both
+    // land on Auto, which is the behaviour every install already had.
+    final subtitleDefault = SubtitleDefault.values.firstWhere(
+      (e) =>
+          e.name == storage.getPlayerSetting<String>('player_subtitle_default'),
+      orElse: () => SubtitleDefault.auto,
+    );
     final prefPlayer = storage.getPlayerSetting<String>('player_preferred');
     final swipeSeek =
         storage.getPlayerSetting<bool>(
@@ -365,9 +336,6 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
     final hwDec =
         storage.getPlayerSetting<bool>('player_hw_dec', defaultValue: true) ??
         true;
-    final rSecons =
-        storage.getPlayerSetting<int>('player_readahead', defaultValue: 180) ??
-        180;
     final wifiQ = _parseQuality(
       storage.getPlayerSetting<String>('player_wifi_quality'),
       kDefaultWifiQuality,
@@ -383,16 +351,9 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
         ) ??
         false;
     final osUser = storage.getPlayerSetting<String>('player_os_user') ?? '';
-    // Reusable account passwords, not tokens — read from the platform secure
-    // store, never from the Hive settings box. [SecureTokenStorage.read]
-    // migrates a value left in the box by an older build on first read and
-    // deletes the plaintext copy, so nothing is lost on upgrade. See
-    // [kOsPasswordKey].
-    final osPass = await _credentials.read(kOsPasswordKey) ?? '';
     final osKey = storage.getPlayerSetting<String>('player_os_key') ?? '';
     final dlEmail =
         storage.getPlayerSetting<String>('player_subdl_email') ?? '';
-    final dlPass = await _credentials.read(kSubDlPasswordKey) ?? '';
     final dlKey = storage.getPlayerSetting<String>('player_subdl_key') ?? '';
     final ssKey = storage.getPlayerSetting<String>('player_ss_key') ?? '';
     final filterMode = _parseFilterMode(
@@ -421,35 +382,11 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
         ) ??
         true;
 
-    final hdrMode = HdrMode.values.firstWhere(
-      (e) => e.name == storage.getPlayerSetting<String>('player_hdr_mode'),
-      orElse: () => HdrMode.auto,
-    );
-    final toneMapCurve = ToneMapCurve.values.firstWhere(
-      (e) => e.name == storage.getPlayerSetting<String>('player_tone_map'),
-      orElse: () => ToneMapCurve.auto,
-    );
-    final hdrComputePeak =
-        storage.getPlayerSetting<bool>(
-          'player_hdr_compute_peak',
-          defaultValue: true,
-        ) ??
-        true;
-    final hdrTargetPeak =
-        storage.getPlayerSetting<int>(
-          'player_hdr_target_peak',
-          defaultValue: 0,
-        ) ??
-        0;
-    final inverseToneMapping =
-        storage.getPlayerSetting<bool>(
-          'player_inverse_tone_map',
-          defaultValue: false,
-        ) ??
-        false;
     final maxVolumePercent =
         storage.getPlayerSetting<int>('player_max_volume', defaultValue: 200) ??
         200;
+
+    _loadAccountPasswords();
 
     return PlayerSettings(
       leftGesture: _parse(l),
@@ -462,17 +399,12 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
       subtitleColor: subColor,
       subtitleBackgroundColor: subBg,
       subtitleBackgroundOpacity: subBgOpacity,
+      subtitleDefault: subtitleDefault,
       hardwareDecoding: hwDec,
       preferredPlayer: prefPlayer,
-      readaheadSeconds: rSecons,
       wifiQuality: wifiQ,
       mobileQuality: mobileQ,
       qualityFilterMode: filterMode,
-      hdrMode: hdrMode,
-      toneMapCurve: toneMapCurve,
-      hdrComputePeak: hdrComputePeak,
-      hdrTargetPeak: hdrTargetPeak,
-      inverseToneMapping: inverseToneMapping,
       maxVolumePercent: maxVolumePercent,
       showRemainingTime: showRemaining,
       showPip: showPip,
@@ -480,101 +412,132 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
       showPlaybackSpeed: showPlaybackSpeed,
       showEpisodes: showEpisodes,
       osUsername: osUser,
-      osPassword: osPass,
       osApiKey: osKey,
       subdlEmail: dlEmail,
-      subdlPassword: dlPass,
       subdlApiKey: dlKey,
       subsourceApiKey: ssKey,
     );
   }
 
+  /// Folds the two subtitle account passwords in once the platform secure
+  /// store answers.
+  ///
+  /// Reusable account passwords, not tokens, so they never touch the Hive
+  /// settings box. [SecureTokenStorage.read] migrates a value an older build
+  /// left in that box on first read and deletes the plaintext copy, so nothing
+  /// is lost on upgrade. See [kOsPasswordKey].
+  ///
+  /// A sign-in that lands while the store is being read wins: it is the newer
+  /// of the two, and it has already been written back.
+  ///
+  /// Nothing awaits this, so a store that cannot be read has to end here: an
+  /// escaping error would be an unhandled one, and the rest of the settings
+  /// have already been returned. The two rows then read as signed out, which
+  /// is what an unreadable credential store means.
+  Future<void> _loadAccountPasswords() async {
+    final String osPass;
+    final String dlPass;
+    try {
+      osPass = await _credentials.read(kOsPasswordKey) ?? '';
+      dlPass = await _credentials.read(kSubDlPasswordKey) ?? '';
+    } catch (_) {
+      return;
+    }
+    if (osPass.isEmpty && dlPass.isEmpty) return;
+    _update(
+      (PlayerSettings current) => current.copyWith(
+        osPassword: current.osPassword.isEmpty ? osPass : null,
+        subdlPassword: current.subdlPassword.isEmpty ? dlPass : null,
+      ),
+    );
+  }
+
+  /// Applies [change] to the settings already in hand, or does nothing.
+  ///
+  /// `state.requireValue` throws whenever the state is not [AsyncData] - which
+  /// a failed `build` leaves it as permanently - and every setter here is
+  /// called fire-and-forget from a row's `onChanged`, so the throw would escape
+  /// as an unhandled async error and lose the in-memory update after the write
+  /// to Hive had already succeeded. The stored value is the durable one either
+  /// way; this only decides whether the screen catches up before the next
+  /// launch.
+  ///
+  /// Also the disposal guard for the writes that resume after an await.
+  void _update(PlayerSettings Function(PlayerSettings) change) {
+    if (!ref.mounted) return;
+    final PlayerSettings? current = state.value;
+    if (current == null) return;
+    state = AsyncData(change(current));
+  }
+
   Future<void> setLeftGesture(PlayerGesture g) async {
     await _repository.setPlayerSetting('player_gesture_left', g.name);
-    state = AsyncData(state.requireValue.copyWith(leftGesture: g));
+    _update((PlayerSettings c) => c.copyWith(leftGesture: g));
   }
 
   Future<void> setRightGesture(PlayerGesture g) async {
     await _repository.setPlayerSetting('player_gesture_right', g.name);
-    state = AsyncData(state.requireValue.copyWith(rightGesture: g));
+    _update((PlayerSettings c) => c.copyWith(rightGesture: g));
   }
 
   Future<void> setDoubleTapEnabled(bool val) async {
     await _repository.setPlayerSetting('player_double_tap', val);
-    state = AsyncData(state.requireValue.copyWith(doubleTapEnabled: val));
+    _update((PlayerSettings c) => c.copyWith(doubleTapEnabled: val));
   }
 
   Future<void> setSwipeSeekEnabled(bool val) async {
     await _repository.setPlayerSetting('player_swipe_seek', val);
-    state = AsyncData(state.requireValue.copyWith(swipeSeekEnabled: val));
+    _update((PlayerSettings c) => c.copyWith(swipeSeekEnabled: val));
   }
 
   Future<void> setSeekDuration(int seconds) async {
     await _repository.setPlayerSetting('player_seek_duration', seconds);
-    state = AsyncData(state.requireValue.copyWith(seekDuration: seconds));
+    _update((PlayerSettings c) => c.copyWith(seekDuration: seconds));
   }
 
   Future<void> setDefaultResizeMode(String mode) async {
     await _repository.setPlayerSetting('player_default_resize', mode);
-    state = AsyncData(state.requireValue.copyWith(defaultResizeMode: mode));
+    _update((PlayerSettings c) => c.copyWith(defaultResizeMode: mode));
+  }
+
+  /// Whether the next video the player opens starts with a subtitle showing.
+  ///
+  /// Takes effect on the next media the player opens, not on the one already
+  /// on screen: the rule is applied while media is being handed to the engine.
+  Future<void> setSubtitleDefault(SubtitleDefault value) async {
+    await _repository.setPlayerSetting('player_subtitle_default', value.name);
+    _update((PlayerSettings c) => c.copyWith(subtitleDefault: value));
   }
 
   Future<void> setHardwareDecoding(bool val) async {
     await _repository.setPlayerSetting('player_hw_dec', val);
-    state = AsyncData(state.requireValue.copyWith(hardwareDecoding: val));
-  }
-
-  Future<void> setHdrMode(HdrMode mode) async {
-    await _repository.setPlayerSetting('player_hdr_mode', mode.name);
-    state = AsyncData(state.requireValue.copyWith(hdrMode: mode));
-  }
-
-  Future<void> setToneMapCurve(ToneMapCurve curve) async {
-    await _repository.setPlayerSetting('player_tone_map', curve.name);
-    state = AsyncData(state.requireValue.copyWith(toneMapCurve: curve));
-  }
-
-  Future<void> setHdrComputePeak(bool val) async {
-    await _repository.setPlayerSetting('player_hdr_compute_peak', val);
-    state = AsyncData(state.requireValue.copyWith(hdrComputePeak: val));
-  }
-
-  /// [nits] of 0 means auto-detect from the display.
-  Future<void> setHdrTargetPeak(int nits) async {
-    final clamped = nits <= 0 ? 0 : nits.clamp(100, 10000);
-    await _repository.setPlayerSetting('player_hdr_target_peak', clamped);
-    state = AsyncData(state.requireValue.copyWith(hdrTargetPeak: clamped));
-  }
-
-  Future<void> setInverseToneMapping(bool val) async {
-    await _repository.setPlayerSetting('player_inverse_tone_map', val);
-    state = AsyncData(state.requireValue.copyWith(inverseToneMapping: val));
+    _update((PlayerSettings c) => c.copyWith(hardwareDecoding: val));
   }
 
   Future<void> setMaxVolumePercent(int percent) async {
     final clamped = percent.clamp(100, 200);
     await _repository.setPlayerSetting('player_max_volume', clamped);
-    state = AsyncData(state.requireValue.copyWith(maxVolumePercent: clamped));
+    _update((PlayerSettings c) => c.copyWith(maxVolumePercent: clamped));
   }
 
   Future<void> setShowPip(bool val) async {
     await _repository.setPlayerSetting('player_show_pip', val);
-    state = AsyncData(state.requireValue.copyWith(showPip: val));
+    _update((PlayerSettings c) => c.copyWith(showPip: val));
   }
 
   Future<void> setShowResize(bool val) async {
     await _repository.setPlayerSetting('player_show_resize', val);
-    state = AsyncData(state.requireValue.copyWith(showResize: val));
+    _update((PlayerSettings c) => c.copyWith(showResize: val));
   }
 
   Future<void> setShowPlaybackSpeed(bool val) async {
     await _repository.setPlayerSetting('player_show_playback_speed', val);
-    state = AsyncData(state.requireValue.copyWith(showPlaybackSpeed: val));
+    _update((PlayerSettings c) => c.copyWith(showPlaybackSpeed: val));
   }
 
   Future<void> setShowEpisodes(bool val) async {
     await _repository.setPlayerSetting('player_show_episodes', val);
-    state = AsyncData(state.requireValue.copyWith(showEpisodes: val));
+    _update((PlayerSettings c) => c.copyWith(showEpisodes: val));
   }
 
   Future<void> setSubtitleSettings(
@@ -589,13 +552,12 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
     if (opacity != null) {
       await _repository.setPlayerSetting('player_sub_bg_opacity', opacity);
     }
-    state = AsyncData(
-      state.requireValue.copyWith(
+    _update(
+      (PlayerSettings current) => current.copyWith(
         subtitleSize: size,
         subtitleColor: color,
         subtitleBackgroundColor: bg,
-        subtitleBackgroundOpacity:
-            opacity ?? state.requireValue.subtitleBackgroundOpacity,
+        subtitleBackgroundOpacity: opacity ?? current.subtitleBackgroundOpacity,
       ),
     );
   }
@@ -603,63 +565,58 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
   Future<void> setPreferredPlayer(String? playerId) async {
     if (playerId == null) {
       await _repository.setPlayerSetting('player_preferred', null);
-      state = AsyncData(
-        state.requireValue.copyWith(clearPreferredPlayer: true),
+      _update(
+        (PlayerSettings current) =>
+            current.copyWith(clearPreferredPlayer: true),
       );
     } else {
       await _repository.setPlayerSetting('player_preferred', playerId);
-      state = AsyncData(state.requireValue.copyWith(preferredPlayer: playerId));
+      _update(
+        (PlayerSettings current) => current.copyWith(preferredPlayer: playerId),
+      );
     }
-  }
-
-  Future<void> setReadaheadSeconds(int seconds) async {
-    await _repository.setPlayerSetting('player_readahead', seconds);
-    state = AsyncData(state.requireValue.copyWith(readaheadSeconds: seconds));
   }
 
   Future<void> setSubtitleBackgroundOpacity(double val) async {
     await _repository.setPlayerSetting('player_sub_bg_opacity', val);
-    state = AsyncData(
-      state.requireValue.copyWith(subtitleBackgroundOpacity: val),
-    );
+    _update((PlayerSettings c) => c.copyWith(subtitleBackgroundOpacity: val));
   }
 
   Future<void> resetSubtitleSettings() async {
-    final current = state.requireValue;
-    final newState = current.copyWith(
-      subtitleSize: 22.0,
-      subtitleColor: 0xFFFFFFFF,
-      subtitleBackgroundColor: 0x00000000,
-      subtitleBackgroundOpacity: 0.5,
-    );
-
     await _repository.setPlayerSetting('player_sub_size', 22.0);
     await _repository.setPlayerSetting('player_sub_color', 0xFFFFFFFF);
     await _repository.setPlayerSetting('player_sub_bg', 0x00000000);
     await _repository.setPlayerSetting('player_sub_bg_opacity', 0.5);
     await _repository.setPlayerSetting('player_sub_pos', 100.0);
 
-    state = AsyncData(newState);
+    _update(
+      (PlayerSettings current) => current.copyWith(
+        subtitleSize: 22.0,
+        subtitleColor: 0xFFFFFFFF,
+        subtitleBackgroundColor: 0x00000000,
+        subtitleBackgroundOpacity: 0.5,
+      ),
+    );
   }
 
   Future<void> setWifiQuality(QualityPreference q) async {
     await _repository.setPlayerSetting('player_wifi_quality', q.name);
-    state = AsyncData(state.requireValue.copyWith(wifiQuality: q));
+    _update((PlayerSettings c) => c.copyWith(wifiQuality: q));
   }
 
   Future<void> setMobileQuality(QualityPreference q) async {
     await _repository.setPlayerSetting('player_mobile_quality', q.name);
-    state = AsyncData(state.requireValue.copyWith(mobileQuality: q));
+    _update((PlayerSettings c) => c.copyWith(mobileQuality: q));
   }
 
   Future<void> setQualityFilterMode(QualityFilterMode mode) async {
     await _repository.setPlayerSetting('player_quality_filter_mode', mode.name);
-    state = AsyncData(state.requireValue.copyWith(qualityFilterMode: mode));
+    _update((PlayerSettings c) => c.copyWith(qualityFilterMode: mode));
   }
 
   Future<void> setShowRemainingTime(bool val) async {
     await _repository.setPlayerSetting('player_show_remaining', val);
-    state = AsyncData(state.requireValue.copyWith(showRemainingTime: val));
+    _update((PlayerSettings c) => c.copyWith(showRemainingTime: val));
   }
 
   Future<void> setOpenSubtitlesCredentials(
@@ -674,8 +631,8 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
     if (key != null) {
       await _repository.setPlayerSetting('player_os_key', key);
     }
-    state = AsyncData(
-      state.requireValue.copyWith(
+    _update(
+      (PlayerSettings current) => current.copyWith(
         osUsername: user,
         osPassword: pass,
         osApiKey: key,
@@ -696,23 +653,39 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
       await _credentials.write(kSubDlPasswordKey, pass);
     }
 
-    state = AsyncData(
-      state.requireValue.copyWith(
+    _update(
+      (PlayerSettings current) => current.copyWith(
         subdlApiKey: apiKey,
-        subdlEmail: email ?? state.requireValue.subdlEmail,
-        subdlPassword: pass ?? state.requireValue.subdlPassword,
+        subdlEmail: email ?? current.subdlEmail,
+        subdlPassword: pass ?? current.subdlPassword,
       ),
     );
   }
 
   Future<void> setSubDlApiKey(String key) async {
     await _repository.setPlayerSetting('player_subdl_key', key);
-    state = AsyncData(state.requireValue.copyWith(subdlApiKey: key));
+    _update((PlayerSettings c) => c.copyWith(subdlApiKey: key));
   }
 
   Future<void> setSubSourceApiKey(String key) async {
     await _repository.setPlayerSetting('player_ss_key', key);
-    state = AsyncData(state.requireValue.copyWith(subsourceApiKey: key));
+    _update((PlayerSettings c) => c.copyWith(subsourceApiKey: key));
+  }
+
+  /// Removes the two subtitle account passwords from the platform secure
+  /// store.
+  ///
+  /// "Reset Data" empties the Hive box, which takes the usernames with it and
+  /// leaves both rows reading "Not logged in" while the passwords are still on
+  /// the device. Named keys only: the OAuth tokens share this store, and a
+  /// reset that keeps extensions keeps those sessions too.
+  Future<void> clearCredentials() async {
+    await _credentials.delete(kOsPasswordKey);
+    await _credentials.delete(kSubDlPasswordKey);
+    _update(
+      (PlayerSettings current) =>
+          current.copyWith(osPassword: '', subdlPassword: ''),
+    );
   }
 
   Future<bool> verifyOpenSubtitles(

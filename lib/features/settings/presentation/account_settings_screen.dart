@@ -103,7 +103,12 @@ class _AccountSettingsScreenState extends ConsumerState<AccountSettingsScreen> {
                 SettingsTile(
                   icon: Icons.subtitles_rounded,
                   title: l10n.openSubtitles,
-                  subtitle: playerSettings.osUsername.isNotEmpty
+                  // A stored username is not a session: with no API key the
+                  // provider returns nothing before it sends a request, so
+                  // nothing has ever logged in with it.
+                  subtitle: !playerSettings.hasOpenSubtitlesKey
+                      ? l10n.keyNotSet
+                      : playerSettings.osUsername.isNotEmpty
                       ? l10n.loggedInAs(playerSettings.osUsername)
                       : l10n.notLoggedIn,
                   onTap: () =>

@@ -25,25 +25,20 @@ import 'package:skystream/l10n/generated/app_localizations.dart';
 import 'fake_vlc_engine.dart';
 import 'vlc_screen_harness.dart';
 
-/// The panel as the *screen* drives it: the bottom bar opens the tab it names,
-/// a pick reaches the engine, and what the screen learns while the panel is up
-/// - a failover moving the tick - reaches the open panel rather than the next
-/// one. The panel's own behaviour is pinned in player_panel_test.dart; this
-/// file is about the wiring between the two, which is where the nine-argument
-/// snapshot used to go stale.
+/// The panel as the screen drives it: the bottom bar opens the tab it names,
+/// a pick reaches the engine, and a failover moving the tick reaches the panel
+/// that is already up. The panel's own behaviour is pinned in
+/// player_panel_test.dart; this file is about the wiring between the two.
 ///
 /// An episode advance under an open panel is the one moment every input the
-/// panel reads changes media at once, so most of what is here is about that:
-/// what happens to the source list, to the probe chips a resolve leaves in
-/// flight behind it, and to a pick made in the middle of it.
+/// panel reads changes media at once, so most of what is here is about that.
 ///
-/// The screen calls `resolvePlayback` directly, so a probe is made slow the
-/// only way it can be - `runWithClient` with a client that holds the HEAD.
-/// Note that a probe cannot be made to answer *unhealthy* through a returned
-/// response: the ranged GET it falls through to ends in
-/// `resp.stream.listen(...).cancel()`, which never completes under
-/// flutter_test's fake async. The client throws for that leg instead, which is
-/// the same thing on the wire.
+/// A probe is made slow with `runWithClient` and a client that holds the HEAD.
+/// A probe cannot be made to answer unhealthy through a returned response: the
+/// ranged GET it falls through to ends in `resp.stream.listen(...).cancel()`,
+/// which never completes under flutter_test's fake async, so the client throws
+/// for that leg instead.
+///
 /// History with a position and a length for named episode URLs, so the panel
 /// has something real to read. Everything else answers zero, as [NoHistory].
 class _SeededHistory extends NoHistory {
@@ -140,9 +135,9 @@ void main() {
 
   /// Whether whatever holds focus is inside the panel.
   ///
-  /// The alternative is the enclosing route scope, which is where focus lands
-  /// when every row that could hold it unmounts - and it is the one state the
-  /// player's focus rules forbid, because a remote cannot get out of it.
+  /// The alternative is the enclosing route scope, where focus lands when
+  /// every row that could hold it unmounts. A remote cannot get out of that
+  /// state, and the player's focus rules forbid it.
   bool focusInPanel() =>
       FocusManager.instance.primaryFocus?.context
           ?.findAncestorWidgetOfExactType<PlayerPanel>() !=
@@ -160,11 +155,8 @@ void main() {
       .toList();
 
   /// A two-episode show whose first episode is handed in already resolved and
-  /// whose second has to be resolved through a plugin.
-  ///
-  /// The advance is where the panel's inputs change media underneath it, and
-  /// nothing else on this screen does: `_resolved` is nulled in exactly one
-  /// place, and that place is the episode swap.
+  /// whose second has to be resolved through a plugin. The episode swap is the
+  /// one place the panel's inputs change media underneath it.
   final firstEpisode = Episode(
     name: 'Ep 01',
     url: 'https://example.com/e1.mp4',
@@ -219,7 +211,7 @@ void main() {
     ),
   ];
 
-  /// The second episode's candidates over http, so that *its* probe is the one
+  /// The second episode's candidates over http, so that its probe is the one
   /// held in flight.
   const probedNextStreams = <StreamResult>[
     StreamResult(
@@ -280,14 +272,10 @@ void main() {
       expect(sourceRows(tester), <String>['Alpha', 'Beta', 'Gamma']);
       expect(selectedRows(tester), <String>['Alpha']);
 
-      // The episode runs out with the panel still up, which on a television is
-      // the likeliest time for it to be up at all: Episodes is where a viewer
-      // browses ahead. The next episode is now resolving, and for a torrent
-      // that takes minutes.
-      // A minute from the end and then end of media. The near-end
-      // position is load-bearing: an ending with no numbers behind it is
-      // a truncated stream, and the screen fails such a source over
-      // rather than advancing on it.
+      // The episode runs out with the panel still up and the next one starts
+      // resolving, which for a torrent takes minutes. The near-end position is
+      // load-bearing: an ending with no numbers behind it is a truncated
+      // stream, which the screen fails over rather than advancing on.
       await sendEvent(tester, snapshot(position: 1199000, duration: 1200000));
       await sendEvent(tester, snapshot(state: 'ended'));
       await settle(tester);
@@ -360,12 +348,11 @@ void main() {
         );
 
         // The episode ends under the open panel and the next one resolves.
-        // Two candidates, both instantly healthy, so every chip on screen
-        // from here is one this episode's own probe put there.
-        // A minute from the end and then end of media. The near-end
-        // position is load-bearing: an ending with no numbers behind it is
-        // a truncated stream, and the screen fails such a source over
-        // rather than advancing on it.
+        // Two candidates, both instantly healthy, so every chip on screen from
+        // here is one this episode's own probe put there. The near-end
+        // position is load-bearing: an ending with no numbers behind it is a
+        // truncated stream, which the screen fails over rather than advancing
+        // on.
         await sendEvent(tester, snapshot(position: 1199000, duration: 1200000));
         await sendEvent(tester, snapshot(state: 'ended'));
         downloads().gate.complete();
@@ -399,11 +386,10 @@ void main() {
     'probe, and a pick there is refused',
     variant: texturePlatform,
     (tester) async {
-      // The two halves of the keep-previous rule, in the one window that
-      // reaches both: the next episode's candidate list is known and its
-      // probe has not answered, so the tab has rows - which is what a remote
-      // needs, the whole reason the list is never emptied mid-resolve - and
-      // nothing is resolved behind them to switch away from.
+      // The window that reaches both halves of the keep-previous rule: the
+      // next episode's candidate list is known and its probe has not answered,
+      // so the tab has rows for a remote to land on and nothing resolved
+      // behind them to switch away from.
       final held = Completer<void>();
       final client = MockClient((request) async {
         await held.future;
@@ -417,10 +403,9 @@ void main() {
         final l10n = await english();
 
         await openFromBar(tester, l10n.sources);
-        // A minute from the end and then end of media. The near-end
-        // position is load-bearing: an ending with no numbers behind it is
-        // a truncated stream, and the screen fails such a source over
-        // rather than advancing on it.
+        // A minute from the end, then end of media. An ending with no numbers
+        // behind it is a truncated stream, which the screen fails over rather
+        // than advancing on.
         await sendEvent(tester, snapshot(position: 1199000, duration: 1200000));
         await sendEvent(tester, snapshot(state: 'ended'));
         downloads().gate.complete();
@@ -605,12 +590,11 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  // The only test that proves the panel's watched marks are actually WIRED.
-  // Everything else about them is pinned in player_panel_test.dart, which
-  // hands `episodeProgress` straight to the widget - so all eleven of those
-  // pass whether or not anything in the app ever supplies one. The screen is
-  // the only possible supplier: the panel has no ProviderScope to read the two
-  // stores from.
+  // The only test that proves the panel's watched marks are wired up.
+  // player_panel_test.dart hands `episodeProgress` straight to the widget, so
+  // it passes whether or not anything in the app ever supplies one. The screen
+  // is the only possible supplier: the panel has no ProviderScope of its own
+  // to read the two stores from.
   testWidgets(
     'the Episodes tab reads the real stores through the screen',
     variant: texturePlatform,
@@ -746,8 +730,7 @@ void main() {
       // route above the screen, so the failure has to reach it. Opening it
       // from the failure frame instead cannot be exercised here - that frame
       // has no VlcPlayer, so PlayerPanel.initState asks a detached controller
-      // for its track lists and the rejection fails the test. That is a
-      // separate defect in the panel, not this one.
+      // for its track lists and the rejection fails the test.
       await openFromBar(tester, l10n.sources);
       expect(selectedRows(tester), <String>['Alpha']);
 
@@ -765,8 +748,8 @@ void main() {
       );
 
       // Nothing is playing, so nothing may wear the tick: the candidate that
-      // just died is still in _attemptIndex, and publishing it badged the
-      // dead source 'Now playing' and anchored the remote on it.
+      // just died is still in _attemptIndex, and publishing it would badge a
+      // dead source 'Now playing' and anchor the remote on it.
       expect(find.byType(PlayerSourcesTab), findsOneWidget, reason: 'still up');
       expect(
         selectedRows(tester),

@@ -21,10 +21,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/domain/entity/multimedia_item.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
+import 'package:skystream/features/settings/presentation/player_settings_provider.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 import 'fake_vlc_engine.dart';
 import 'vlc_screen_harness.dart';
+
+/// A platform that reaches a hardware decoder, which is what leaves the tier
+/// and the panel in charge of the ceiling.
+///
+/// The harness's [texturePlatform] is Windows, chosen for the render path
+/// alone; there the ceiling is 1080 before the tier is even consulted, so a
+/// tier test run on it would pass without testing anything. macOS renders
+/// through the same texture path and decodes on VideoToolbox.
+final TargetPlatformVariant _hardwareDecodePlatform =
+    TargetPlatformVariant.only(TargetPlatform.macOS);
+
+/// The two platforms with no hardware decoder at all: both render through
+/// libVLC's vmem callbacks, which pin `avcodec-hw` to none, and neither has a
+/// hardware decoder outside avcodec.
+const TargetPlatformVariant _softwareOnlyPlatforms = TargetPlatformVariant(
+  <TargetPlatform>{TargetPlatform.windows, TargetPlatform.linux},
+);
 
 void main() {
   late FakeVlcEngine engine;
@@ -98,13 +116,17 @@ void main() {
   }
 
   group('the adaptive ladder is given a ceiling', () {
+    // Every test in this group is about which rung a device is offered, so
+    // each runs on a platform that has a hardware decoder to be offered one
+    // with - see [_hardwareDecodePlatform].
+
     // The headline case. `adaptiveLogic: highest` with no ceiling is what
     // handed a 2016 box the 4K rung of every stream it opened, and the config
     // has carried `adaptiveMaxHeight` all along with no call site anywhere in
     // lib/.
     testWidgets(
       'a device not known to cope is capped below 4K',
-      variant: texturePlatform,
+      variant: _hardwareDecodePlatform,
       (tester) async {
         await pumpPlayer(
           tester,
@@ -131,7 +153,7 @@ void main() {
     // be shown to manage it, and the top rung is still on offer.
     testWidgets(
       'a capable device keeps the top rung',
-      variant: texturePlatform,
+      variant: _hardwareDecodePlatform,
       (tester) async {
         await pumpPlayer(
           tester,
@@ -157,7 +179,7 @@ void main() {
     // downscaled before it is drawn.
     testWidgets(
       'nobody is asked for more than the panel shows',
-      variant: texturePlatform,
+      variant: _hardwareDecodePlatform,
       (tester) async {
         await pumpPlayer(
           tester,
@@ -172,6 +194,71 @@ void main() {
         );
 
         expect(createdOptions(), contains('--adaptive-maxheight=1080'));
+
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    // The cap asks what the decoder can do, and on these two platforms the
+    // answer is fixed: vmem pins `avcodec-hw` to none and there is no
+    // hardware decoder outside avcodec. Desktop is forced to the top tier and
+    // reports no panel height, so the shipped default here was the top rung
+    // handed to a pure software decoder - the exact pairing this cap exists
+    // to prevent.
+    //
+    // The ceiling is seeded before a source is opened, so this and the test
+    // below take the harness's direct URL rather than a candidate list.
+    testWidgets(
+      'a platform with no hardware decoder is capped whatever the tier says',
+      variant: _softwareOnlyPlatforms,
+      (tester) async {
+        await pumpPlayer(
+          tester,
+          profile: const DeviceProfile(
+            isDesktopOS: true,
+            tier: DeviceTier.high,
+          ),
+        );
+
+        expect(
+          createdOptions(),
+          contains('--adaptive-maxheight=1080'),
+          reason:
+              'a desktop that can only decode in software must not be asked '
+              'for 4K because its tier says high',
+        );
+
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    // The same mistake from the other side. VideoToolbox is a decoder module
+    // in its own right, so `--avcodec-hw=none` does not move Darwin onto the
+    // CPU - it only ever cost the viewer rungs of picture.
+    testWidgets(
+      'turning the switch off does not cost a Darwin device its rung',
+      variant: _hardwareDecodePlatform,
+      (tester) async {
+        await pumpPlayer(
+          tester,
+          profile: const DeviceProfile(
+            isTv: true,
+            physicalRamMb: 8192,
+            tier: DeviceTier.high,
+          ),
+          panelPhysicalSize: uhdPanel,
+          panelDevicePixelRatio: uhdDensity,
+          settings: const PlayerSettings(hardwareDecoding: false),
+        );
+
+        expect(createdOptions(), contains('--adaptive-maxheight=2160'));
+        expect(
+          createdOptions(),
+          contains('--avcodec-hw=none'),
+          reason:
+              'the preference still owns the option it can reach; it is only '
+              'the ceiling that is the platform\'s question',
+        );
 
         await tester.pumpWidget(const SizedBox());
       },
@@ -227,7 +314,9 @@ void main() {
     // will be decoded by the same silicon. It is to ask for less of it.
     testWidgets(
       'a decoder that cannot keep up is asked for one rung less',
-      variant: texturePlatform,
+      // Starts from the top rung, so it needs the platform that can be
+      // seeded with one.
+      variant: _hardwareDecodePlatform,
       (tester) async {
         await pumpPlayer(
           tester,

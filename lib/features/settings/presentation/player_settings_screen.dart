@@ -153,19 +153,6 @@ class PlayerSettingsScreen extends ConsumerWidget {
                     ),
                   ),
                   SettingsTile(
-                    icon: Icons.timer_outlined,
-                    title: l10n.bufferDepth,
-                    subtitle: formatReadahead(
-                      playerSettings.readaheadSeconds,
-                      l10n,
-                    ),
-                    onTap: () => showReadaheadDialog(
-                      context,
-                      ref,
-                      playerSettings.readaheadSeconds,
-                    ),
-                  ),
-                  SettingsTile(
                     icon: Icons.aspect_ratio_rounded,
                     title: l10n.defaultResizeMode,
                     subtitle: getResizeModeLabel(
@@ -176,6 +163,19 @@ class PlayerSettingsScreen extends ConsumerWidget {
                       context,
                       ref,
                       playerSettings.defaultResizeMode,
+                    ),
+                  ),
+                  SettingsTile(
+                    icon: Icons.subtitles_rounded,
+                    title: l10n.subtitleDefault,
+                    subtitle: subtitleDefaultLabel(
+                      playerSettings.subtitleDefault,
+                      l10n,
+                    ),
+                    onTap: () => showSubtitleDefaultDialog(
+                      context,
+                      ref,
+                      playerSettings.subtitleDefault,
                     ),
                   ),
                   SettingsTile(
@@ -203,9 +203,11 @@ class PlayerSettingsScreen extends ConsumerWidget {
                     onTap: () =>
                         showMaxVolumeDialog(context, ref, playerSettings),
                   ),
+                  // The pair splits on metered vs unmetered, not on Wi-Fi:
+                  // Ethernet, a VPN tunnel and no link at all take this one.
                   SettingsTile(
                     icon: Icons.wifi_rounded,
-                    title: l10n.wifiQualityPreference,
+                    title: l10n.unmeteredQualityPreference,
                     subtitle: qualityPreferenceLabel(
                       playerSettings.wifiQuality,
                       l10n,
@@ -213,7 +215,7 @@ class PlayerSettingsScreen extends ConsumerWidget {
                     onTap: () => showQualityDialog(
                       context,
                       ref,
-                      title: l10n.wifiQualityPreference,
+                      title: l10n.unmeteredQualityPreference,
                       current: playerSettings.wifiQuality,
                       onChanged: ref
                           .read(playerSettingsProvider.notifier)

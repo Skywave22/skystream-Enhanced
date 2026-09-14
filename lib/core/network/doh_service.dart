@@ -19,7 +19,7 @@ enum DohProvider {
   custom, // User-defined URL
 }
 
-/// Riverpod state for DoH settings — replaces ChangeNotifier for UI reactivity.
+/// Riverpod state for DoH settings.
 class DohSettings {
   final bool enabled;
   final DohProvider provider;
@@ -66,7 +66,6 @@ class DohSettingsNotifier extends _$DohSettingsNotifier {
         provider: provider,
         customUrl: customUrl,
       );
-      // Wait for instance init if not already done, though it should be
       await DohService.instance.init();
       DohService.instance.applySettings(settings);
       return settings;
@@ -108,9 +107,8 @@ class DohSettingsNotifier extends _$DohSettingsNotifier {
 /// Whether DoH is actually in effect right now.
 ///
 /// The service falls back to the system resolver whenever DoH cannot answer,
-/// because continuity of the app beats purity of the lookup. But a user who
-/// switched DoH on did so deliberately, so [degraded] exists to let the
-/// Settings UI say "on, but not right now" instead of lying by omission.
+/// so [degraded] lets the Settings UI report a setting that is on but not
+/// currently taking effect.
 enum DohStatus {
   /// The user has DoH switched off.
   off,
@@ -119,36 +117,27 @@ enum DohStatus {
   active,
 
   /// DoH is on but the endpoint is unreachable, so lookups are going to the
-  /// system resolver. Self-healing: the breaker retries on its own.
+  /// system resolver. The breaker retries on its own.
   degraded,
 }
 
-/// A DNS-over-HTTPS resolver that queries Cloudflare or Google for DNS records.
+/// A DNS-over-HTTPS resolver that queries the selected provider for A records.
 ///
 /// Settings state is managed by [dohSettingsProvider] (Riverpod).
 /// This class is a singleton for DNS resolution only.
 ///
-/// [resolve] is on the hot path of *every* socket the app opens (see
-/// `dio_client_provider.dart`), so it is defended three ways against a DoH
-/// endpoint that is blocked or black-holed — a captive portal, or an ISP that
-/// drops traffic to public resolvers:
-///
-///  1. **Negative cache.** A lookup that failed is remembered for
-///     [kNegativeCacheTtl], so the next request for the same host does not
-///     re-pay the timeout.
-///  2. **In-flight deduplication.** Concurrent requests for one host share a
-///     single query instead of each opening their own.
-///  3. **Circuit breaker.** After [kFailureThreshold] consecutive endpoint
-///     failures, DoH is skipped entirely for a cooldown that grows with each
-///     successive trip. When the cooldown lapses the breaker goes half-open
-///     and lets exactly one probe through; a success closes it. It never
-///     latches for the session — signing in to a captive portal or coming out
-///     of a tunnel restores DoH by itself.
+/// [resolve] is on the hot path of every socket the app opens (see
+/// `dio_client_provider.dart`), so a blocked or black-holed endpoint is
+/// contained three ways: a failed lookup is remembered for
+/// [kNegativeCacheTtl]; concurrent lookups for one host share a single query;
+/// and after [kFailureThreshold] consecutive endpoint failures a circuit
+/// breaker skips DoH for a cooldown that grows per trip, then lets one probe
+/// through. The breaker never latches for the session.
 class DohService {
   DohService._() : _dio = _defaultDio(), _clock = DateTime.now;
 
-  /// Test seam: an isolated instance with an injectable transport, clock and
-  /// per-lookup budget. Production always uses [instance].
+  /// An isolated instance with an injectable transport, clock and per-lookup
+  /// budget. Production always uses [instance].
   @visibleForTesting
   DohService.forTesting({
     required Dio dio,
@@ -168,8 +157,7 @@ class DohService {
   );
 
   /// Hard ceiling on one DoH lookup. Dio's own connect/receive timeouts do not
-  /// bound the total, and the system resolver is waiting right behind us, so a
-  /// lookup slower than this is not worth the wait.
+  /// bound the total, and the system resolver is waiting right behind us.
   static const Duration kResolveTimeout = Duration(seconds: 5);
 
   /// How long a failed lookup is remembered before the network is tried again.
@@ -181,8 +169,8 @@ class DohService {
   /// Cooldown after the first trip; doubles per successive trip.
   static const Duration kBreakerCooldown = Duration(seconds: 30);
 
-  /// Ceiling on the cooldown, so a long outage stays cheap but a recovery is
-  /// still noticed within a few minutes without the user touching anything.
+  /// Ceiling on the cooldown, so a recovery is still noticed within a few
+  /// minutes without the user touching anything.
   static const Duration kBreakerMaxCooldown = Duration(minutes: 5);
 
   static const int _kMaxCacheEntries = 512;
@@ -215,9 +203,8 @@ class DohService {
   DohProvider get provider => _provider;
   String get customUrl => _customUrl;
 
-  /// Observable so Settings can tell the user their privacy setting is not
-  /// currently in effect. Never notifies on the per-lookup path — only when
-  /// the breaker opens or closes, or the setting itself changes.
+  /// Never notifies on the per-lookup path — only when the breaker opens or
+  /// closes, or the setting itself changes.
   ValueListenable<DohStatus> get status => _status;
 
   /// True while the breaker is holding DoH off.
@@ -257,8 +244,7 @@ class DohService {
     _enabled = settings.enabled;
     _provider = settings.provider;
     _customUrl = settings.customUrl;
-    // A different endpoint (or a fresh switch-on) deserves a clean slate: the
-    // old endpoint's failures say nothing about the new one.
+    // The old endpoint's failures say nothing about a new one.
     if (changed) _resetHealth();
     _publishStatus();
   }
@@ -293,8 +279,8 @@ class DohService {
 
     final cached = _cache[domain];
     if (cached != null && cached.expiry.isAfter(now)) {
-      // Also serves negative entries: a host that just failed returns null
-      // immediately instead of re-paying the timeout on every request.
+      // Serves negative entries too: a host that just failed returns null
+      // without re-paying the timeout.
       return Future<String?>.value(cached.ip);
     }
 
@@ -313,7 +299,7 @@ class DohService {
     final openUntil = _breakerOpenUntil;
     if (openUntil == null) return true;
     if (openUntil.isAfter(now)) return false;
-    // Cooldown lapsed: half-open. Exactly one probe goes out; everyone else
+    // Cooldown lapsed: half-open. Exactly one probe goes out and everyone else
     // keeps using the system resolver until it lands, so a still-broken
     // endpoint costs one timeout per cooldown rather than one per request.
     if (_halfOpenProbeInFlight) return false;
@@ -399,7 +385,7 @@ class DohService {
   }
 
   /// `Map.remove` returns the stored `Future`, which trips `unawaited_futures`
-  /// at the call site; the future is the one we are already inside.
+  /// at the call site; the future is the one this call is already inside.
   void _dropInFlight(String domain) {
     _inFlight.remove(domain);
   }
@@ -418,8 +404,8 @@ class DohService {
     final wasOpen = _breakerOpenUntil != null;
     if (!wasOpen && _consecutiveFailures < kFailureThreshold) return;
 
-    // Successive trips back off, capped, so a long outage costs almost
-    // nothing while a brief one is noticed again quickly.
+    // Successive trips back off, capped, so a long outage costs almost nothing
+    // while a brief one is noticed again quickly.
     _breakerTrips = math.min(_breakerTrips + 1, 8);
     final millis = math.min(
       kBreakerCooldown.inMilliseconds * (1 << (_breakerTrips - 1)),
@@ -456,7 +442,6 @@ class DohService {
   }
 
   /// Clears the DNS cache and gives a tripped breaker an immediate retry.
-  /// Wired to the user changing provider, which is an explicit "try again".
   void clearCache() {
     _resetHealth();
     _publishStatus();
@@ -464,8 +449,8 @@ class DohService {
 }
 
 class _DohCacheEntry {
-  /// Null for a negative entry — the lookup was attempted and did not yield
-  /// an address, so do not attempt it again until [expiry].
+  /// Null for a negative entry: the lookup was attempted and did not yield an
+  /// address, so do not attempt it again until [expiry].
   final String? ip;
   final DateTime expiry;
   _DohCacheEntry({required this.ip, required this.expiry});

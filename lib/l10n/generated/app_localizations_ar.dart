@@ -99,9 +99,6 @@ class AppLocalizationsAr extends AppLocalizations {
   String get seekDuration => 'مدة القفز';
 
   @override
-  String get bufferDepth => 'عمق التخزين المؤقت';
-
-  @override
   String get defaultResizeMode => 'وضع تغيير الحجم الافتراضي';
 
   @override
@@ -473,9 +470,6 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'اختر مدة القفز';
-
-  @override
-  String get selectBufferDepth => 'اختر عمق التخزين المؤقت';
 
   @override
   String get subtitleSettings => 'إعدادات الترجمة';
@@ -937,6 +931,11 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return 'لم يتم اكتشاف $playerName. جارٍ بدء المشغل الداخلي.';
   }
@@ -1201,7 +1200,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'تفضيل جودة الواي فاي';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'تفضيل جودة الهاتف المحمول';
@@ -1657,6 +1659,20 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'لا تحتوي أي من أدواتك على هذا العنوان.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }
 
 /// The translations for Arabic (`ar_apc`).
@@ -1752,9 +1768,6 @@ class AppLocalizationsArApc extends AppLocalizationsAr {
 
   @override
   String get seekDuration => 'مدة القفز';
-
-  @override
-  String get bufferDepth => 'عمق البفر';
 
   @override
   String get defaultResizeMode => 'وضع القياس الافتراضي';
@@ -2116,9 +2129,6 @@ class AppLocalizationsArApc extends AppLocalizationsAr {
 
   @override
   String get selectSeekDuration => 'اختار مدة القفز';
-
-  @override
-  String get selectBufferDepth => 'اختار عمق البفر';
 
   @override
   String get subtitleSettings => 'إعدادات الترجمة';
@@ -2838,9 +2848,6 @@ class AppLocalizationsArApc extends AppLocalizationsAr {
 
   @override
   String get subSource => 'SubSource';
-
-  @override
-  String get wifiQualityPreference => 'تفضيل جودة الواي فاي';
 
   @override
   String get mobileQualityPreference => 'تفضيل جودة الهاتف المحمول';

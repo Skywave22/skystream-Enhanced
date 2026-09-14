@@ -99,9 +99,6 @@ class AppLocalizationsBe extends AppLocalizations {
   String get seekDuration => 'Працягласць перамоткі';
 
   @override
-  String get bufferDepth => 'Глыбіня буфера';
-
-  @override
   String get defaultResizeMode => 'Рэжым маштабавання па змаўчанні';
 
   @override
@@ -468,9 +465,6 @@ class AppLocalizationsBe extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Выбраць працягласць перамоткі';
-
-  @override
-  String get selectBufferDepth => 'Выбраць глыбіню буфера';
 
   @override
   String get subtitleSettings => 'Налады субтытраў';
@@ -937,6 +931,11 @@ class AppLocalizationsBe extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName не знойдзены. Запуск унутранага плэера.';
   }
@@ -1210,7 +1209,10 @@ class AppLocalizationsBe extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Перавага якасці Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Перавага якасці мабільнай сувязі';
@@ -1665,4 +1667,18 @@ class AppLocalizationsBe extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Ні ў аднаго з вашых скрэйпераў няма гэтай назвы.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

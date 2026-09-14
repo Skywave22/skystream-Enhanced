@@ -5,34 +5,25 @@ import '../../../../l10n/generated/app_localizations.dart';
 import '../widgets/hotstar_player_style.dart';
 import '../widgets/player_activation.dart';
 
-/// What the media stopping actually means, once the screen has asked the
-/// episode list.
-///
-/// Two values, both load-bearing. The spec proposed `{film, seriesFinished}`,
-/// but nothing renders differently between those two — the headline names
-/// `widget.item.title` either way and the actions are identical — while the
-/// third state owner decision 2 creates is genuinely different: an episode
-/// *does* follow, the viewer declined it during the credits, and the card owes
-/// them a one-press way back into the binge.
+/// What the media stopping means, once the screen has consulted the episode
+/// list.
 enum EndedKind {
   /// Nothing follows at all: a film, or the last episode of a series.
   finished,
 
   /// An episode follows, but the viewer pressed Cancel on the up-next card.
   ///
-  /// Owner decision 2: the refusal is honoured — playback does **not**
-  /// auto-advance — so this card carries Next as its primary action instead.
+  /// The refusal is honoured: playback does not auto-advance, so this card
+  /// carries Next as its primary action instead.
   declinedNext,
 }
 
-/// The key the screen hangs on the card, and the only handle the screen tests
-/// need on it.
+/// The key the screen hangs on the card.
 const Key endedCardKey = Key('player-ended-card');
 
 /// Focus node labels, in [kPlayNextFocusLabel]'s convention. Public so a test
-/// can say where the remote is without the card owning a [FocusNode] of its
-/// own: its only node is the scope that carries the remote into it, and
-/// traversal between the actions stays entirely native.
+/// can locate the remote without the card owning a [FocusNode] of its own;
+/// traversal between the actions stays native.
 const String kEndedNextFocusLabel = 'ended_next_episode';
 const String kEndedStartOverFocusLabel = 'ended_start_over';
 const String kEndedCloseFocusLabel = 'ended_close';
@@ -40,22 +31,14 @@ const String kEndedCloseFocusLabel = 'ended_close';
 /// What a film — or the last episode of a series — ends on, instead of a dead
 /// frame.
 ///
-/// Before this, end of media on anything [nextEpisodeFor] had no answer for
-/// left the last decoded frame frozen under nothing at all: the 3 s chrome
-/// clock had hidden the bars long before the credits, and nudging the remote
-/// brought back a Play glyph whose press calls `play()` on a player that is
-/// already at Ended. There was no Replay, and no way out but Back.
+/// Engine-agnostic and stateless about playback, like [NextEpisodeCountdown]:
+/// every value it renders and every outcome is handed in, so this file imports
+/// nothing from the player package.
 ///
-/// Engine-agnostic and stateless about playback, exactly like
-/// [NextEpisodeCountdown]: every value it renders and every outcome is handed
-/// in, so this file imports nothing from the player package and is testable
-/// with no fake engine.
-///
-/// Rendering is a **paint, not a layer**: a [ColoredBox] rather than an
+/// Rendering is a paint, not a layer: a [ColoredBox] rather than an
 /// [AnimatedOpacity] or a [BackdropFilter]. A full-bleed effect layer over a
-/// platform view is re-surfaced on every show/hide — the exact shape that
-/// black-framed macOS and iOS, and the exact shape controls_layer_shape_test's
-/// 40 %-of-viewport rule exists to forbid.
+/// platform view is re-surfaced on every show and hide, which
+/// controls_layer_shape_test's 40 %-of-viewport rule forbids.
 class EndedCard extends StatefulWidget {
   const EndedCard({
     required this.title,
@@ -72,15 +55,12 @@ class EndedCard extends StatefulWidget {
          'always has one',
        );
 
-  /// What the headline says has finished. The film or series title for
-  /// [EndedKind.finished]; the episode's own name for a declined advance,
-  /// where "you have finished `<series>`" would be a lie.
+  /// What the headline says has finished: the film or series title for
+  /// [EndedKind.finished], the episode's own name for a declined advance.
   final String title;
 
   final EndedKind kind;
 
-  /// Reopens the media from the start. Non-null always: a finished thing can
-  /// always be watched again.
   final VoidCallback onStartOver;
 
   /// Leaves the player.
@@ -91,8 +71,7 @@ class EndedCard extends StatefulWidget {
   final VoidCallback? onNextEpisode;
 
   /// The next action's label, already localised and already decorated with
-  /// `S2 E5` where the numbers are known — the details screen's own idiom
-  /// (`details_layout_widgets.dart:136-143`). Null falls back to a plain
+  /// `S2 E5` where the numbers are known. Null falls back to
   /// [AppLocalizations.next].
   final String? nextLabel;
 
@@ -103,51 +82,37 @@ class EndedCard extends StatefulWidget {
 }
 
 class _EndedCardState extends State<EndedCard> {
-  /// The card's own focus scope, and the whole reason the remote can reach it.
+  /// The card's own focus scope, and the reason the remote can reach it.
   ///
-  /// The same mechanism [NextEpisodeCountdown] documents at length: Flutter
-  /// applies a pending autofocus only while the target scope has no focused
-  /// child, so an autofocus resolved against the route scope is discarded
-  /// whenever anything in the player already holds focus. A scope of the
-  /// card's own is empty by definition, so the autofocus on the primary action
-  /// lands.
-  ///
-  /// Belt and braces here rather than trust: the screen unmounts the whole
-  /// [VlcPlayerControls] subtree — key sink and all — in the same frame this
-  /// mounts, which *should* leave the route scope with no focused child, but
-  /// "should" is what left Play now unreachable on a television for a release.
+  /// Flutter applies a pending autofocus only while the target scope has no
+  /// focused child, so an autofocus resolved against the route scope is
+  /// discarded whenever anything in the player already holds focus. A scope of
+  /// the card's own is empty by definition, so the autofocus on the primary
+  /// action lands.
   final FocusScopeNode _cardScope = FocusScopeNode(debugLabel: 'ended-card');
 
   /// Whether the player's own route is the one the remote belongs to.
   ///
   /// The card is raised by an engine event, so it can mount while a panel is
-  /// open over the player. That panel is a [PopupRoute]
-  /// (`showPlayerPanel` in panel/player_panel.dart), and a route underneath a
-  /// pushed route stays perfectly focusable: the framework expresses currency
-  /// as `skipTraversal` alone (routes.dart, `_ModalScopeState.build`) and only
-  /// withholds `canRequestFocus` while a route is animating out or under a
-  /// user gesture. So *both* of the grabs below reach across the barrier —
-  /// [FocusScopeNode.requestFocus] on an empty scope re-points every ancestor
-  /// scope including the navigator's, and the `autofocus` on the primary
-  /// action lands on its own because this scope is empty by construction.
-  /// Ungated, a film ending under an open Subtitles panel moved the remote to
-  /// a button the barrier covers, where the viewer's next OK reopened the film
-  /// from zero or left the player.
+  /// open over the player. A route underneath a pushed route stays focusable —
+  /// the framework expresses currency as `skipTraversal` alone
+  /// (`_ModalScopeState.build`) and withholds `canRequestFocus` only while a
+  /// route is animating out or under a user gesture — so both the scope grab
+  /// and the autofocus would otherwise reach across the barrier and put the
+  /// remote on a button the barrier covers.
   ///
-  /// `_ModalScopeStatus` is an [InheritedModel] keyed on exactly this aspect,
-  /// so reading it here rebuilds the card when a route is pushed over the
-  /// player or popped off it. That is also what hands the remote to a card
-  /// that has been waiting behind a panel: `autofocus` flips true and
-  /// `Focus.didUpdateWidget` re-arms it (it was never spent, so the
-  /// `_didAutofocus` latch is still down), and the scope rescue runs again.
+  /// `_ModalScopeStatus` is an [InheritedModel] keyed on this aspect, so
+  /// reading it rebuilds the card when a route is pushed over the player or
+  /// popped off it. That is what hands the remote to a card waiting behind a
+  /// panel: `autofocus` flips true, `Focus.didUpdateWidget` re-arms it, and
+  /// the scope grab runs again.
   bool _routeIsCurrent = true;
 
   @override
   void initState() {
     super.initState();
-    // didChangeDependencies runs before the first build and so before this
-    // callback fires, which is what makes [_routeIsCurrent] true to the tree
-    // by the time the grab reads it.
+    // didChangeDependencies runs before the first build, so [_routeIsCurrent]
+    // is accurate by the time the post-frame grab reads it.
     _grabRemoteAfterFrame();
   }
 
@@ -157,7 +122,7 @@ class _EndedCardState extends State<EndedCard> {
     final wasCurrent = _routeIsCurrent;
     _routeIsCurrent = ModalRoute.isCurrentOf(context) ?? true;
     // Only on the way back to current: a panel closing over a card that is
-    // already up is the one case the grab in [initState] cannot cover.
+    // already up is the one case [initState]'s grab cannot cover.
     if (_routeIsCurrent && !wasCurrent) _grabRemoteAfterFrame();
   }
 
@@ -187,9 +152,9 @@ class _EndedCardState extends State<EndedCard> {
           label: widget.nextLabel ?? l10n.next,
           filled: true,
           isTv: widget.isTv,
-          // Gated on [_routeIsCurrent] as well as the scope grab: an autofocus
-          // resolves against this card's own scope, which is empty whether or
-          // not a panel is up, so the guard on the grab alone is a no-op.
+          // Gated on [_routeIsCurrent] too: an autofocus resolves against
+          // this card's own scope, which is empty whether or not a panel is
+          // up, so guarding the scope grab alone would do nothing.
           autofocus: widget.isTv && _routeIsCurrent,
           debugLabel: kEndedNextFocusLabel,
           onPressed: next,
@@ -197,10 +162,8 @@ class _EndedCardState extends State<EndedCard> {
       _EndedButton(
         icon: Icons.replay_rounded,
         label: l10n.startOver,
-        // Primary only when nothing follows. With a declined episode on the
-        // card, taking the remote here would make the common case the slow
-        // one — the same reasoning that puts the up-next card's autofocus on
-        // Play now.
+        // Primary only when nothing follows: with a declined episode on the
+        // card, Next is the common case and keeps the remote.
         filled: widget.onNextEpisode == null,
         isTv: widget.isTv,
         autofocus:
@@ -228,8 +191,8 @@ class _EndedCardState extends State<EndedCard> {
           child: FocusTraversalGroup(
             policy: ReadingOrderTraversalPolicy(),
             child: SafeArea(
-              // Owner decision 5: the overscan token is honoured everywhere on
-              // a television, and this surface is full-bleed by construction.
+              // The overscan token applies on a television, and this surface
+              // is full-bleed by construction.
               minimum: EdgeInsets.all(
                 widget.isTv
                     ? HotstarPlayerStyle.tvEdgeInset
@@ -271,20 +234,14 @@ class _EndedCardState extends State<EndedCard> {
 
 /// One action, as one focus stop.
 ///
-/// Deliberately not [PlayerActionButton], which the spec suggested: that
-/// widget's `InkWell` is left focusable, so every one of its buttons is *two*
-/// focus stops at identical geometry — the codebase says so itself in
-/// `controls_focus_test.dart`'s `_skipChipNode` ("the chip owns two"). In the
-/// bottom bar that costs a dead D-pad press between buttons; on a card that is
-/// the only thing on screen, half of every press would do nothing. It also
-/// carries no `debugLabel`, so no test could say where the remote is.
+/// Not [PlayerActionButton]: that widget leaves its `InkWell` focusable, so
+/// each of its buttons is two focus stops at identical geometry, and it
+/// carries no `debugLabel` for a test to find. On a card that is the only
+/// thing on screen, half of every D-pad press would do nothing.
 ///
-/// This is [NextEpisodeCountdown]'s `_CardButton` shape — a [Focus] that
-/// handles the activation keys over an [InkWell] that cannot take focus — with
-/// a leading icon and the television type ramp. The duplication is deliberate
-/// and reported: the two cards are the only users, the sibling's copy lives in
-/// a file this item does not own, and inventing a shared widget across an
-/// ownership boundary mid-wave is how two agents collide.
+/// The shape is [NextEpisodeCountdown]'s `_CardButton` — a [Focus] handling
+/// the activation keys over an [InkWell] that cannot take focus — with a
+/// leading icon and the television type ramp.
 class _EndedButton extends StatefulWidget {
   const _EndedButton({
     required this.icon,
@@ -326,8 +283,7 @@ class _EndedButtonState extends State<_EndedButton> {
     final Color border = ring
         ? (widget.filled ? Colors.white : HotstarPlayerStyle.accent)
         : (widget.filled ? Colors.transparent : HotstarPlayerStyle.divider);
-    // The ten-foot ramp owner decision 6 set for the panel's row labels, on
-    // the one surface a viewer reads from the sofa with nothing else on it.
+    // The ten-foot ramp the panel's row labels use.
     final double fontSize = widget.isTv ? 17 : 14;
 
     return Semantics(

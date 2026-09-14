@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Podwójne dotknięcie, aby przewinąć",
   "swipeToSeek": "Przesunięcie, aby przewinąć",
   "seekDuration": "Czas przewijania",
-  "bufferDepth": "Głębokość bufora",
   "defaultResizeMode": "Domyślny tryb zmiany rozmiaru",
   "hardwareDecoding": "Dekodowanie sprzętowe",
   "network": "Sieć",
@@ -177,7 +176,6 @@
   "left": "lewy",
   "right": "prawy",
   "selectSeekDuration": "Wybierz czas przewijania",
-  "selectBufferDepth": "Wybierz głębokość bufora",
   "subtitleSettings": "Ustawienia napisów",
   "size": "Rozmiar: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Preferencja jakości Wi-Fi",
   "mobileQualityPreference": "Preferencja jakości mobilnej",
   "anyNoPreference": "Bez preferencji",
   "subtitleAccounts": "Konta napisów",

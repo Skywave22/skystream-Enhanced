@@ -27,75 +27,37 @@ import '../components/torrent_info_widget.dart';
 import 'panel/player_panel.dart' show PlayerPanelTab;
 import '../../../settings/presentation/player_settings_provider.dart';
 
-/// Chrome for the VLC engine — Phase 5b of the migration notes.
+/// Chrome for the VLC engine.
 ///
-/// The design is not reimplemented here. [PlayerTopBar], [PlayerBottomBar],
-/// [PlayerIconButton] and the shared scrubber are the same widgets the
-/// media_kit overlay uses, so "no visual diff" holds by construction rather
-/// than by inspection, and any future change to the design lands on both paths
-/// at once.
+/// The design is shared with the media_kit overlay: [PlayerTopBar],
+/// [PlayerBottomBar], [PlayerIconButton] and the scrubber are the same
+/// widgets, so a design change lands on both paths at once.
 ///
-/// What *is* rebuilt is the machinery, which is where the old overlay
-/// (skystream_player_controls.dart, 1684 lines) went wrong:
+/// [ChromeVisibilityController] owns the auto-hide timer; nothing here starts
+/// or cancels one. The controls are ordinary focusable widgets in reading
+/// order inside one FocusTraversalGroup and native traversal moves between
+/// them; the three nodes this State owns route nothing. Position is consumed
+/// inside [VlcProgressBar], so a tick rebuilds the scrubber and nothing else.
 ///
-///   * Its auto-hide timer is restarted from **16** separate call sites, so
-///     chrome vanishes mid-interaction whenever a path forgets - or, when a
-///     path cancels it and nothing re-arms, never goes at all. Here the timer
-///     has no surface: [ChromeVisibilityController] owns it, callers report
-///     what happened (a poke, a toggle, a hold for the life of a sheet, a drag
-///     or a resting mouse) and the clock is a consequence.
-///   * It hand-manages **6** FocusNodes and hand-routes D-pad Up out of the
-///     scrubber. Here the controls are ordinary focusable widgets in reading
-///     order inside the same FocusTraversalGroup, and native traversal moves
-///     between them. The three nodes this State owns route nothing: a key
-///     sink that holds focus whenever no control does, the chrome root so "is
-///     a control focused" is one question, and play/pause, where the D-pad
-///     starts. The sink exists because on a remote focus *is* the pointer:
-///     the route scope holding it would spend every arrow re-focusing the
-///     scope, and there is no tap to recover with. controls_focus_test.dart
-///     holds that focus is always a control or the sink, never the scope.
-///   * It reads playerControllerProvider **72** times, only 30 of them
-///     filtered, so an unrelated state change rebuilds the whole overlay. Here
-///     the only high-frequency value — position — is consumed by a
-///     ValueListenableBuilder inside [VlcProgressBar], so a tick rebuilds the
-///     scrubber and nothing else.
+/// On macOS and iOS this chrome sits over a platform view, not a texture.
+/// Flutter backs every layer over a platform view with its own IOSurface,
+/// sized to the layer and rebuilt when the layer comes or goes, so a
+/// window-sized opacity layer torn down on each hide produces black frames.
+/// controls_layer_shape_test.dart holds the consequences: one setState per
+/// user-visible mode change, a [RepaintBoundary] around anything drawn over
+/// the video, no BackdropFilter or ImageFiltered over the video at all, and no
+/// single opacity or filter layer spanning both bars - each bar fades on its
+/// own so each layer is bar-sized.
 ///
-/// And the compositing rules, which exist because on macOS and iOS this chrome
-/// sits over a platform view, not a texture. Flutter backs every layer over a
-/// platform view with its own IOSurface, sized to the layer and rebuilt when
-/// the layer comes or goes; a window-sized opacity layer torn down on each hide
-/// is what produced black frames, and Android never showed it because its
-/// video is a texture. controls_layer_shape_test.dart holds these:
+/// The spinner keys on `isStalled || isBuffering`, never on the libVLC state
+/// alone: only Android reports `buffering` mid-play, while VLCKit and the
+/// desktop backends stay `playing` through a rebuffer.
 ///
-///   * Nothing that changes at pointer or tick rate lives on this State. The
-///     toast and the rail are [TransientValue]s rendered by one
-///     [TransientOverlay] each; position is the scrubber's alone.
-///   * The spinner keys on `isStalled || isBuffering`, never on the libVLC
-///     state alone. Only Android reports `buffering` mid-play; VLCKit and the
-///     desktop backends stay `playing` through a rebuffer, so a state-only
-///     spinner left a frozen frame under a pause glyph for as long as the
-///     stall watchdog took to act. The controller raises `isStalled` from its
-///     position clock, and the play/pause glyph reads buffering as playing,
-///     since the film will resume without a press.
-///   * Exactly one setState per user-visible mode change - show, hide, toggle
-///     the torrent panel, cycle the fit. Not per pointer move, not per frame.
-///   * Anything drawn over the video gets its own [RepaintBoundary], so a
-///     scrubber tick, a toast or a rail repaints itself and nothing beside it.
-///   * No BackdropFilter or ImageFiltered over the video, ever. Either one
-///     reads the surface back on every repaint.
-///   * No single opacity or filter layer may span both bars. Each bar fades
-///     on its own, so each layer is bar-sized and the spacer between them is
-///     in neither.
-///
-/// Buttons whose backend does not exist on this path are **absent, not
-/// disabled**, and so are buttons the current device cannot honour: the screen
-/// passes null for anything unavailable rather than this file guessing. A
-/// missing feature should be obviously missing. The five list buttons -
-/// Sources, Audio, Subtitles, Episodes, Files - follow the same rule through
-/// [panelTabs]: each is rendered only when the panel would show that tab, so
-/// button presence and tab presence are one decision (`availablePanelTabs`)
-/// and focus can never land on a control whose list does not exist. Cast,
-/// download and lock are still the ones with no backend at all.
+/// Buttons whose backend does not exist here, or that the current device
+/// cannot honour, are absent rather than disabled: the screen passes null for
+/// anything unavailable. The five list buttons follow the same rule through
+/// [panelTabs], so focus can never land on a control whose list does not
+/// exist.
 class VlcPlayerControls extends ConsumerStatefulWidget {
   const VlcPlayerControls({
     required this.controller,
@@ -127,15 +89,12 @@ class VlcPlayerControls extends ConsumerStatefulWidget {
 
   /// Whether the bars are up, when supplied by the screen.
   ///
-  /// Two decisions about chrome visibility are the screen's, not this
-  /// widget's: dropping the bars on Back before the route pops - the old
-  /// player_screen did, and a pop under still-visible chrome flashes it over
-  /// the exit - and holding them for as long as its panel is up, which is a
-  /// route the screen pushes and this widget only requests. Both need a hand
-  /// on the one controller, so the screen may own it and lend it here. The
-  /// controls then neither construct nor dispose one; the screen outlives
-  /// them across every failover and episode advance. Null keeps a private
-  /// controller for the life of this State, exactly as before.
+  /// Two chrome decisions are the screen's: dropping the bars on Back before
+  /// the route pops, since a pop under still-visible chrome flashes it over
+  /// the exit, and holding them for as long as its panel is up. Both need a
+  /// hand on the one controller, so the screen may own it and lend it here,
+  /// and it outlives these controls across every failover and episode
+  /// advance. Null keeps a private controller for the life of this State.
   final ChromeVisibilityController? chrome;
 
   final String title;
@@ -145,16 +104,14 @@ class VlcPlayerControls extends ConsumerStatefulWidget {
   /// Non-null only when a next episode exists.
   final VoidCallback? onNextEpisode;
 
-  /// Opens the panel on [tab] and completes when it closes, so the chrome is
-  /// held for the panel's life ([ChromeVisibilityController.whileHeld]) and
-  /// the button that opened it is still there to take focus back. Null only
-  /// when there is no panel to open - tests, and nothing else; with it null
-  /// none of the five list buttons is rendered.
+  /// Opens the panel on [tab] and completes when it closes, so the chrome can
+  /// be held for the panel's life and the button that opened it is still there
+  /// to take focus back. Null when there is no panel to open, and then none of
+  /// the five list buttons is rendered.
   final Future<void> Function(PlayerPanelTab tab)? onOpenPanel;
 
-  /// The tabs the panel would show right now (`availablePanelTabs`); a button
-  /// is rendered only for a tab that exists. Audio and Subtitles are always
-  /// present, which is the default.
+  /// The tabs the panel would show right now; a button is rendered only for a
+  /// tab that exists. Audio and Subtitles are always present.
   final Set<PlayerPanelTab> panelTabs;
 
   /// Non-null only where picture-in-picture is actually available.
@@ -162,10 +119,9 @@ class VlcPlayerControls extends ConsumerStatefulWidget {
 
   /// The current video fit. Owned by the screen, not here.
   ///
-  /// These controls are rebuilt from scratch on every open attempt - the build
-  /// gates them on `_sawFrames`, which every failover, episode advance and
-  /// hand-picked source resets - so a fit kept in this State was reseeded from
-  /// the settings default each time and silently threw away the viewer's zoom.
+  /// These controls are rebuilt from scratch on every open attempt, so a fit
+  /// kept in this State is reseeded from the settings default each time and
+  /// throws away the viewer's zoom.
   final VlcVideoFit fit;
 
   /// Reported up so the screen can hand the same value to [VlcPlayer]: on the
@@ -190,52 +146,35 @@ class VlcPlayerControls extends ConsumerStatefulWidget {
   /// follows. Null on the last episode and on a film, where the chip falls
   /// back to its plain seek to the end of the credits.
   ///
-  /// Pressing Skip Outro used to seek to the end of the outro band and stop
-  /// there, which on any encode whose credits end before the file does - an
-  /// anime with a next-episode preview, a logo tail - answers "I am done with
-  /// this episode" by moving the viewer *inside* it and leaving them in dead
-  /// air until the up-next card's own 15 s window opens. With this non-null
-  /// the outro chip becomes Next and hands the decision to the screen, which
-  /// raises the one up-next card the player already has: one countdown, one
-  /// advance path, no second card to keep in step with the first.
+  /// With this non-null the outro chip becomes Next and hands the decision to
+  /// the screen, which raises the one up-next card the player already has: one
+  /// countdown, one advance path, no second card to keep in step.
   final VoidCallback? onSkipOutro;
 
   /// Whether the screen has a prompt of its own in the bottom-right corner -
   /// the up-next card, or the ended card.
   ///
-  /// The skip chip lives outside the chrome on purpose (see [build]), so it
-  /// survives hidden bars - and therefore stays mounted, hit-testable and
-  /// D-pad reachable *underneath* a card that is painted after it by the
-  /// screen. On touch that is a tap that lands on the card; on a television it
-  /// is an invisible focus stop inside the card's own rectangle. The chip is
-  /// suppressed rather than re-ordered, because being focusable is the bug and
-  /// a scrim over it would be a window-sized effect layer this file forbids.
+  /// The skip chip lives outside the chrome so it survives hidden bars, which
+  /// also leaves it mounted, hit-testable and D-pad reachable underneath a
+  /// card the screen paints after it. It is suppressed rather than re-ordered,
+  /// because a scrim over it would be a window-sized effect layer this file
+  /// forbids.
   final bool promptVisible;
 
   /// Whether the screen is locked against accidental touches, when the screen
   /// offers a lock at all.
   ///
-  /// Non-null on a phone and a tablet and **null everywhere else**, which is
-  /// how the lock is absent on a television and on a desktop by construction
-  /// rather than merely hidden: with nothing here there is no padlock to
-  /// render, no chip, and no branch in [build] that can be reached. The gate
-  /// is `PlayerFormFactor.isTouch`, evaluated by the screen; these controls
-  /// re-check `!_isTv && !_isDesktop` on top of it so a caller that passed one
-  /// in by mistake still gets nothing.
+  /// Non-null on a touch form factor and null everywhere else, so the lock is
+  /// absent on a television and on a desktop by construction. See
+  /// [_lockAvailable] for the second gate these controls apply on top.
   ///
-  /// Screen-owned rather than kept in this State, and that is the whole
-  /// reason it is a parameter. 38da335's lock lived in a widget State the
-  /// screen's Back handling could not see, so an edge swipe left the player
-  /// while locked — on an Android phone, the one device the lock existed for.
-  /// Back is decided in the screen's `_handleBack`, so the flag it is decided
-  /// against has to live where that method can read it. It also has to
-  /// outlive these controls, which are rebuilt from scratch on every failover
-  /// and episode advance.
+  /// Screen-owned because Back is decided in the screen's `_handleBack`, which
+  /// has to read this flag, and because it has to outlive these controls,
+  /// which are rebuilt from scratch on every failover and episode advance.
   ///
   /// A [ValueNotifier] rather than a `bool` plus a callback for the same
   /// reason [chrome] is one: the padlock, the unlock chip, Back and every
-  /// clear-the-lock path all write it, and none of them should own a
-  /// setState.
+  /// clear-the-lock path all write it, and none should own a setState.
   final ValueNotifier<bool>? locked;
 
   @override
@@ -244,38 +183,37 @@ class VlcPlayerControls extends ConsumerStatefulWidget {
 
 /// How a relative seek reports itself.
 ///
-/// A keypress or a D-pad burst has no side, so it keeps the centred pill that
-/// every other transient message uses. A double-tap does have one, and saying
-/// which half fired is the point of the burst.
+/// A keypress or a D-pad burst has no side, so it keeps the centred pill every
+/// other transient message uses. A double-tap does have one, and saying which
+/// half fired is the point of the burst.
 enum _SeekFeedback { toast, burst }
 
 class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   static const Duration _fade = Duration(milliseconds: 200);
 
   /// How far in a Skip Outro press leaves the position before the advance it
-  /// triggers is allowed to happen. Comfortably past `kCompletedFraction`
+  /// triggers is allowed to happen. Past `kCompletedFraction`
   /// (playback_progress.dart, 0.90) so the episode is recorded as watched, and
   /// short of the duration so the up-next card gets its countdown instead of
   /// being overtaken by end-of-media.
   static const double _outroAdvanceFraction = 0.95;
 
-  /// Matches the user's seek duration setting.
+  /// Matches the viewer's seek duration setting.
   Duration get _seekStep => Duration(
     seconds: _seekStepSeconds(
       ref.read(playerSettingsProvider).asData?.value ?? const PlayerSettings(),
     ),
   );
 
-  /// The configured step in whole seconds, with the same 0-means-default
-  /// guard [_seekStep] has always applied. Taken off a [PlayerSettings] the
-  /// caller already has, so the bar's two buttons and the seek they perform
-  /// can never disagree about how far a press goes.
+  /// The configured step in whole seconds, with a 0-means-default guard. Taken
+  /// off a [PlayerSettings] the caller already has, so the bar's two buttons
+  /// and the seek they perform can never disagree about how far a press goes.
   static int _seekStepSeconds(PlayerSettings settings) =>
       settings.seekDuration > 0 ? settings.seekDuration : 10;
 
   /// The numbered glyph where Material has one for this step, and the plain
-  /// replay/fast-forward pair where it does not - the picker offers 15, 20,
-  /// 60 and 120 as well, and a `replay_10` on a 30 s step would lie.
+  /// replay/fast-forward pair where it does not - the picker also offers 15,
+  /// 20, 60 and 120, and a `replay_10` on a 30 s step would lie.
   static IconData _stepIcon(int seconds, {required bool forward}) =>
       switch ((seconds, forward)) {
         (5, false) => Icons.replay_5_rounded,
@@ -292,25 +230,14 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   ///
   /// [Tooltip] republishes its message to the accessibility tree, so this one
   /// string is both the hover tooltip and the only name these two glyphs have
-  /// anywhere. That is why it says the action instead of the signed amount it
-  /// used to ("-30 sec"), which a screen reader read out as "minus 30 sec".
+  /// anywhere. It says the action rather than a signed amount, which a screen
+  /// reader read out as "minus 30 sec".
   ///
-  /// Measured while writing this, and reported rather than fixed here:
-  /// [PlayerIconButton] puts its Tooltip ABOVE CustomButton, where Material's
-  /// IconButton puts it below the button's own Semantics, so the annotation
-  /// lands on the bar's semantics node instead of each button's. That is a
-  /// pre-existing defect in player_control_components.dart, affecting all
-  /// thirteen icon buttons and neither caused nor cured by naming these two.
-  ///
-  /// [seconds] goes through the message rather than into it: the picker
-  /// offers 5, 10, 15, 20, 30, 60 and 120, and `playerRewindSeconds` is an
-  /// ICU plural, so a locale that inflects the noun after a numeral - ru, pl,
-  /// cs, ar, ro among them - gets the form its own rule picks.
-  ///
-  /// Seconds at every step, including 60 and 120, deliberately: seconds are
-  /// what [_seekBy]'s toast, the seek burst and the D-pad chain all count in,
-  /// so the tooltip and the readout the press produces still agree. The
-  /// settings row remains the one place that says "2 min".
+  /// [seconds] goes through the message rather than into it: the strings are
+  /// ICU plurals, so a locale that inflects the noun after a numeral gets the
+  /// form its own rule picks. Seconds at every step, including 60 and 120, so
+  /// the tooltip agrees with the readout the press produces - [_seekBy]'s
+  /// toast, the seek burst and the D-pad chain all count in seconds.
   static String _stepLabel(
     AppLocalizations l10n,
     int seconds, {
@@ -321,10 +248,9 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
   /// Whether the player should wear its ten-foot clothes.
   ///
-  /// Through [playerFormFactorOf], not the raw profile, so full screen mode
-  /// on a desktop plugged into a television reaches the same verdict the
-  /// screen already reaches - otherwise the screen adopts the TV layout and
-  /// the bar inside it does not.
+  /// Through [playerFormFactorOf], not the raw profile, so full screen mode on
+  /// a desktop plugged into a television reaches the same verdict the screen
+  /// reaches - otherwise the screen adopts the TV layout and the bar does not.
   bool get _isTv =>
       playerFormFactorOf(ref.read(deviceProfileProvider).asData?.value) ==
       PlayerFormFactor.tv;
@@ -335,72 +261,50 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
   /// Whether the big centred play/pause is built at all: touch only.
   ///
-  /// On a phone the largest and emptiest part of the screen currently does
-  /// nothing but toggle the bars, while the primary control is a 40 px glyph
-  /// wedged into the bottom-left corner beside the scrubber. Every touch
-  /// player the viewer already uses puts play/pause in the middle.
-  ///
-  /// Television is excluded on the TV audit's own verdict: Select already
-  /// toggles playback, [_playPause] already autofocuses, and none of Netflix,
-  /// Prime or YouTube TV puts a control in the centre of the frame for a
-  /// remote to have to steer around. Desktop is excluded because the pointer
-  /// is precise, the bottom bar is always a click away and Space is right
-  /// there.
+  /// Television is excluded because Select already toggles playback and
+  /// [_playPause] autofocuses; desktop because the pointer is precise and
+  /// Space is right there.
   ///
   /// Deliberately not the build-local `isTouch`, which is
   /// `Platform.isAndroid || Platform.isIOS` and therefore false on every test
-  /// host - a glyph gated on it could not be tested at all. And `isTouch`
-  /// itself is left alone: it picks between [PlayerBottomBar]'s two overflow
-  /// layouts - a finger-scrolled strip and a [Wrap] - and widening it would
-  /// move every focus assertion in the suite without changing which controls
-  /// exist, since both layouts render the same button list.
+  /// host, so a glyph gated on it could not be tested at all.
   bool get _showCenterGlyph => !_isTv && !_isDesktop;
 
   /// Whether the device profile says this is a desktop operating system.
   ///
-  /// The same field `playerFormFactorOf` reads, and deliberately **not**
-  /// [_isDesktop], which is only `onToggleFullscreen != null`. The two agree
-  /// on every real device - the screen passes that callback exactly where
-  /// `Platform.isMacOS || isWindows || isLinux` - and disagree in precisely
-  /// one place: a widget test, where dart:io reports the *host*, so every
-  /// screen-level test on a Mac looks like a desktop no matter what profile
-  /// it overrode. Anything a test has to be able to state must come from the
-  /// profile.
+  /// Deliberately not [_isDesktop], which is only `onToggleFullscreen != null`.
+  /// The two agree on every real device and disagree in a widget test, where
+  /// dart:io reports the host, so every screen-level test on a Mac looks like
+  /// a desktop no matter what profile it overrode. Anything a test has to be
+  /// able to state comes from the profile.
   bool get _isDesktopProfile =>
       ref.read(deviceProfileProvider).asData?.value.isDesktopOS ?? false;
 
   /// Whether this build has a lock to offer at all.
   ///
-  /// Two independent gates, both of which have to say yes. The screen passes
-  /// [VlcPlayerControls.locked] only on `PlayerFormFactor.isTouch`, so on a
-  /// television and on a desktop there is nothing here to render from; and
-  /// this refuses on top of that, so a caller that hands one in anyway still
-  /// gets no padlock and no chip.
+  /// Two independent gates: the screen passes [VlcPlayerControls.locked] only
+  /// on a touch form factor, and this refuses on top of that, so a caller that
+  /// hands one in anyway still gets no padlock and no chip.
   ///
   /// It does not matter that this and [_showCenterGlyph] can disagree on a
-  /// test host: locking withholds the glyph unconditionally, so no
-  /// combination of the two leaves a live tap target behind.
+  /// test host: locking withholds the glyph unconditionally.
   bool get _lockAvailable =>
       widget.locked != null && !_isTv && !_isDesktopProfile;
 
   /// Whether the AudioVolumeUp/Down keys are this app's to claim. Only a
   /// desktop keyboard's are.
   ///
-  /// On Android the same logical key *is* the hardware rocker, and the
-  /// embedder gives the framework first refusal: FlutterView.dispatchKeyEvent
-  /// asks KeyboardManager.handleEvent and returns true the moment the
-  /// framework says handled, so FrameLayout.dispatchKeyEvent - and with it
-  /// the DecorView, PhoneWindow's volume fallback and the system HUD - never
-  /// runs. Returning ignored is what sends the press back out, through
-  /// KeyboardManager.onUnhandled -> ViewDelegate.redispatch. iOS never
-  /// delivers the buttons to an app at all, so there they are dead either
-  /// way; on TV, volume belongs to the television or the AVR over CEC.
+  /// On Android the same logical key is the hardware rocker, and the embedder
+  /// gives the framework first refusal: FlutterView.dispatchKeyEvent returns
+  /// true the moment the framework says handled, so the DecorView,
+  /// PhoneWindow's volume fallback and the system HUD never run. Returning
+  /// ignored is what sends the press back out. iOS never delivers the buttons
+  /// to an app at all; on TV, volume belongs to the television or the AVR.
   ///
   /// Read through [defaultTargetPlatform], not dart:io: it is the real
-  /// platform in production and the only one a widget test can state. This
-  /// is deliberately not [_isDesktop], which is merely
-  /// `onToggleFullscreen != null` and is false wherever the screen passes
-  /// null.
+  /// platform in production and the only one a widget test can state. It is
+  /// deliberately not [_isDesktop], which is merely
+  /// `onToggleFullscreen != null`.
   static bool get _ownsVolumeKeys => switch (defaultTargetPlatform) {
     TargetPlatform.linux ||
     TargetPlatform.macOS ||
@@ -409,9 +313,9 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   };
 
   /// Whether the bars are up, their timer and their holds. This State only
-  /// listens - one setState per change - and nothing else here may decide
-  /// when the chrome goes. Every reference goes through [_chrome], so the
-  /// lent and the private controller are indistinguishable below this line.
+  /// listens - one setState per change - and nothing else here may decide when
+  /// the chrome goes. Every reference goes through here, so the lent and the
+  /// private controller are indistinguishable below this line.
   ChromeVisibilityController get _chrome => widget.chrome ?? _ownChrome!;
 
   /// Built only when the screen lends nothing, and the only one this State
@@ -420,7 +324,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
   /// Where keys land when no control has focus. Never a traversal candidate,
   /// so no arrow can pick it, and focused whenever nothing else is - see
-  /// [_claimLooseFocus] for why the scope must never hold focus here.
+  /// [_claimLooseFocus].
   final FocusNode _sink = FocusNode(
     debugLabel: 'player-key-sink',
     skipTraversal: true,
@@ -441,17 +345,13 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
   /// The skip chip's node, owned here rather than left to the button.
   ///
-  /// The chip is the one control that lives outside the chrome, so it is the
-  /// one control whose focus this State has to reason about by name:
-  /// [_restoreChromeFocus] must leave the remote alone when the bars come up
-  /// around a chip that is holding it. [PlayerActionButton] makes a node of
-  /// its own otherwise, and neither it nor the InkWell beneath it carries a
-  /// label, so there would be nothing to ask.
+  /// The chip is the one control outside the chrome, so [_restoreChromeFocus]
+  /// has to be able to ask by name whether it holds focus and leave the remote
+  /// alone if it does.
   ///
-  /// Where the remote goes when the chip *vanishes* needs nothing here: the
+  /// Where the remote goes when the chip vanishes needs nothing here: the
   /// framework detaches the node with
-  /// `UnfocusDisposition.previouslyFocusedChild`, which hands it back to the
-  /// chrome control that had it before - measured, see skip_button_test.dart.
+  /// `UnfocusDisposition.previouslyFocusedChild`.
   final FocusNode _skipFocus = FocusNode(debugLabel: 'player-skip-chip');
 
   /// The control that had focus when the bars went down. The scope forgets
@@ -463,15 +363,14 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   Offset? _hoverAt;
 
   /// A brief centred message - the resize mode, seek and speed. Written from
-  /// every swipe-seek update, so it is a notifier, not a field on this State.
+  /// every swipe-seek update, so it is a notifier rather than a field.
   final TransientValue<String> _toast = TransientValue<String>();
 
   /// The double-tap seek readout, on the half of the screen that was tapped.
   ///
   /// Its own notifier rather than a second meaning for [_toast]: the two are
   /// different shapes in different places, and a press must be able to replace
-  /// a toast that a swipe left behind (and the other way round) without either
-  /// having to know about the other.
+  /// a toast a swipe left behind, and the other way round.
   final TransientValue<SeekBurst> _burst = TransientValue<SeekBurst>();
 
   /// Bumped on every burst so a second tap in the same direction, with the
@@ -503,9 +402,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   bool _brightnessOverridden = false;
 
   /// The volume / brightness rail. Written on every drag update, same rule as
-  /// [_toast]. Holds the [PlayerRail] itself because the rail is already the
-  /// dumb value object here - the gesture, the engine call and the timer stay
-  /// on this side.
+  /// [_toast]. Holds the [PlayerRail] itself; the gesture, the engine call and
+  /// the timer stay on this side.
   final TransientValue<PlayerRail> _rail = TransientValue<PlayerRail>();
 
   /// Horizontal drag seek state.
@@ -517,7 +415,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// published the last one. Without it a second press before the engine's
   /// read-back arrives starts from the stale position and undoes the first.
   /// Same window as the progress bar's latch, so the two agree on when the
-  /// truth is the controller again.
+  /// controller is the truth again.
   Duration? _seekBase;
 
   /// The published position the current chain started from, for the toast.
@@ -529,10 +427,9 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   ///
   /// The hold is counted and [ChromeVisibilityController.release] is the only
   /// thing that gives one back, so an unmatched hold pins the bars up for the
-  /// rest of the session. Keeping it here makes the pair idempotent - one
-  /// hold per interaction however many starts arrive - lets [dispose] give
-  /// back a hold whose end never came, and gives it back to the controller
-  /// that took it even if the screen swapped controllers mid-drag.
+  /// rest of the session. Keeping it here makes the pair idempotent, lets
+  /// [dispose] give back a hold whose end never came, and gives it back to the
+  /// controller that took it even if the screen swapped controllers mid-drag.
   ChromeVisibilityController? _seekChromeHold;
 
   /// Speed to restore when a long-press boost ends. Null when not boosting.
@@ -540,7 +437,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
   /// Whether a bare Space is down and this widget has claimed the press.
   ///
-  /// The keyboard's half of hold-to-2x. Set only on the press this file would
+  /// The keyboard's half of hold-to-2x. Set only on a press this file would
   /// have acted on anyway - nothing focused - so a Space aimed at a focused
   /// button is never claimed here, and neither is its repeat or its release.
   /// See [_handleKey] for why the toggle waits for the release.
@@ -567,7 +464,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     FocusManager.instance.addListener(_claimLooseFocus);
     // The listener only fires on a change. Coming from the resolving stage the
     // scope is parked before this widget has a node to offer, and nothing
-    // changes afterwards to wake the listener - so claim it once on arrival.
+    // changes afterwards to wake the listener, so claim it once on arrival.
     WidgetsBinding.instance.addPostFrameCallback((_) => _claimLooseFocus());
   }
 
@@ -576,8 +473,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.chrome == widget.chrome) return;
     // The screen swapped or withdrew its controller mid-life. Follow the new
-    // one, and if it withdrew, fall back to a private one so nothing here
-    // ever has no controller to listen to.
+    // one, and if it withdrew, fall back to a private one so nothing here ever
+    // has no controller to listen to.
     (oldWidget.chrome ?? _ownChrome)?.removeListener(_onChromeChanged);
     if (widget.chrome == null && _ownChrome == null) {
       _ownChrome = ChromeVisibilityController(
@@ -617,22 +514,21 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     widget.controller.removeListener(_onControllerValue);
     FocusManager.instance.removeListener(_claimLooseFocus);
     // A drag or a D-pad burst still in flight when the player goes away never
-    // gets its end. The chrome is usually the screen's and outlives this
-    // State, so an unreleased hold would follow it into the next media and
-    // pin those bars up instead. Before _ownChrome is disposed, so the
-    // private controller re-arms rather than being written to dead.
+    // gets its end, and the chrome usually outlives this State, so an
+    // unreleased hold would follow it into the next media and pin those bars
+    // up. Before _ownChrome is disposed, so the private controller re-arms
+    // rather than being written to dead.
     _endSeekHold(null);
-    // Same rule, and the same reason: a boost is a hold on the *controller*,
-    // which the screen owns and which outlives these controls. A press still
-    // down when the player goes - Back during a long-press, an episode
-    // advance under a held Space - would otherwise start the next media at
-    // 2x. Before [_toast] is disposed, since ending a boost clears it.
+    // Same rule: a boost is a hold on the controller, which outlives these
+    // controls, so a press still down when the player goes would start the
+    // next media at 2x. Before [_toast] is disposed, since ending a boost
+    // clears it.
     try {
       _endSpeedBoost();
     } catch (e) {
       // A boost that spanned a controller swap has nothing left to give the
-      // speed back to: the engine call asserts on a disposed controller, and
-      // an exception thrown out of dispose takes the route with it.
+      // speed back to: the engine call asserts on a disposed controller, and an
+      // exception thrown out of dispose takes the route with it.
       if (kDebugMode) debugPrint('Failed to end speed boost: $e');
     }
     _chrome.removeListener(_onChromeChanged);
@@ -668,29 +564,24 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   ///
   /// Focus alone does not hold the chrome up: on a television it is always on
   /// some control while the bars show, so that rule would mean they never
-  /// hide. This is the courtesy instead - nothing is lost, the next press
-  /// finds focus where it was. On TV there is always somewhere to go,
-  /// play/pause if nothing better, because focus is the pointer there. On a
-  /// keyboard the sink keeps it, so arrows go on seeking rather than walking
-  /// the button row.
+  /// hide. On TV there is always somewhere to go, play/pause if nothing
+  /// better, because focus is the pointer there. On a keyboard the sink keeps
+  /// it, so arrows go on seeking rather than walking the button row.
   ///
-  /// [_skipFocus] is a fourth bail-out and not an afterthought: the skip chip
-  /// is outside the chrome, so the bars coming up around it is not a reason to
-  /// take the remote off it. Without this clause the poke that *reveals* the
-  /// bars - which every key press does, including the arrow that steered onto
-  /// the chip - moved focus to play/pause a frame later, and the Select the
-  /// viewer had aimed at Skip paused the film instead.
+  /// [_skipFocus] bails out because the skip chip is outside the chrome: the
+  /// poke that reveals the bars would otherwise move focus to play/pause a
+  /// frame later, and a Select aimed at Skip would pause the film.
   void _restoreChromeFocus() {
     if (!mounted || !_chrome.value || _chromeRoot.hasFocus) return;
     if (_skipFocus.hasFocus) return;
     final previous = _focusBeforeHide;
     _focusBeforeHide = null;
-    // Liveness has to be read from the focus tree, not from `context`: the
-    // SDK assigns FocusNode._context on attach and never clears it, so a node
-    // whose element has been unmounted still answers non-null and then
-    // swallows requestFocus(). A detached node has no enclosing scope, which
-    // is the honest test. It matters per-episode: _advance rebuilds the action
-    // list, and positional diffing can unmount the very button we remembered.
+    // Liveness has to be read from the focus tree, not from `context`: the SDK
+    // assigns FocusNode._context on attach and never clears it, so a node whose
+    // element has been unmounted still answers non-null and then swallows
+    // requestFocus(). A detached node has no enclosing scope. It matters
+    // per-episode: rebuilding the action list can unmount the remembered
+    // button.
     final revivable = previous != null && previous.enclosingScope != null;
     final target = revivable ? previous : (_isTv ? _playPause : null);
     target?.requestFocus();
@@ -700,7 +591,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// does. That is what hiding leaves behind when a control was focused, and
   /// what a sheet leaves behind when it closes over chrome that hid under it;
   /// either way the next arrow would be spent re-focusing the scope. The sink
-  /// takes it, so every key still reaches [_handleKey].
+  /// takes it instead, so every key still reaches [_handleKey].
   void _claimLooseFocus() {
     final primary = FocusManager.instance.primaryFocus;
     if (primary is FocusScopeNode &&
@@ -737,9 +628,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// Seeks by a fixed step, forward or back depending on which half was tapped.
   ///
   /// The only caller that asks for [_SeekFeedback.burst]: J/L, the D-pad and
-  /// the skip chip all keep the centred pill, because none of them is a
-  /// gesture aimed at one half of the screen and a readout that jumped sideways
-  /// for a keypress would be noise.
+  /// the skip chip keep the centred pill, because none of them is aimed at one
+  /// half of the screen.
   void _doubleTapSeek(double dx) {
     final width = context.size?.width ?? 0;
     if (width <= 0) return;
@@ -770,11 +660,10 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// Playback speed, applied instantly and not persisted.
   ///
   /// Deliberately session-scoped: a speed chosen for one talky episode should
-  /// not silently apply to the next film, which is how the old player's
-  /// persisted default surprised people.
+  /// not silently apply to the next film.
   ///
-  /// Still a Material sheet rather than a panel tab: seven rows with one
-  /// current value, and nothing else in the panel to compare them against.
+  /// A Material sheet rather than a panel tab: seven rows with one current
+  /// value, and nothing else in the panel to compare them against.
   Future<void> _pickSpeed() async {
     const speeds = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
     final current = widget.controller.value.playbackSpeed;
@@ -788,8 +677,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
             for (final speed in speeds)
               ListTile(
                 dense: true,
-                // Same courtesy the other sheets got: a remote opens onto the
-                // current value rather than onto nothing.
+                // A remote opens onto the current value, not onto nothing.
                 autofocus: _isTv && (speed - current).abs() < 0.01,
                 selected: (speed - current).abs() < 0.01,
                 selectedColor: Colors.white,
@@ -820,9 +708,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// Volume to restore when unmuting: the last non-zero level actually
   /// applied, by whichever route applied it. Written in [_setVolume] rather
   /// than in the M branch, because a level set by the rail drag or by a
-  /// keyboard step is exactly the level a mute has to come back to - reading
-  /// it only where M writes it meant muting a dragged-to-zero rail and
-  /// pressing M came back at 100.
+  /// keyboard step is exactly the level a mute has to come back to.
   int? _volumeBeforeMute;
 
   /// The level last asked of the engine. The snapshot that reports a volume
@@ -835,9 +721,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// falling back to the engine's before it has said anything.
   int get _volume => _appliedVolume ?? widget.controller.value.volume;
 
-  /// 5%, matching the pre-migration player's 0.05 and every mainstream
-  /// keyboard player. Volume is a keyboard affordance only - see
-  /// [_ownsVolumeKeys] for who gets the hardware keys.
+  /// 5%, matching every mainstream keyboard player. Volume is a keyboard
+  /// affordance only - see [_ownsVolumeKeys] for who gets the hardware keys.
   static const int _volumeStep = 5;
 
   void _nudgeVolume(int delta) => _setVolume(_volume + delta);
@@ -872,30 +757,20 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// The gap between rows of [_pickVolume], and deliberately not
   /// [_volumeStep].
   ///
-  /// A keyboard repeats, so 5% steps are a held key; a remote does not, and
-  /// 41 rows would be 41 presses. 20% is coarse enough that the whole range
-  /// including the boost is one short list that fits a sheet without
-  /// scrolling - which matters because the autofocus below is the only thing
-  /// putting the remote on the current value, and a row it has to scroll to
-  /// is a row it cannot find.
+  /// A keyboard repeats, so 5% steps are a held key; a remote does not, and 41
+  /// rows would be 41 presses. 20% keeps the whole range including the boost
+  /// to one short list that fits a sheet without scrolling, which matters
+  /// because the autofocus below is the only thing putting the remote on the
+  /// current value.
   static const int _volumePickerStep = 20;
 
   /// The volume affordance a remote can reach.
   ///
   /// Every other route into the player's own gain needs hardware a sofa does
-  /// not have. The AudioVolumeUp/Down keys are claimed on desktop only, and
-  /// on purpose - see [_ownsVolumeKeys]. The bare Up/Down arrows are a
-  /// keyboard idiom that television deliberately spends on revealing the
-  /// chrome instead. M is a keyboard key. The vertical rail is a drag. So the
-  /// one device this app is built for was the one device with no way to turn
-  /// the sound up.
-  ///
-  /// Ranged over [_maxVolume] rather than 100: the 100-200% boost is the
-  /// whole point of the setting behind it, and a picker that stopped at 100%
-  /// would hide exactly the range it exists to expose.
-  ///
-  /// Same shape as [_pickSpeed] - a short sheet, one row marked current, and
-  /// on television that row autofocused - so the two read as one control.
+  /// not have: the AudioVolumeUp/Down keys are claimed on desktop only (see
+  /// [_ownsVolumeKeys]), the bare Up/Down arrows are spent revealing the
+  /// chrome on television, M is a keyboard key and the rail is a drag. Ranged
+  /// over [_maxVolume] rather than 100, so the boost is reachable.
   Future<void> _pickVolume() async {
     final int max = _maxVolume;
     final levels = <int>[
@@ -906,9 +781,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     if (levels.last != max) levels.add(max);
     final current = _volume;
     // Marked by proximity, not equality: the keyboard steps 5% at a time and
-    // the rail lands anywhere at all, so the level in force is usually
-    // between two rows. The speed sheet marks its current row the same way,
-    // with a tolerance instead of an exact match.
+    // the rail lands anywhere at all, so the level in force is usually between
+    // two rows.
     final selected = levels.reduce(
       (a, b) => (a - current).abs() <= (b - current).abs() ? a : b,
     );
@@ -1037,8 +911,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     return h > 0 ? '$h:$m:$s' : '$m:$s';
   }
 
-  /// A full screen height of travel covers the whole range, which is the
-  /// proportion the old player used and feels neither twitchy nor sluggish.
+  /// A full screen height of travel covers the whole range.
   void _railDragUpdate(DragUpdateDetails d) {
     final isVolume = _dragIsVolume;
     if (isVolume == null) return;
@@ -1053,7 +926,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
       );
       // The same apply the keyboard uses, so the finger's level is remembered
       // for the mute toggle too. No hideAfter: the rail stays until the drag
-      // ends and _railDragEnd starts its clock.
+      // ends and _railDragEnd starts the clock.
       _setVolume(_dragStart.round(), hideAfter: null);
     } else {
       _dragStart = (_dragStart + travel).clamp(0.0, 1.0);
@@ -1081,9 +954,9 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
   /// Keyboard and remote shortcuts.
   ///
-  /// Returns ignored for anything it does not claim, so directional keys keep
-  /// reaching the focus system and native traversal moves between controls
-  /// exactly as before. Only keys with no traversal meaning are handled here.
+  /// [_handleKey] returns ignored for anything it does not claim, so
+  /// directional keys keep reaching the focus system and native traversal
+  /// moves between controls. Only keys with no traversal meaning are handled.
   static bool _isDirectional(LogicalKeyboardKey key) =>
       key == LogicalKeyboardKey.arrowUp ||
       key == LogicalKeyboardKey.arrowDown ||
@@ -1091,17 +964,16 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
       key == LogicalKeyboardKey.arrowRight;
 
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
-    // Hold-to-2x is the one shortcut that needs the whole press rather than
-    // its leading edge, so the repeat and the release are read before the
-    // down-only fast path. Both are gated on [_spaceHeld], which is set only
-    // by a Space this file already claimed, so every other key behaves
-    // exactly as it did: seen once, on the way down.
+    // Hold-to-2x needs the whole press rather than its leading edge, so the
+    // repeat and the release are read before the down-only fast path. Both are
+    // gated on [_spaceHeld], which is set only by a Space this file already
+    // claimed, so every other key is seen once, on the way down.
     if (event is KeyRepeatEvent) {
       if (!_spaceHeld || event.logicalKey != LogicalKeyboardKey.space) {
         return KeyEventResult.ignored;
       }
-      // A key still down is still interaction; the bars stay up for the life
-      // of the boost. [_startSpeedBoost] is idempotent, so every further
+      // A key still down is still interaction, so the bars stay up for the
+      // life of the boost. [_startSpeedBoost] is idempotent, so every further
       // repeat is a poke and nothing else.
       _chrome.poke();
       _startSpeedBoost();
@@ -1125,22 +997,20 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
     // Back is not ours, and must not poke. Android delivers it as this key
     // first and as popRoute second; the screen's _handleBack decides between
-    // hiding the bars and leaving based on whether the bars were ALREADY up.
-    // A poke here raised them first, so every Back press flashed the bars and
-    // the player could never be left while playing.
+    // hiding the bars and leaving based on whether the bars were already up,
+    // so a poke here would flash the bars on every Back press and the player
+    // could never be left while playing.
     if (event.logicalKey == LogicalKeyboardKey.goBack) {
       return KeyEventResult.ignored;
     }
 
     // Any other key keeps the chrome alive, and summons it when hidden - on a
     // remote there is no tap to reveal it with. Focus is restored after the
-    // frame, so the key doing the summoning is still judged against where
-    // focus was.
+    // frame, so the key doing the summoning is judged against where focus was.
     _chrome.poke();
 
-    // Arrows are shortcuts only while the sink itself holds focus, which is
-    // to say nothing else in the player does. With a control focused - a
-    // button, the scrubber, the skip button outside the bars - they are
+    // Arrows are shortcuts only while the sink itself holds focus, which is to
+    // say nothing else in the player does. With a control focused they are
     // traversal and belong to the focus system.
     final bare = node.hasPrimaryFocus;
 
@@ -1148,9 +1018,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
     // A bare arrow is a keyboard idiom - volume and seek with nothing focused.
     // On a remote, bare means the bars are down, so the same press is the one
-    // summoning them; firing volume or a seek off it makes waking the chrome
-    // destructive. poke() above already revealed them and focus lands on
-    // play/pause after the frame, so this press is spent doing exactly that.
+    // summoning them, and firing volume or a seek off it would make waking the
+    // chrome destructive. The press is spent revealing the bars instead.
     if (bare && _isTv && _isDirectional(key)) return KeyEventResult.handled;
     // K and the media keys have no activation meaning, so they stay global.
     if (key == LogicalKeyboardKey.mediaPlayPause ||
@@ -1158,23 +1027,14 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
       _togglePlayback();
       return KeyEventResult.handled;
     }
-    // Space is the activation key for whatever is focused, so it is a
-    // shortcut only while nothing is: claimed with a button focused it would
-    // toggle playback instead of pressing the button, which is what the old
-    // player's rootHasFocus guard was for.
+    // Space is the activation key for whatever is focused, so it is a shortcut
+    // only while nothing is: claimed with a button focused it would toggle
+    // playback instead of pressing the button.
     //
-    // And a bare Space is two shortcuts on one key - tap toggles, hold runs
-    // at 2x - which is exactly what the touch build's tap and long-press
-    // already are. Only the release tells them apart, so the down press
-    // claims the key and does nothing else.
-    //
-    // Toggling here instead, and boosting on the first repeat, is the wiring
-    // that looks right: the leading edge pauses the film, and the viewer who
-    // meant to skim gets a still frame that is still a still frame when they
-    // let go. In production it is also inert - [_startSpeedBoost] wants
-    // something playing, and by the time the key repeats the engine has
-    // published the pause - but the pause is the part a test can see, so that
-    // is what controls_focus_test.dart pins.
+    // A bare Space is two shortcuts on one key - tap toggles, hold runs at 2x -
+    // and only the release tells them apart, so the down press claims the key
+    // and does nothing else. Toggling on the leading edge instead would pause
+    // the film under a viewer who meant to skim.
     if (bare && key == LogicalKeyboardKey.space) {
       _spaceHeld = true;
       return KeyEventResult.handled;
@@ -1190,12 +1050,10 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     // LB/RB, alongside J/L and through the same [_seekBy], so a pad inherits
     // the chain window and the toast rather than growing a second seek path.
     //
-    // A shoulder button has no traversal meaning and no activation meaning,
-    // so unlike the arrows and unlike Space it needs no `bare` guard and is
-    // not spent revealing the chrome on television: the press that wakes the
-    // bars also seeks, exactly as J and L do. Without this, seeking with a
-    // controller meant waking the chrome, walking the D-pad to the scrubber
-    // and only then pressing Left or Right.
+    // A shoulder button has no traversal meaning and no activation meaning, so
+    // unlike the arrows and unlike Space it needs no `bare` guard and is not
+    // spent revealing the chrome on television: the press that wakes the bars
+    // also seeks, exactly as J and L do.
     if (key == LogicalKeyboardKey.keyJ ||
         key == LogicalKeyboardKey.gameButtonLeft1) {
       _seekBy(-_seekStep);
@@ -1220,7 +1078,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     // The rocker is the phone's, not ours: off desktop this must fall through
     // as ignored or the handset's own volume never moves and its HUD never
     // appears, while the app walks its private libVLC gain. See
-    // [_ownsVolumeKeys] for the embedder path that makes ignored the fix.
+    // [_ownsVolumeKeys] for the embedder path behind that.
     if (key == LogicalKeyboardKey.audioVolumeUp ||
         key == LogicalKeyboardKey.audioVolumeDown) {
       if (!_ownsVolumeKeys) return KeyEventResult.ignored;
@@ -1280,16 +1138,12 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   ///
   /// Presses within [_seekBase]'s window chain: the second step counts from
   /// the first target, not from the position the engine last published, and
-  /// the toast shows the offset of the whole chain. The window is the same
-  /// one the progress bar latches its thumb for, and it is longer than the
+  /// the toast shows the offset of the whole chain. The window is the one the
+  /// progress bar latches its thumb for, and it is longer than the
   /// controller's stall delay on purpose - a chain the engine is slow to
   /// honour gets its spinner before the base falls back to the truth.
   ///
-  /// [feedback] picks how the step is shown, and nothing else about the seek
-  /// changes with it. The chain arithmetic above is shared on purpose: the
-  /// burst gets the cumulative offset for free, which is strictly more than
-  /// the pre-migration player managed - it always printed the bare step, so
-  /// four taps in a row said "10s" four times.
+  /// [feedback] picks how the step is shown and changes nothing else.
   void _seekBy(Duration delta, {_SeekFeedback feedback = _SeekFeedback.toast}) {
     final value = widget.controller.value;
     if (widget.isLive || !value.isSeekable) return;
@@ -1315,12 +1169,10 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     }
   }
 
-  /// The side is [delta]'s - which half the viewer actually tapped, which is
-  /// the whole defect this replaces - and the number is the chain's cumulative
-  /// [offset] measured in that same direction. They agree on every ordinary
-  /// run of taps; where a reversal has carried the chain back past its origin
-  /// they do not, and then the number goes negative and says so rather than
-  /// quietly showing the wrong magnitude.
+  /// The side is [delta]'s - which half the viewer actually tapped - and the
+  /// number is the chain's cumulative [offset] measured in that same
+  /// direction. Where a reversal has carried the chain back past its origin
+  /// the number goes negative and says so.
   void _showSeekBurst(Duration delta, Duration offset) {
     final bool forward = !delta.isNegative;
     _burstRevision++;
@@ -1336,15 +1188,11 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
   /// Adopts [target] as the position the next relative step counts from.
   ///
-  /// Every absolute seek the controls can see - the scrubber committing a
-  /// drag, a track tap or a D-pad burst, a swipe release, the skip button -
-  /// moves playback somewhere [_seekBase] knows nothing about, and the engine
-  /// will not publish it for a round trip. Without this the next arrow either
-  /// counts from the chain's stale target and throws the viewer back to it,
-  /// or - if the chain were merely cleared - counts from the engine's
-  /// pre-seek position and throws them back to *that*. The seek that just
-  /// happened is the truth, so it becomes the base, and the toast counts from
-  /// it too.
+  /// Every absolute seek the controls can see - a scrubber drag, a track tap,
+  /// a swipe release, the skip button - moves playback somewhere [_seekBase]
+  /// knows nothing about, and the engine will not publish it for a round trip,
+  /// so the next arrow would count from a stale position. The seek that just
+  /// happened is the truth, so it becomes the base.
   void _rebaseSeekChain(Duration target) {
     _seekBase = target;
     _seekOrigin = target;
@@ -1391,7 +1239,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// Without this the full-screen double-tap and long-press recognisers stay in
   /// the gesture arena while a button is pressed, so the button's own tap is
   /// delayed behind the double-tap timeout and reads as unresponsive. Deeper
-  /// widgets - buttons, the scrubber - still win normally.
+  /// widgets still win normally.
   Widget _absorbGestures(Widget child) => GestureDetector(
     onTap: () {},
     onDoubleTap: () {},
@@ -1402,14 +1250,6 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   );
 
   /// One of the two discrete seek buttons, on every platform.
-  ///
-  /// COMMON, with no branch and nothing to justify: before this the only
-  /// precise seek in the chrome was an invisible double-tap on touch and J/L
-  /// on a keyboard, so a phone, a tablet, a remote and a mouse each had either
-  /// nothing or something undiscoverable. The Android picture-in-picture
-  /// mini-window has shipped `ic_replay_10` and `ic_forward_10` the whole time
-  /// (MainActivity.createPipActions), which left a two-inch floating window
-  /// with a better seek affordance than the full-screen player.
   ///
   /// In [_leading] rather than in the actions, so it is pinned beside
   /// play/pause and is never the thing that scrolls or wraps away: it is a
@@ -1426,11 +1266,9 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
       isTv: isTv,
       onPressed: () {
         _chrome.poke();
-        // The centred pill, not the half-screen ripple: [_doubleTapSeek] is
-        // the only caller that asks for a burst, because that one is a tap on
-        // a half of the frame and has a side to answer on. A button press is
-        // J/L, the D-pad and the skip chip - the pill, and the same
-        // cumulative chain readout they get.
+        // The centred pill, not the half-screen ripple: only [_doubleTapSeek]
+        // asks for a burst, because that one is a tap on a half of the frame
+        // and has a side to answer on.
         _seekBy(Duration(seconds: forward ? seconds : -seconds));
       },
     );
@@ -1443,10 +1281,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   }) {
     final int step = _seekStepSeconds(settings);
     return <Widget>[
-      // Withheld on a live edge for the reason speed is: [_seekBy] returns on
-      // `isLive`, so the press would be dead. That is a property of the
-      // stream, not of the device - every platform loses it on the same
-      // stream and keeps it on the same stream.
+      // Withheld on a live edge because [_seekBy] returns on `isLive`, so the
+      // press would be dead. That is a property of the stream, not the device.
       if (!widget.isLive) _stepButton(l10n, step, forward: false, isTv: isTv),
       PlayerValueSelector<bool>(
         controller: widget.controller,
@@ -1460,8 +1296,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
             isTv: isTv,
             iconSize: 40,
             focusNode: _playPause,
-            // Only on TV: a keyboard user wants arrows seeking from the start,
-            // which they do while the sink holds focus, not a button.
+            // Only on TV: a keyboard user wants arrows seeking from the
+            // start, which they do while the sink holds focus, not a button.
             autofocus: isTv,
             onPressed: () {
               _chrome.poke();
@@ -1471,21 +1307,19 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
         },
       ),
       if (!widget.isLive) _stepButton(l10n, step, forward: true, isTv: isTv),
-      // Between play/pause and Next, which is where the bottom bar's own
-      // comment has said it lives since before the migration deleted it
-      // (player_control_components.dart: "Left group: play/pause, lock, next").
-      // Absent rather than disabled off touch - see [_lockAvailable].
+      // Between play/pause and Next, the slot player_control_components.dart
+      // reserves for it. Absent rather than disabled off touch - see
+      // [_lockAvailable].
       if (_lockAvailable)
         PlayerIconButton(
           icon: Icons.lock_outline_rounded,
           tooltip: l10n.lock,
           isTv: isTv,
           onPressed: () {
-            // Poked, not left to chance: the chip that undoes this is on the
-            // chrome's clock, so the press that locks has to be the press
-            // that starts it. Without this a lock set from bars that were
-            // one tick from expiring would leave the viewer looking at a
-            // locked screen with no chip on it.
+            // The chip that undoes this rides the chrome's clock, so the
+            // press that locks has to be the press that starts it. Otherwise
+            // a lock set from bars one tick from expiring leaves a locked
+            // screen with no chip on it.
             _chrome.poke();
             widget.locked!.value = true;
           },
@@ -1505,17 +1339,12 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
   /// The utility group, right-anchored.
   ///
-  /// ORDERED LEAST-USED FIRST, and that ordering is load-bearing rather than
-  /// cosmetic. The strip is right-anchored on touch and the [Wrap] is
-  /// end-aligned off it, so a squeeze eats the row from the LEFT: whatever is
-  /// first in this list is the first thing a viewer loses. It used to open
-  /// with sources, audio, subtitles, which on a 360 dp portrait handset -
-  /// a real state, since the app pins portrait for a portrait-shaped video -
-  /// meant the two controls people actually reach for during a film were the
-  /// two that were gone.
-  /// So the torrent diagnostics and the one-off view settings lead, and audio
-  /// and subtitles are last, hard against the right edge where they survive
-  /// any width.
+  /// Ordered least-used first, and that ordering is load-bearing. The strip is
+  /// right-anchored on touch and the [Wrap] is end-aligned off it, so a
+  /// squeeze eats the row from the left: whatever is first in this list is the
+  /// first thing a viewer loses on a 360 dp portrait handset. So the torrent
+  /// diagnostics and the one-off view settings lead, and audio and subtitles
+  /// are last, hard against the right edge where they survive any width.
   List<Widget> _actions(
     AppLocalizations l10n,
     PlayerSettings settings, {
@@ -1604,20 +1433,11 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
             onPressed: () => unawaited(_chrome.whileHeld(_pickSpeed)),
           ),
         ),
-      // COMMON, on every platform, and the removal of the tree's one real
-      // instance of the failure mode the standing rule exists for.
-      //
-      // This used to be `if (isTv && !_isDesktop)`, justified by "a desktop
-      // keyboard owns AudioVolumeUp/Down and touch has the vertical rail".
-      // Both are second routes, and the rule rejects second routes: a
-      // keyboard shortcut and an undiscoverable gesture are accelerators
-      // layered over a visible control, never substitutes for one. It was
-      // worse than a style point on two counts. The rail only carries volume
-      // when the viewer's edge-gesture setting says it does, and that setting
-      // is theirs to change, so anyone who set both edges to brightness had
-      // no volume path at all; and the 100-200% software boost - the reason
-      // to run a third-party player on quiet dialogue - was reachable on a
-      // phone only by dragging past the top of an invisible rail.
+      // On every platform, not just TV. The vertical rail only carries volume
+      // when the viewer's edge-gesture setting says it does, so anyone who set
+      // both edges to brightness had no volume path at all, and the 100-200%
+      // software boost was reachable on a phone only by dragging past the top
+      // of an invisible rail.
       //
       // Not gated on `!widget.isLive` the way speed is: a live edge still has
       // a volume.
@@ -1682,9 +1502,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// its current answer.
   ///
   /// The subscription is here rather than deeper because the lock changes the
-  /// *contents* of the Stack rather than the appearance of any one child - see
-  /// [_buildBody]. Off touch there is no notifier and no builder either: the
-  /// tree is byte-for-byte what it was before the lock existed.
+  /// contents of the Stack rather than the appearance of any one child - see
+  /// [_buildBody]. Off touch there is no notifier and no builder either.
   @override
   Widget build(BuildContext context) {
     final notifier = _lockAvailable ? widget.locked : null;
@@ -1698,22 +1517,17 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// Suppression in one place, not eight.
   ///
   /// Everything the lock has to swallow - the chrome toggle, the double-tap
-  /// seek, the horizontal scrub, the vertical brightness/volume rail and the
-  /// long-press speed boost - is registered on the single screen-wide
-  /// [GestureDetector] below, so locking rebuilds *that one widget* with a
-  /// bare `onTap` and every gesture is gone at once. The alternative, which
-  /// 38da335 shipped, is a guard inside each callback, where the ninth
-  /// gesture somebody adds is the one that gets forgotten.
+  /// seek, the horizontal scrub, the vertical rail and the long-press speed
+  /// boost - is registered on the single screen-wide [GestureDetector] below,
+  /// so locking rebuilds that one widget with a bare `onTap` and every gesture
+  /// is gone at once.
   ///
-  /// Three things are then withheld rather than guarded, because each is a
-  /// live target of its own outside that detector: [_bars] (the whole focusable
-  /// chrome), the centre play/pause (outside the bars, and hit-testable
-  /// whenever the chrome is up) and the skip chip (deliberately outside the
-  /// chrome gate, so hiding the bars would not have taken it away).
+  /// Three things are withheld rather than guarded, because each is a live
+  /// target of its own outside that detector: [_bars], the centre play/pause
+  /// and the skip chip.
   ///
-  /// Everything else stays: the buffering spinner, the torrent panel, the rail
-  /// and the toast are all `IgnorePointer` and read-only, and a locked player
-  /// that stopped saying what it was doing would just look broken.
+  /// Everything else stays: the spinner, the torrent panel, the rail and the
+  /// toast are all `IgnorePointer` and read-only.
   Widget _buildBody(BuildContext context, {required bool locked}) {
     final l10n = AppLocalizations.of(context)!;
     final isTv =
@@ -1736,12 +1550,10 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
           // behind the double-tap timeout.
           //
           // Locked, this is a different widget rather than the same one with
-          // nine guarded callbacks: every gesture the player owns is
-          // registered right here, so rebuilding it with a single `onTap`
-          // takes all of them away in one move and makes the tenth gesture
-          // somebody adds inert for free. The surviving tap is `poke`, not
-          // `toggle` - while locked, a touch is a request to see the unlock
-          // chip, and never a request to hide it.
+          // nine guarded callbacks, so the tenth gesture somebody adds is
+          // inert for free. The surviving tap is `poke`, not `toggle`: while
+          // locked, a touch is a request to see the unlock chip and never a
+          // request to hide it.
           if (locked)
             GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -1787,29 +1599,23 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
             ),
           ),
           // The touch build's primary control, above the screen-wide detector
-          // in the Stack so hit testing reaches it first (see
-          // [PlayerCenterPlayButton] for why it is translucent and not
-          // opaque), and outside [_bars] because it is not part of the
-          // focusable chrome - it holds no node, so `_chromeRoot.hasFocus`
-          // still means exactly "a control is focused".
+          // in the Stack so hit testing reaches it first, and outside [_bars]
+          // because it holds no node - so `_chromeRoot.hasFocus` still means
+          // exactly "a control is focused".
           //
-          // Center is *outside* the fade and the fade is outside everything
-          // else: `Positioned.fill(AnimatedOpacity(Center(...)))` would make
-          // the opacity layer the size of the whole viewport, which over a
-          // platform view is the window-sized surface this file's header
-          // forbids and controls_layer_shape_test measures.
+          // Center is outside the fade and the fade is outside everything
+          // else: `Positioned.fill(AnimatedOpacity(Center(...)))` would size
+          // the opacity layer to the whole viewport, which over a platform
+          // view is the window-sized surface this file's header forbids.
           //
-          // The IgnorePointer is not optional. The glyph is outside the
-          // chrome, so nothing else withdraws it when the bars go down, and a
-          // 72 px invisible circle in the dead centre would eat the
-          // tap-to-reveal that is the only way back.
+          // The IgnorePointer is not optional. Nothing else withdraws the
+          // glyph when the bars go down, and a 72 px invisible circle in the
+          // dead centre would eat the tap-to-reveal that is the only way back.
           //
           // Withheld outright while locked rather than left to that
           // IgnorePointer, which only tracks the chrome: a lock reveals the
-          // chrome to show its chip, so the glyph would be up, hit-testable
-          // and dead centre - a pocket press would pause the film through the
-          // one control the lock forgot. It is the same reason the bars and
-          // the skip chip are not built either.
+          // chrome to show its chip, so the glyph would be up and hit-testable
+          // dead centre.
           if (_showCenterGlyph && !locked)
             Center(
               child: _fading(
@@ -1818,10 +1624,10 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
                   child: RepaintBoundary(
                     child: PlayerValueSelector<(bool, bool)>(
                       controller: widget.controller,
-                      // First: a rebuffer is still playback, exactly as
-                      // _leading reads it, so the glyph keeps offering pause.
-                      // Second: while the spinner is up the glyph collapses,
-                      // so the two never draw a disc around each other.
+                      // A rebuffer is still playback, exactly as _leading
+                      // reads it, so the glyph keeps offering pause; and while
+                      // the spinner is up the glyph collapses, so the two
+                      // never draw a disc around each other.
                       selector: (v) => (
                         v.isPlaying || v.isBuffering,
                         v.isStalled || v.isBuffering,
@@ -1898,13 +1704,9 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
           // Outside the chrome on purpose: an intro can start while the bars
           // are hidden, and putting the one time-limited control behind a tap
           // would defeat it. Which is also why it has to be withdrawn by hand
-          // when the screen raises a prompt into the same corner - being
-          // outside the chrome is exactly what stops it going with the bars.
-          // See [VlcPlayerControls.promptVisible].
-          //
-          // And exactly why `locked` has to be named here too: being outside
-          // the chrome is what would otherwise leave a live, D-pad-reachable,
-          // thumb-sized Skip button on a locked screen.
+          // when the screen raises a prompt into the same corner, and why
+          // `locked` has to be named here - otherwise a locked screen keeps a
+          // live, D-pad-reachable Skip button.
           RepaintBoundary(
             child: Align(
               alignment: Alignment.bottomRight,
@@ -1921,8 +1723,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     // Hover is desktop only: touch has none and a remote has no pointer.
     if (_isDesktop) {
       body = MouseRegion(
-        // Derived from the same value as the bars so it cannot desync, and
-        // the route's teardown puts the platform cursor back for free.
+        // Derived from the same value as the bars so it cannot desync; the
+        // route's teardown puts the platform cursor back.
         cursor: visible ? MouseCursor.defer : SystemMouseCursors.none,
         onHover: _onHover,
         child: body,
@@ -1964,8 +1766,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
           // One Column, bottom-anchored, and one fade per bar rather than one
           // around the Column. The bars sit at opposite screen edges, so a
           // single opacity layer around both is window-sized; two are each
-          // bar-sized, and the spacer between them is in neither. Same
-          // duration and curve, so the fade looks identical.
+          // bar-sized, and the spacer between them is in neither.
           child: Column(
             children: [
               _fading(
@@ -1988,9 +1789,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
                       isTv: isTv,
                       isTouch: isTouch,
                       // Its own boundary: the scrubber repaints on every
-                      // position tick, and without this that tick would
-                      // repaint the whole bottom bar, scrim and every icon
-                      // button.
+                      // position tick, which would otherwise repaint the whole
+                      // bottom bar, scrim and every icon button.
                       progressBar: RepaintBoundary(
                         child: VlcProgressBar(
                           controller: widget.controller,
@@ -1999,8 +1799,8 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
                           skipSegments: widget.skipSegments,
                           // Held for the drag or the D-pad burst, then
                           // released: the seek bar commits both as one end,
-                          // and reports one even when it cannot commit at
-                          // all, so the hold can never be stranded.
+                          // and reports one even when it cannot commit, so the
+                          // hold can never be stranded.
                           onSeekStart: _beginSeekHold,
                           onSeekEnd: _endSeekHold,
                         ),
@@ -2023,7 +1823,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   Widget _holdWhileHovered(Widget bar) =>
       !_isDesktop ? bar : _HoverChromeHold(chrome: _chrome, child: bar);
 
-  /// No RepaintBoundary of its own: RenderAnimatedOpacity *is* one for as long
+  /// No RepaintBoundary of its own: RenderAnimatedOpacity is one for as long
   /// as alpha > 0, which is exactly when the bar is on screen, and at alpha 0
   /// it paints nothing to protect. A second boundary here would be the same
   /// bounds twice and one more surface over the platform view.
@@ -2036,24 +1836,17 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// The one control a locked player has, and the only way back into the
   /// player short of leaving it.
   ///
-  /// Rides the chrome's own clock through [_fading], which is the whole reason
-  /// it is shaped like this: a touch anywhere pokes the chrome, the chip
-  /// appears with it, and both go away together after the same three seconds.
-  /// No second timer, no second opacity controller, and nothing to keep in
-  /// step - which is exactly what 38da335 did, and what a chip with a
-  /// lifetime of its own would have got wrong the first time the two clocks
-  /// disagreed.
+  /// Rides the chrome's own clock through [_fading]: a touch anywhere pokes
+  /// the chrome, the chip appears with it, and both go away together. No
+  /// second timer and no second opacity controller to keep in step.
   ///
-  /// The [IgnorePointer] is load-bearing for the same reason the centre
-  /// glyph's is. `AnimatedOpacity` at zero paints nothing but still hit-tests:
-  /// without this, an invisible chip would sit at the bottom of a locked
-  /// screen and the first accidental contact would undo the lock - the one
-  /// failure that would make the whole feature worthless.
+  /// The [IgnorePointer] is load-bearing. `AnimatedOpacity` at zero paints
+  /// nothing but still hit-tests, so without it an invisible chip would sit at
+  /// the bottom of a locked screen and the first accidental contact would undo
+  /// the lock.
   ///
-  /// Bottom-centre rather than in a corner: it is the only thing on screen, a
-  /// thumb reaches the middle of the bottom edge on any handset, and it is
-  /// clear of the dead centre where a swipe-seek would start if the player
-  /// were not locked.
+  /// Bottom-centre because a thumb reaches the middle of the bottom edge on
+  /// any handset, clear of the dead centre where a swipe-seek would start.
   Widget _unlockChip(AppLocalizations l10n) {
     return Align(
       alignment: Alignment.bottomCenter,
@@ -2072,13 +1865,10 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
                   label: l10n.unlock,
                   onTap: () {
                     _chrome.poke();
-                    // Writing the shared flag is the whole of the unlock, and
-                    // that is deliberate: the screen owns everything that has
-                    // to follow from it - the two-press Back escape it arms,
-                    // above all - by listening to this notifier rather than by
-                    // being called. A callback here would be a second thing to
-                    // keep wired, and an unwired one puts the escape window
-                    // back on the next lock.
+                    // Writing the shared flag is the whole of the unlock: the
+                    // screen owns everything that follows from it, the
+                    // two-press Back escape above all, by listening to this
+                    // notifier rather than by being called.
                     widget.locked!.value = false;
                   },
                 ),
@@ -2092,17 +1882,12 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
   /// The painted pill a chip wears so it is readable over a bright frame.
   ///
-  /// Shared by the unlock chip and the skip chip, which is the whole point:
-  /// the unlock chip has had this since it landed, and Skip Intro / Skip Outro
-  /// - the one control in the player on a clock, and the one most often shown
-  /// over a title card - was a bare [PlayerActionButton] whose background is
-  /// fully transparent until it is focused or hovered. On a bright scene that
-  /// is white glyphs on white with no edge at all, and on a television there
-  /// is no hover to rescue it and focus starts on play/pause.
+  /// [PlayerActionButton]'s own background is fully transparent until it is
+  /// focused or hovered, which on a bright scene is white glyphs on white with
+  /// no edge at all, and on a television there is no hover to rescue it.
   ///
   /// A paint, not a layer: `DecoratedBox` draws into the layer it is already
-  /// in, unlike the backdrop filters this file's header forbids and
-  /// controls_layer_shape_test.dart measures.
+  /// in, unlike the backdrop filters this file's header forbids.
   static Widget _chipPill(Widget child) => DecoratedBox(
     decoration: BoxDecoration(
       color: const Color(0xB3000000),
@@ -2115,18 +1900,15 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// Shown only while the position is genuinely inside a segment, so it appears
   /// and disappears on its own and never needs dismissing.
   ///
-  /// On an outro with an episode behind it the chip is not a seek at all: it
-  /// says Next and hands over to [VlcPlayerControls.onSkipOutro]. It still
-  /// seeks first, and that is owner decision 7 rather than a leftover.
+  /// On an outro with an episode behind it the chip says Next and hands over
+  /// to [VlcPlayerControls.onSkipOutro], but it still seeks first.
   /// `PlaybackTracker` judges a session complete from the last sample taken
   /// while playing, and an outro band routinely starts before
-  /// `kCompletedFraction` (0.90). Advancing from inside it would report a
-  /// `scrobbleStop` to Trakt and Simkl where the viewer earned a play, on
-  /// accounts this app cannot issue an undo against. So the target is the
-  /// later of the band's end - what "skip the credits" means - and a point
-  /// past the completion line - what "I am done with this episode" has to
-  /// record. When that seek cannot land at all the chip is withheld rather
-  /// than allowed to advance from below the line; see [_advanceWithheld].
+  /// `kCompletedFraction` (0.90), so advancing from inside it would report a
+  /// `scrobbleStop` to Trakt and Simkl where the viewer earned a play. The
+  /// target is the later of the band's end and a point past the completion
+  /// line. When that seek cannot land the chip is withheld; see
+  /// [_advanceWithheld].
   Widget _skipButton({required bool isTv}) {
     return PlayerValueSelector<(SkipSegment?, bool)>(
       controller: widget.controller,
@@ -2149,8 +1931,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
             right: isTv ? 48 : 24,
             bottom: _chrome.value ? 132 : 48,
           ),
-          // The pill the unlock chip has always had. Same treatment, one
-          // helper, so the two chips can never drift apart again.
+          // The same pill the unlock chip wears, through the one helper.
           child: _chipPill(
             PlayerActionButton(
               label: advances
@@ -2181,36 +1962,19 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   ///
   /// True for the Next chip, and only for it, on a source libVLC reports as
   /// unseekable. The seek to [_outroAdvancePoint] is what makes the hand-over
-  /// safe: `PlaybackTracker.finish` judges the session from the last sample
-  /// taken while playing, so advancing from inside the outro reports a
-  /// `scrobbleStop` at roughly 0.88 to Trakt and Simkl where the viewer earned
-  /// a play, and never writes `episodeWatchRepository.setWatched`, so the
-  /// episode also stays unwatched in the Episodes tab and on the details
-  /// screen - an under-report on third-party accounts this app cannot issue an
-  /// undo against. The seek cannot land here, so the press cannot be made
-  /// safe, and the choice is only between a chip that under-reports and no
-  /// chip.
+  /// safe and it cannot land there, so advancing from inside the outro would
+  /// report a `scrobbleStop` at roughly 0.88 to Trakt and Simkl and never
+  /// write `episodeWatchRepository.setWatched`. The chip comes back the moment
+  /// the engine reports the source seekable - routine on a torrent still
+  /// filling its pieces in.
   ///
   /// There is no "already past the line" case to let through: the chip only
   /// exists while [segmentAt] answers, which is strictly inside the band, and
-  /// [_outroAdvancePoint] is at or past that band's end. So an unseekable
-  /// source is always below the line for as long as the chip would be up.
-  ///
-  /// No chip, then. A control on screen is a promise, and this is a stream the
-  /// player already refuses to scrub, swipe or step - `_onHorizontalDragStart`
-  /// and [_seekBy] both return on `!isSeekable` and the progress bar draws no
-  /// thumb - so the affordance is out of place there to begin with. The viewer
-  /// is not stranded either: the credits run out on their own and the up-next
-  /// card advances by itself with the watch properly recorded, which is all
-  /// this chip was ever a shortcut for. And it comes back the moment the press
-  /// can honour both halves of what it says, which is when the engine reports
-  /// the source seekable - routine on a torrent still filling its pieces in.
+  /// [_outroAdvancePoint] is at or past that band's end.
   ///
   /// Deliberately narrow. An intro, a recap, or an outro with no episode
-  /// behind it is a pure seek, and on an unseekable source it is a dead press
-  /// today and stays one: that costs the viewer a press, not a watch, and
-  /// widening this guard into it would take a chip away from every source the
-  /// engine has not yet called seekable.
+  /// behind it is a pure seek, and on an unseekable source it stays a dead
+  /// press: that costs the viewer a press, not a watch.
   bool _advanceWithheld(SkipSegment segment, VlcPlayerValue value) =>
       segment.type == SkipType.outro &&
       widget.onSkipOutro != null &&
@@ -2221,8 +1985,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// The later of the outro band's end and [_outroAdvanceFraction] of the
   /// duration. The margin over `kCompletedFraction` is deliberate: the engine
   /// lands a seek approximately, and a sample a hair under the line reads as
-  /// unwatched. With no duration reported yet there is nothing to take a
-  /// fraction of, so the band's end is all there is.
+  /// unwatched. With no duration reported yet the band's end is all there is.
   Duration _outroAdvancePoint(SkipSegment segment) {
     final Duration bandEnd = Duration(
       milliseconds: (segment.endTime * 1000).round(),
@@ -2240,19 +2003,14 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 /// back exactly once — on exit, or on teardown if the exit never comes.
 ///
 /// A [State] of its own rather than a [MouseRegion] inline in the controls,
-/// because the release has to happen when *this subtree* goes, not when the
+/// because the release has to happen when this subtree goes, not when the
 /// controls do. Flutter deliberately does not deliver [MouseRegion.onExit]
 /// when the region is unmounted with the pointer still inside it
-/// (widgets/basic.dart: exit "is __not__ triggered by ... this widget, which
-/// is being hovered by a pointer, has disappeared"), and the documented
-/// mitigation is to release from [dispose]. The hold is counted and
-/// [ChromeVisibilityController.release] is the only thing that gives one back,
-/// so an enter with no matching exit pins the bars up for the rest of the
-/// session — and the chrome is usually the screen's, so it follows the viewer
-/// into the next media. The bar goes out from under the cursor whenever the
-/// controls leave: a failover that clears the frame flag, an episode advance,
-/// Back, entering PiP. Children are unmounted before their parents, so this
-/// runs while the controls' private chrome is still alive.
+/// (widgets/basic.dart), and the documented mitigation is to release from
+/// [dispose]. The hold is counted, so an enter with no matching exit pins the
+/// bars up for the rest of the session on a chrome that usually outlives these
+/// controls. Children are unmounted before their parents, so this runs while
+/// the controls' private chrome is still alive.
 class _HoverChromeHold extends StatefulWidget {
   const _HoverChromeHold({required this.chrome, required this.child});
 
@@ -2294,8 +2052,7 @@ class _HoverChromeHoldState extends State<_HoverChromeHold> {
     super.dispose();
   }
 
-  /// Translucent so the taps beneath behave exactly as before: this adds
-  /// hover, not a hit target.
+  /// Translucent, so this adds hover and not a hit target.
   @override
   Widget build(BuildContext context) => MouseRegion(
     hitTestBehavior: HitTestBehavior.translucent,

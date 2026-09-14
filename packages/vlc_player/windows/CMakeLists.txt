@@ -105,17 +105,31 @@ endif()
 
 set(VLC_PLAYER_LIBVLC_MEDIA_HEADER
   "${VLC_PLAYER_RUNTIME_DIR}/sdk/include/vlc/libvlc_media.h")
+# libvlc_media.h declares `typedef SSIZE_T ssize_t;` for MSVC and then uses
+# ssize_t in libvlc_media_read_cb. MSVC has no ssize_t of its own, so the
+# typedef has to survive, but it also has to not collide with another header
+# that has already made one. Guarding it on _SSIZE_T_DEFINED - the macro MinGW
+# and the CRT use for exactly this - gives both.
+#
+# Gating it on a compiler version instead does not: on VS2015 and later the
+# typedef disappears, nothing else supplies ssize_t, and every use becomes
+# C4431 "missing type specifier", which /WX turns into a build failure.
 if(EXISTS "${VLC_PLAYER_LIBVLC_MEDIA_HEADER}")
   file(READ "${VLC_PLAYER_LIBVLC_MEDIA_HEADER}" vlc_player_libvlc_media)
   set(vlc_player_libvlc_media_patched "${vlc_player_libvlc_media}")
   string(REPLACE
-    "typedef SSIZE_T ssize_t;"
     "#if _MSC_VER < 1900\ntypedef SSIZE_T ssize_t;\n#endif"
+    "typedef SSIZE_T ssize_t;"
     vlc_player_libvlc_media_patched
     "${vlc_player_libvlc_media_patched}")
   string(REPLACE
     "#ifndef _SSIZE_T_DEFINED\n#define _SSIZE_T_DEFINED\ntypedef SSIZE_T ssize_t;\n#endif"
-    "#if _MSC_VER < 1900\ntypedef SSIZE_T ssize_t;\n#endif"
+    "typedef SSIZE_T ssize_t;"
+    vlc_player_libvlc_media_patched
+    "${vlc_player_libvlc_media_patched}")
+  string(REPLACE
+    "typedef SSIZE_T ssize_t;"
+    "#ifndef _SSIZE_T_DEFINED\n#define _SSIZE_T_DEFINED\ntypedef SSIZE_T ssize_t;\n#endif"
     vlc_player_libvlc_media_patched
     "${vlc_player_libvlc_media_patched}")
   if(NOT vlc_player_libvlc_media STREQUAL vlc_player_libvlc_media_patched)

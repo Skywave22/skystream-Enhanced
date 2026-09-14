@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Двојно допирање за пребарување",
   "swipeToSeek": "Повлекување за пребарување",
   "seekDuration": "Времетраење на пребарувањето",
-  "bufferDepth": "Длабочина на баферот",
   "defaultResizeMode": "Стандарден режим за големина",
   "hardwareDecoding": "Хардверско декодирање",
   "network": "Мрежа",
@@ -177,7 +176,6 @@
   "left": "лев",
   "right": "десен",
   "selectSeekDuration": "Избери времетраење на пребарувањето",
-  "selectBufferDepth": "Избери длабочина на баферот",
   "subtitleSettings": "Поставки за титлови",
   "size": "Големина: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Преференца за Wi-Fi квалитет",
   "mobileQualityPreference": "Преференца за мобилен квалитет",
   "anyNoPreference": "Било кој (без преференца)",
   "subtitleAccounts": "Сметки за превод",

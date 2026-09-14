@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Двойно потупване за търсене",
   "swipeToSeek": "Плъзгане за търсене",
   "seekDuration": "Продължителност на търсене",
-  "bufferDepth": "Дълбочина на буфера",
   "defaultResizeMode": "Режим на преоразмеряване",
   "hardwareDecoding": "Хардуерно декодиране",
   "network": "Мрежа",
@@ -177,7 +176,6 @@
   "left": "ляв",
   "right": "десен",
   "selectSeekDuration": "Избери продължителност на търсене",
-  "selectBufferDepth": "Избери дълбочина на буфера",
   "subtitleSettings": "Настройки на субтитри",
   "size": "Размер: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Предпочитание за качество при Wi-Fi",
   "mobileQualityPreference": "Предпочитание за качество при мобилни данни",
   "anyNoPreference": "Без предпочитание",
   "subtitleAccounts": "Акаунти за субтитри",

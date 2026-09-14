@@ -30,7 +30,6 @@
   "doubleTapToSeek": "Sarımaq üçün iki dəfə toxun",
   "swipeToSeek": "Sarımaq üçün sürüşdür",
   "seekDuration": "Sarma müddəti",
-  "bufferDepth": "Bufer dərinliyi",
   "defaultResizeMode": "Standart ölçü rejimi",
   "hardwareDecoding": "Aparat dekodlaşdırması",
   "network": "Şəbəkə",
@@ -196,7 +195,6 @@
   "left": "Sol",
   "right": "Sağ",
   "selectSeekDuration": "Sarma müddətini seç",
-  "selectBufferDepth": "Bufer dərinliyini seç",
   "subtitleSettings": "Altyazı parametrləri",
   "size": "Ölçü: {size}",
   "@size": {
@@ -567,7 +565,6 @@
   "openSubtitles": "OpenSubtitles",
   "subDl": "SubDL",
   "subSource": "SubSource",
-  "wifiQualityPreference": "Wi-Fi keyfiyyət tərcihi",
   "mobileQualityPreference": "Mobil keyfiyyət tərcihi",
   "anyNoPreference": "İstənilən (tərcih yoxdur)",
   "subtitleAccounts": "Altyazı hesabları",

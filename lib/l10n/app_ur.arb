@@ -25,7 +25,6 @@
   "doubleTapToSeek": "تلاش کرنے کے لئے دو بار تھپتھپائیں",
   "swipeToSeek": "تلاش کرنے کے لئے سوائپ کریں",
   "seekDuration": "تلاش کا دورانیہ",
-  "bufferDepth": "بفر گہرائی",
   "defaultResizeMode": "ڈیفالٹ ری سائز موڈ",
   "hardwareDecoding": "ہارڈ ویئر ڈی کوڈنگ",
   "network": "نیٹ ورک",
@@ -177,7 +176,6 @@
   "left": "بایاں",
   "right": "دایاں",
   "selectSeekDuration": "تلاش کا دورانیہ منتخب کریں",
-  "selectBufferDepth": "بفر گہرائی منتخب کریں",
   "subtitleSettings": "سب ٹائٹل ترتیبات",
   "size": "سائز: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "وائی فائی معیار کی ترجیح",
   "mobileQualityPreference": "موبائل ڈیٹا معیار کی ترجیح",
   "anyNoPreference": "کوئی بھی (کوئی ترجیح نہیں)",
   "subtitleAccounts": "سب ٹائٹل اکاؤنٹس",

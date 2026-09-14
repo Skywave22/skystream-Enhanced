@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Двайная заклаца для перамоткі",
   "swipeToSeek": "Жэст для перамоткі",
   "seekDuration": "Працягласць перамоткі",
-  "bufferDepth": "Глыбіня буфера",
   "defaultResizeMode": "Рэжым маштабавання па змаўчанні",
   "hardwareDecoding": "Апаратнае дэкадаванне",
   "network": "Сетка",
@@ -177,7 +176,6 @@
   "left": "левы",
   "right": "правы",
   "selectSeekDuration": "Выбраць працягласць перамоткі",
-  "selectBufferDepth": "Выбраць глыбіню буфера",
   "subtitleSettings": "Налады субтытраў",
   "size": "Памер: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Перавага якасці Wi-Fi",
   "mobileQualityPreference": "Перавага якасці мабільнай сувязі",
   "anyNoPreference": "Любая (без пераваг)",
   "subtitleAccounts": "Уліковыя запісы субцітраў",

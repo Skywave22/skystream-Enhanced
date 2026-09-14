@@ -357,12 +357,6 @@ abstract class AppLocalizations {
   /// **'Seek Duration'**
   String get seekDuration;
 
-  /// No description provided for @bufferDepth.
-  ///
-  /// In en, this message translates to:
-  /// **'Buffer depth'**
-  String get bufferDepth;
-
   /// No description provided for @defaultResizeMode.
   ///
   /// In en, this message translates to:
@@ -1022,12 +1016,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Select Seek Duration'**
   String get selectSeekDuration;
-
-  /// No description provided for @selectBufferDepth.
-  ///
-  /// In en, this message translates to:
-  /// **'Select Buffer depth'**
-  String get selectBufferDepth;
 
   /// No description provided for @subtitleSettings.
   ///
@@ -1833,6 +1821,12 @@ abstract class AppLocalizations {
   /// **'Error: {error}. Using internal player.'**
   String usingInternalPlayerError(String error);
 
+  /// Shown instead of handing a source to an external player, when the request the source only answers to cannot survive the hand-off. {headers} is a comma-separated list of HTTP header names - Referer, User-Agent, Cookie - left untranslated because they are protocol field names. Distinct from playerNotDetected: the other player may well be installed, and the reason is the request rather than the app.
+  ///
+  /// In en, this message translates to:
+  /// **'{playerName} cannot send {headers}. Using internal player.'**
+  String externalPlayerCannotSendHeaders(String playerName, String headers);
+
   /// No description provided for @playerNotDetected.
   ///
   /// In en, this message translates to:
@@ -2319,11 +2313,17 @@ abstract class AppLocalizations {
   /// **'SubSource'**
   String get subSource;
 
-  /// No description provided for @wifiQualityPreference.
+  /// Player settings row: the quality tier to prefer on a connection the viewer does not pay for by the byte. Named for the two transports a viewer recognises; the branch behind it is metered vs unmetered, so it also covers a VPN tunnel and offline playback. Its pair is mobileQualityPreference. Also the title of the dialog the row opens.
   ///
   /// In en, this message translates to:
-  /// **'Wi-Fi Quality Preference'**
-  String get wifiQualityPreference;
+  /// **'Wi-Fi & Wired Quality Preference'**
+  String get unmeteredQualityPreference;
+
+  /// Subtitle on the Default Player row for a player the settings still point at but this platform does not list - a build that dropped it, or a settings box carried over. Shown so the choice the user made is still visible and still the selected one, rather than the dialog opening with nothing selected.
+  ///
+  /// In en, this message translates to:
+  /// **'Not offered on this device'**
+  String get playerNotOnThisDevice;
 
   /// No description provided for @mobileQualityPreference.
   ///
@@ -3080,6 +3080,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'None of your scrapers have this title.'**
   String get sourcesEmptyNothingFound;
+
+  /// Player settings row: whether a video starts with a subtitle showing. A default for newly opened media only - it never stops the viewer choosing a track from the player's Subtitles menu. Also the title of the dialog the row opens.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitles by default'**
+  String get subtitleDefault;
+
+  /// One of two choices for subtitleDefault, and the shipped default. 'Auto' means the app does not interfere: whatever subtitle the source and the player select is what plays.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get subtitleDefaultAuto;
+
+  /// Explanatory line under the 'Auto' choice in the subtitleDefault dialog. 'Your subtitle language' is the preference set in the player's own subtitle search, not the app language.
+  ///
+  /// In en, this message translates to:
+  /// **'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.'**
+  String get subtitleDefaultAutoDetail;
+
+  /// Explanatory line under the 'Off' choice in the subtitleDefault dialog. The second sentence is load-bearing: Off is a default, not a lock, and the row must not read as 'subtitles are disabled'. The choice itself reuses the existing 'off' key.
+  ///
+  /// In en, this message translates to:
+  /// **'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.'**
+  String get subtitleDefaultOffDetail;
 }
 
 class _AppLocalizationsDelegate

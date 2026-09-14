@@ -36,7 +36,6 @@
   "doubleTapToSeek": "Double Tap to Seek",
   "swipeToSeek": "Swipe to Seek",
   "seekDuration": "Seek Duration",
-  "bufferDepth": "Buffer depth",
   "defaultResizeMode": "Default Resize Mode",
   "hardwareDecoding": "Hardware Decoding",
   "network": "Network",
@@ -218,7 +217,6 @@
   "left": "Left",
   "right": "Right",
   "selectSeekDuration": "Select Seek Duration",
-  "selectBufferDepth": "Select Buffer depth",
   "subtitleSettings": "Subtitle Settings",
   "size": "Size: {size}",
   "@size": {
@@ -470,6 +468,18 @@
       }
     }
   },
+  "externalPlayerCannotSendHeaders": "{playerName} cannot send {headers}. Using internal player.",
+  "@externalPlayerCannotSendHeaders": {
+    "description": "Shown instead of handing a source to an external player, when the request the source only answers to cannot survive the hand-off. {headers} is a comma-separated list of HTTP header names - Referer, User-Agent, Cookie - left untranslated because they are protocol field names. Distinct from playerNotDetected: the other player may well be installed, and the reason is the request rather than the app.",
+    "placeholders": {
+      "playerName": {
+        "type": "String"
+      },
+      "headers": {
+        "type": "String"
+      }
+    }
+  },
   "playerNotDetected": "{playerName} not detected. Starting internal player.",
   "@playerNotDetected": {
     "placeholders": {
@@ -592,7 +602,14 @@
   "openSubtitles": "OpenSubtitles",
   "subDl": "SubDL",
   "subSource": "SubSource",
-  "wifiQualityPreference": "Wi-Fi Quality Preference",
+  "unmeteredQualityPreference": "Wi-Fi & Wired Quality Preference",
+  "@unmeteredQualityPreference": {
+    "description": "Player settings row: the quality tier to prefer on a connection the viewer does not pay for by the byte. Named for the two transports a viewer recognises; the branch behind it is metered vs unmetered, so it also covers a VPN tunnel and offline playback. Its pair is mobileQualityPreference. Also the title of the dialog the row opens."
+  },
+  "playerNotOnThisDevice": "Not offered on this device",
+  "@playerNotOnThisDevice": {
+    "description": "Subtitle on the Default Player row for a player the settings still point at but this platform does not list - a build that dropped it, or a settings box carried over. Shown so the choice the user made is still visible and still the selected one, rather than the dialog opening with nothing selected."
+  },
   "mobileQualityPreference": "Mobile Quality Preference",
   "anyNoPreference": "Any (no preference)",
   "subtitleAccounts": "Subtitle Accounts",
@@ -1055,5 +1072,21 @@
   "sourcesEmptyNothingFound": "None of your scrapers have this title.",
   "@sourcesEmptyNothingFound": {
     "description": "Every scraper answered and none of them has this title. The one case where nothing is broken and there is nothing to fix."
+  },
+  "subtitleDefault": "Subtitles by default",
+  "@subtitleDefault": {
+    "description": "Player settings row: whether a video starts with a subtitle showing. A default for newly opened media only - it never stops the viewer choosing a track from the player's Subtitles menu. Also the title of the dialog the row opens."
+  },
+  "subtitleDefaultAuto": "Auto",
+  "@subtitleDefaultAuto": {
+    "description": "One of two choices for subtitleDefault, and the shipped default. 'Auto' means the app does not interfere: whatever subtitle the source and the player select is what plays."
+  },
+  "subtitleDefaultAutoDetail": "A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.",
+  "@subtitleDefaultAutoDetail": {
+    "description": "Explanatory line under the 'Auto' choice in the subtitleDefault dialog. 'Your subtitle language' is the preference set in the player's own subtitle search, not the app language."
+  },
+  "subtitleDefaultOffDetail": "A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.",
+  "@subtitleDefaultOffDetail": {
+    "description": "Explanatory line under the 'Off' choice in the subtitleDefault dialog. The second sentence is load-bearing: Off is a default, not a lock, and the row must not read as 'subtitles are disabled'. The choice itself reuses the existing 'off' key."
   }
 }

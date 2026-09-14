@@ -25,7 +25,6 @@
   "doubleTapToSeek": "ダブルタップでスキップ",
   "swipeToSeek": "スワイプでスキップ",
   "seekDuration": "スキップ秒数",
-  "bufferDepth": "バッファの深さ",
   "defaultResizeMode": "デフォルトの画面モード",
   "hardwareDecoding": "ハードウェア・デコーディング",
   "network": "ネットワーク",
@@ -177,7 +176,6 @@
   "left": "左",
   "right": "右",
   "selectSeekDuration": "スキップ秒数を選択",
-  "selectBufferDepth": "バッファの深さを選択",
   "subtitleSettings": "字幕の設定",
   "size": "サイズ: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi 画質設定",
   "mobileQualityPreference": "モバイルデータ通信 画質設定",
   "anyNoPreference": "指定なし",
   "subtitleAccounts": "字幕アカウント",

@@ -99,9 +99,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get seekDuration => 'Durée de saut';
 
   @override
-  String get bufferDepth => 'Profondeur du tampon';
-
-  @override
   String get defaultResizeMode => 'Mode de redimensionnement par défaut';
 
   @override
@@ -472,9 +469,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Durée de saut';
-
-  @override
-  String get selectBufferDepth => 'Profondeur du tampon';
 
   @override
   String get subtitleSettings => 'Paramètres des sous-titres';
@@ -944,6 +938,11 @@ class AppLocalizationsFr extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName non détecté. Démarrage du lecteur interne.';
   }
@@ -1215,7 +1214,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Préférence de qualité Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Préférence de qualité mobile';
@@ -1671,4 +1673,18 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get sourcesEmptyNothingFound => 'Aucun de vos scrapers n\'a ce titre.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

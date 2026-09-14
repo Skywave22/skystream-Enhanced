@@ -974,9 +974,7 @@ internal class VlcPlayerPlatformView(
         event["isSeekable"] = isSeekable
         event["isLive"] = isLiveState(state) && duration == 0L && !isSeekable
         event["interruption"] = interruption
-        videoSize()?.let {
-            event["videoSize"] = it
-        }
+        putVideoShape(event)
         bufferingProgress?.let {
             event["bufferingProgress"] = it
         }
@@ -991,14 +989,34 @@ internal class VlcPlayerPlatformView(
         streamHandler.send(event)
     }
 
-    private fun videoSize(): Map<String, Int>? {
-        val track = mediaPlayer.currentVideoTrack ?: return null
+    /**
+     * Puts the video's stored size and its rotation into the snapshot.
+     *
+     * One function, and one read of `currentVideoTrack`, because that property
+     * walks the media's track array every time it is touched and this runs on
+     * every snapshot.
+     *
+     * `videoSize` stays the *stored* size - the elementary stream's own width
+     * and height - because that is what this key means on every other platform
+     * and what the layout code expects. The rotation goes beside it rather than
+     * being folded into it. A clip shot in portrait on a handset is stored as
+     * landscape frames plus a 90 degree matrix, so the two have to be combined
+     * to get the shape a viewer sees, and Dart is where that happens: it is the
+     * only side of this channel the project's CI runs tests on.
+     *
+     * Nothing is sent before the first video track exists. `currentVideoTrack`
+     * is null while the player is still opening, which is exactly when a shape
+     * would be a guess.
+     */
+    private fun putVideoShape(event: HashMap<String, Any?>) {
+        val track = mediaPlayer.currentVideoTrack ?: return
         val width = track.width
         val height = track.height
         if (width <= 0 || height <= 0) {
-            return null
+            return
         }
-        return mapOf("width" to width, "height" to height)
+        event["videoSize"] = mapOf("width" to width, "height" to height)
+        event["videoOrientation"] = track.orientation
     }
 
     private inner class StreamHandler : EventChannel.StreamHandler {

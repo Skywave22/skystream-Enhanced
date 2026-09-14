@@ -1,10 +1,9 @@
-// Audit W12 — plugin bridge calls must be attributed to the plugin that made
-// them, by something Dart minted, not by anything the plugin sends and not by
-// the worker's "most recently started callback" global.
+// Plugin bridge calls are attributed by a token Dart minted, not by anything
+// the plugin sends and not by the worker's most-recently-started callback.
 //
-// These drive JsEngineService's bridge dispatch directly, which is the level
-// the defect lives at: the worker forwards `{bg:1, bid, ch, aj, iid}` and the
-// main isolate decides whose data the call may touch.
+// These drive JsEngineService's bridge dispatch directly: the worker forwards
+// `{bg:1, bid, ch, aj, iid}` and the main isolate decides whose data the call
+// may touch.
 
 import 'dart:async';
 import 'dart:convert';
@@ -56,8 +55,7 @@ class _WorkerStub {
   bool hasReplyFor(String jsId) => sent.any((m) => m['jsId'] == jsId);
 }
 
-/// Never answers. Records whether Dio handed it a live cancellation future,
-/// which is the whole question for "is plugin HTTP cancellable".
+/// Never answers. Records whether Dio handed it a live cancellation future.
 class _BlockingAdapter implements HttpClientAdapter {
   int started = 0;
   int cancelled = 0;
@@ -580,19 +578,11 @@ void main() {
     });
   });
 
-  // ── The race the wrapper shape exists to prevent ───────────────────────────
-  //
-  // Handing a plugin its token is two evals into ONE shared QuickJS runtime,
-  // and there is no lock anywhere between them: not in JsEngineService, not in
-  // the worker's plain-FIFO eval queue. Two plugins initialising at the same
-  // time is the ordinary path — a search fans out to every installed provider
-  // at once, and ExtensionManager Future.waits a batch of loads — and each
-  // plugin's two evals are separated by a real filesystem await. So the queue
-  // sees plugin A's first eval, plugin B's first eval, plugin A's second,
-  // plugin B's second.
-  //
-  // These drive the real JsBasedProvider._init() against the real QuickJS
-  // worker: nothing here spells out an eval order, the concurrency does it.
+  // Handing a plugin its token is two evals into one shared QuickJS runtime
+  // with no lock between them, and the two are separated by a filesystem
+  // await, so plugins initialising together interleave. These drive the real
+  // JsBasedProvider._init() against the real worker; the concurrency, not the
+  // test, decides the eval order.
   group('concurrent plugin init keeps identities apart', () {
     late _LiveEngine live;
     late Directory dir;
@@ -607,9 +597,8 @@ void main() {
       if (dir.existsSync()) await dir.delete(recursive: true);
     });
 
-    /// A file-backed plugin (the shape every installed plugin has — asset
-    /// plugins skip the bytecode staleness check) whose only export writes
-    /// [mark] into its own preferences.
+    /// A file-backed plugin — asset plugins skip the bytecode staleness check
+    /// — whose only export writes [mark] into its own preferences.
     JsBasedProvider pluginWriting(
       String mark, {
       required String packageName,
@@ -659,21 +648,15 @@ void main() {
         'B',
         reason: 'plugin B lost its own preference key space',
       );
-      // The damning shape: one plugin's data sitting in the other's space.
+      // One plugin's data sitting in the other's key space.
       expect(repo.data['com.a:who'], isNot('B'));
       expect(repo.data['com.b:who'], isNot('A'));
     });
 
-    // The test above only ever exercises the text-eval path: bytecode is
-    // compiled in the background after the first load, so it is the SECOND
-    // and every later launch on Android/Windows/Linux that goes through
-    // `loadBytes`. That is a separate place the token has to be handed over,
-    // because the wrapper bytecode only *publishes* the installer — it does
-    // not run the plugin body. Drop the install there and the first-launch
-    // test above stays green while, from launch two on, every plugin holds
-    // no token: `_denyUnattributed` answers each read null and drops each
-    // write, so a user's per-plugin settings and API keys read back empty and
-    // the plugin returns nothing.
+    // Bytecode is compiled after the first load, so the second and every
+    // later launch on Android/Windows/Linux goes through `loadBytes` — a
+    // separate place the token has to be handed over, because the wrapper
+    // bytecode only publishes the installer and does not run the plugin body.
     //
     // The host runtime is JavaScriptCore, which has no bytecode support, so
     // this records what Dart sends the worker rather than running it.
@@ -727,27 +710,14 @@ void main() {
     });
   });
 
-  // ── The shared realm: a hostile plugin harvesting a neighbour's token ──────
+  // Every installed plugin evals into one QuickJS realm, so `sendMessage`,
+  // `JSON` and `Object.prototype` are shared between all of them, and every
+  // bridge call hands its capability token to those shared primitives on the
+  // way out. A plugin that replaces one of them can read a later plugin's
+  // token; `_identityFor` consults the token and nothing else, so with it the
+  // attacker reads and overwrites the victim's stored credentials.
   //
-  // Every installed plugin evals into ONE QuickJS realm (one JsWorkerRunner,
-  // one JavascriptRuntime), so `sendMessage`, `_dartAsyncCall`, `JSON` and
-  // `Object.prototype` are shared between all of them. A plugin's capability
-  // token is a secret held in its own wrapper closure, but every bridge call
-  // hands that secret to those shared primitives on the way out:
-  //
-  //     params.__ssTok = __ssTok;                 // Object.prototype setter
-  //     sendMessage(ch, JSON.stringify(params));  // both globals
-  //
-  // A plugin that loads first can replace any of the three and read every
-  // later plugin's token out of the calls it makes. With a stolen token it is
-  // that plugin as far as the bridge is concerned: `_identityFor` consults the
-  // token and nothing else, so it can read and overwrite the victim's stored
-  // credentials, session cookies and user-configured settings. That is the
-  // whole point of the per-plugin namespace, and third-party plugins from an
-  // untrusted repository are the stated threat model.
-  //
-  // These run the real thing end to end: two real JsBasedProviders on one real
-  // worker, real token minting, real storage writes.
+  // These run two real JsBasedProviders on one real worker.
   group('a co-resident plugin cannot harvest another plugin\'s token', () {
     late _LiveEngine live;
     late Directory dir;
@@ -778,8 +748,8 @@ void main() {
     }
 
     /// Everything after the hook is identical for each variant: replay every
-    /// token seen so far as if it were ours, then record how many we captured
-    /// under our own (legitimate) preference key.
+    /// token seen so far as if it were ours, then record how many were
+    /// captured, under our own legitimate preference key.
     String hostile(String hook) =>
         '''
         globalThis.__loot = [];
@@ -894,10 +864,9 @@ void main() {
       });
     }
 
-    // The lockdown is on the shared realm every plugin shares, so it has to
-    // stay invisible to plugins that are not attacking anyone. `toJSON` is
-    // the one sealed name a plugin could plausibly use: it is pinned as an
-    // accessor precisely so an own `toJSON` still installs and still runs.
+    // The lockdown is on the realm every plugin shares, so it has to stay
+    // invisible to plugins that are not attacking anyone. `toJSON` is pinned
+    // as an accessor so that a plugin's own `toJSON` still installs and runs.
     test('but ordinary JavaScript is untouched by the lockdown', () async {
       final JsBasedProvider ordinary = plugin(
         '''
@@ -930,12 +899,10 @@ void main() {
       expect(repo.data['com.c:plain'], '{"b":3}');
     });
 
-    // The installer name is derived from the namespace, so it is public
-    // knowledge. Squatting the victim's slot with a non-configurable accessor
-    // is the shortest path of all: the setter captures the real installer,
-    // the getter hands back a trampoline, `delete` fails silently, and Dart
-    // itself passes the token to the attacker. The plugin keeps working, so
-    // there is nothing for the user to notice.
+    // The installer name is derived from the namespace, so it is public. A
+    // non-configurable accessor squatted at that name captures the real
+    // installer, hands back a trampoline and survives `delete`, and Dart then
+    // passes the token straight to the attacker.
     test('by squatting the victim\'s installer slot on globalThis', () async {
       final JsBasedProvider evil = plugin(
         '''
@@ -996,10 +963,9 @@ void main() {
       );
     });
 
-    // The worker cannot import js_engine.dart — that would be an import
-    // cycle — so the field it pins on Object.prototype is spelled out there.
-    // A rename of kBridgeTokenField would silently leave the real field
-    // unpinned and hand the Object.prototype setter back to any plugin.
+    // The worker cannot import js_engine.dart without an import cycle, so the
+    // field it pins on Object.prototype is spelled out there. A rename of
+    // kBridgeTokenField would silently leave the real field unpinned.
     test('the hardening pins the field name the bridge actually reads', () {
       expect(
         kBridgeHardeningJs,
@@ -1035,11 +1001,9 @@ class _RecordingEngine extends JsEngineService {
   }
 }
 
-/// Wires a real [JsWorkerRunner] — real QuickJS, real eval queue — to a real
-/// [JsEngineService] through a pair of ports, so plugin init can be driven end
-/// to end: Dart builds the wrapper and the token eval, QuickJS runs them in
-/// arrival order, and the bridge call that comes back carries whatever token
-/// the plugin actually ended up holding.
+/// Wires a real [JsWorkerRunner] to a real [JsEngineService] through a pair of
+/// ports, so plugin init runs end to end: QuickJS evals in arrival order and
+/// the bridge call that comes back carries the token the plugin really holds.
 class _LiveEngine {
   _LiveEngine(ExtensionRepository repo) {
     _fromWorker.listen((Object? m) => engine.handleWorkerMessage(m));

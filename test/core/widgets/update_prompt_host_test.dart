@@ -1,22 +1,10 @@
-/// When the app is allowed to interrupt with "Update Available", and how often.
+/// When the app is allowed to interrupt with an update offer, and how often.
 ///
-/// The check fires five seconds after launch and the dialog went up wherever
-/// the user happened to be by then. Tap Continue Watching on the home screen
-/// and five to ten seconds into the film a `barrierDismissible: false` modal
-/// lands on top of the video - on Android TV it takes the D-pad with it, so the
-/// remote now drives the dialog and the viewer has to find "Later" with the
-/// arrow keys before they can get back to their film. And because nothing was
-/// ever written down, "Later" lasted until the next cold start: the same
-/// dialog, the same release, every launch, which is how a person learns to
-/// dismiss modals without reading them.
-///
-/// Two contracts, then, both owned by [UpdatePromptHost]:
-///
-///  * Not over the player. The offer is *held*, not dropped, and made when the
-///    player is popped - `playerRouteIsOnTop` is the same test the global toast
-///    layer stands down on (lib/core/router/app_router.dart).
-///  * Not twice for the same release. Any exit from the dialog that is not a
-///    failed download records the tag, and that release is never offered again.
+/// [UpdatePromptHost] owns two contracts. The offer is never made over the
+/// player: it is held, not dropped, and made when the player is popped, using
+/// the same `playerRouteIsOnTop` test the global toast layer stands down on
+/// (lib/core/router/app_router.dart). And any exit from the dialog that is not
+/// a failed download records the tag, so a release is offered once.
 ///
 /// The storage here is in memory rather than the real Hive-backed
 /// [StorageService]: a real box write cannot complete inside `flutter_test`'s
@@ -57,8 +45,8 @@ class _MemoryStorageService extends StorageService {
   String? getDeclinedUpdateTag() => _tag;
 }
 
-/// The real controller reaches for Dio and package_info the moment it is built,
-/// and nothing here is testing the GitHub call - only what the app does once
+/// The real controller reaches for Dio and package_info the moment it is
+/// built, and nothing here tests the GitHub call - only what the app does once
 /// the answer is in.
 class _StubUpdateController extends UpdateController {
   @override
@@ -76,9 +64,9 @@ void main() {
   });
 
   /// The production shape in miniature: a shell branch for the pages, the
-  /// player as a *top-level* route beside it, and [UpdatePromptHost] wrapped
-  /// around the router by `MaterialApp.router`'s builder - exactly where
-  /// `main.dart` mounts it, next to the global toast layer.
+  /// player as a top-level route beside it, and [UpdatePromptHost] wrapped
+  /// around the router by `MaterialApp.router`'s builder, where `main.dart`
+  /// mounts it.
   Future<GoRouter> pump(WidgetTester tester) async {
     final router = GoRouter(
       initialLocation: '/home',
@@ -160,8 +148,8 @@ void main() {
       offer('v2.0.0');
       await tester.pumpAndSettle();
 
-      // The film is what the user asked for; the modal is not, and on a D-pad
-      // it would have taken the remote away from the transport controls.
+      // On a D-pad the modal takes the remote away from the transport
+      // controls.
       expect(
         find.byType(UpdateDialog),
         findsNothing,
@@ -239,8 +227,8 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
-    // The user accepted this release and the app failed them. Recording that
-    // as a refusal would mean they never get offered the fix again.
+    // The release was accepted and the download failed. Recording that as a
+    // refusal would mean the fix is never offered again.
     expect(storage.getDeclinedUpdateTag(), isNull);
   });
 }

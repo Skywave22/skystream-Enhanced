@@ -1,25 +1,12 @@
-// DEFECT 3. The bottom-left control cluster rendered on **two lines** on a
-// handset instead of one line that scrolls.
-//
-// [PlayerBottomBar]'s touch branch used to run a [LayoutBuilder] and, below
-// `narrowTouchWidth` of inner width, hand the action strip a run of its own
-// above the transport row via a [Wrap]. On the commonest Android portrait
-// width - 360 dp, so 320 inside the bar's two 20 dp edge insets - the
-// transport group (250 dp of pinned buttons) and the strip could not share a
-// line, so the [Wrap] took a second run and the bar stood 112 dp tall instead
-// of 64. That is the two-line cluster the owner photographed. The strip is
-// now one line at every width, right-anchored, finger-scrolled, with the edge
-// hint that says so.
+// The touch action strip is one line at every width, right-anchored and
+// finger-scrolled, with an edge hint when it overflows.
 //
 // This file measures [PlayerBottomBar] directly rather than driving
 // [VlcPlayerControls], because the controls pick `isTouch` off
 // `Platform.isAndroid || Platform.isIOS`, which is false on every test host:
-// a test that went through them would silently measure the desktop bar and
-// pin nothing about a phone. The affected platforms are the touch ones -
-// Android phone/tablet (chrome composited over the AndroidView platform view)
-// and iOS (over the NV12 texture) - and the non-touch branch that television,
-// macOS, Windows and Linux take is asserted here too, unchanged, because it
-// is the same [Row].
+// a test that went through them would silently measure the desktop bar. The
+// non-touch branch that television, macOS, Windows and Linux take is asserted
+// here too, because it is the same [Row].
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/features/player/presentation/widgets/hotstar_player_style.dart';
@@ -28,8 +15,8 @@ import 'package:skystream/features/player/presentation/widgets/player_control_co
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 /// What five pinned transport buttons - seek back, play/pause, seek forward,
-/// lock, next - measure on a handset. Asserted against the real control row
-/// in `controls_focus_test.dart`; here it is the load that squeezes the strip.
+/// lock, next - measure on a handset. The real control row is asserted in
+/// `controls_focus_test.dart`; here it is the load that squeezes the strip.
 const double _kTransportWidth = 250;
 
 /// A torrent series renders this many utilities: sources, episodes, files,
@@ -38,8 +25,8 @@ const int _kActions = 10;
 
 void main() {
   /// A bar of [actions] utilities in a [width] dp viewport. The leading group
-  /// is a single spacer of the transport row's measured width: the only thing
-  /// this layout cares about is how much of the line it takes.
+  /// is a single spacer of the transport row's measured width, which is all
+  /// this layout cares about.
   Widget host({
     required double width,
     required bool isTv,
@@ -90,8 +77,7 @@ void main() {
       host(width: size.width, isTv: isTv, isTouch: isTouch, actions: actions),
     );
     // The strip reports its scroll metrics in a microtask after layout and
-    // shows or hides the edge hint on the frame after that, so an unsettled
-    // tree is measured mid-decision.
+    // shows or hides the edge hint on the frame after that.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
   }
@@ -105,9 +91,8 @@ void main() {
       .toList();
 
   /// The whole control row: the utilities plus the pinned transport group.
-  /// Both, always - the old two-run bar kept the ten utilities on one run
-  /// between themselves and put the transport on the other, so a count that
-  /// left the transport out would have called it one line.
+  /// Both, always - a two-run bar keeps the ten utilities on one run between
+  /// themselves and puts the transport on the other.
   List<Rect> rowRects(WidgetTester tester) => <Rect>[
     ...actionRects(tester),
     tester.getRect(
@@ -118,8 +103,7 @@ void main() {
   ];
 
   /// How many horizontal runs those buttons occupy. Vertical centres within
-  /// half a button of each other are the same run; a second entry here is the
-  /// defect.
+  /// half a button of each other are the same run.
   int runCount(List<Rect> rects) {
     final List<double> centres = rects.map((r) => r.center.dy).toList()..sort();
     final List<double> runs = <double>[];
@@ -130,9 +114,8 @@ void main() {
   }
 
   group('the touch control strip is one line that scrolls', () {
-    // 360x800 is the commonest Android portrait frame and the one the owner
-    // reported from. 320 dp inside the edge insets, 250 of it spoken for by
-    // the transport group.
+    // 360x800 is the commonest Android portrait frame: 320 dp inside the edge
+    // insets, 250 of it spoken for by the transport group.
     testWidgets('a 360 dp portrait handset keeps every control on one run', (
       tester,
     ) async {
@@ -143,11 +126,9 @@ void main() {
         isTouch: true,
       );
 
-      // The transport group is counted as part of the row, and that is the
-      // whole trick of this measurement: the old two-run bar put the strip
-      // alone on one line and the transport alone on the other, so the ten
-      // utilities were *still* on one run between themselves. Counting only
-      // them would pin nothing.
+      // The transport group counts as part of the row: a two-run bar puts the
+      // strip alone on one line and the transport alone on the other, leaving
+      // the ten utilities on one run between themselves.
       final Rect transport = tester.getRect(
         find.byWidgetPredicate(
           (w) => w is SizedBox && w.width == _kTransportWidth,
@@ -178,9 +159,8 @@ void main() {
         reason: 'and it starts where the transport group ends, on that line',
       );
 
-      // The height that second run cost: 8 of scrubber, 48 of controls and
-      // the bar's own 2+6 of padding is 64. With the strip on its own run it
-      // measured 112.
+      // 8 of scrubber, 48 of controls and the bar's own 2+6 of padding is 64.
+      // A second run costs another 48.
       expect(
         tester.getSize(find.byType(PlayerBottomBar)).height,
         64,
@@ -217,9 +197,8 @@ void main() {
             'fade and no chevron is a strip nobody knows is there',
       );
 
-      // The promise a one-line strip makes: a fling reaches the buttons the
-      // squeeze pushed off the left edge. The first utility is the one that
-      // is furthest away.
+      // A fling reaches the buttons the squeeze pushed off the left edge. The
+      // first utility is the furthest away.
       expect(find.byTooltip('a0').hitTestable(), findsNothing);
       await tester.drag(find.byType(PlayerActionStrip), const Offset(600, 0));
       await tester.pumpAndSettle();
@@ -240,9 +219,7 @@ void main() {
       );
     });
 
-    // 844x390 is the landscape frame in the rest of the player tests. It has
-    // always fitted one line; the point here is that it costs no more than
-    // the portrait one now, which is what the old branch charged 48 dp for.
+    // 844x390 is the landscape frame used in the rest of the player tests.
     testWidgets('an 844x390 landscape handset is the same one run, same '
         'height', (tester) async {
       await pumpBar(
@@ -266,10 +243,8 @@ void main() {
       );
     });
 
-    // The widest a phone-shaped viewport gets before the old code stopped
-    // splitting: one dp under the retired threshold. It used to be the worst
-    // case - a bar that reflowed to two runs on a rotation - and now it is
-    // the same single line as everything else.
+    // One dp under the retired narrow threshold, the width that used to
+    // reflow to two runs on a rotation.
     testWidgets('and a viewport just under the retired narrow threshold does '
         'not reflow', (tester) async {
       const double justUnder =
@@ -290,9 +265,7 @@ void main() {
 
   // The other branch of the same [Row], which television, macOS, Windows and
   // Linux take. It is deliberately still a [Wrap]: there is no fling off
-  // touch, so an overflow has to be laid out rather than scrolled. These
-  // guard against "fixing" the handset by flattening the branch that has to
-  // grow.
+  // touch, so an overflow has to be laid out rather than scrolled.
   group('the non-touch action row is unchanged', () {
     for (final (String name, Size size, bool isTv) in <(String, Size, bool)>[
       ('a 960x540 television', const Size(960, 540), true),

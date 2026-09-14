@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart'; // For kDebugMode
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 
 import '../../domain/entity/multimedia_item.dart';
@@ -46,24 +46,20 @@ List<MultimediaItem> _parseSearchResults(dynamic result) {
   return [];
 }
 
-// ── Concurrency safety helpers (audit PR-07) ──────────────────────────────
-
-/// Max items kept in parallel for plugin-returned URL fanout (audit M23).
-/// A plugin that returns 100 stream URLs would otherwise launch 100
-/// concurrent compute() + LocalProxyService calls; this caps the burst.
+/// Caps the fanout over plugin-returned URLs. A plugin that returns 100
+/// stream URLs would otherwise launch 100 concurrent compute() and
+/// LocalProxyService calls.
 const int _kStreamFanoutConcurrency = 8;
 
-/// Hard ceiling on per-call result count returned from a plugin (audit
-/// M25). A malicious plugin returning a 1 M-entry list would otherwise
-/// pump the whole thing across the isolate boundary to compute().
+/// Hard ceiling on the per-call result count returned from a plugin. A
+/// 1 M-entry list would otherwise cross the isolate boundary into compute().
 const int _kMaxResultListLength = 5000;
 
 /// Hard ceiling on stream URLs a single loadStreams call may yield.
 const int _kMaxStreamsPerCall = 200;
 
 /// Processes [items] in chunks of [concurrency] in parallel, preserving
-/// input order. Each chunk awaits before the next starts. Simpler than a
-/// full Semaphore and good enough for our O(10–100) item bursts.
+/// input order. Each chunk awaits before the next starts.
 Future<List<R>> _processInChunks<T, R>(
   Iterable<T> items,
   int concurrency,
@@ -84,24 +80,20 @@ Future<List<R>> _processInChunks<T, R>(
 }
 
 class JsBasedProvider extends SkyStreamProvider {
-  // Bumped to 3 by audit W12 — the wrapper now captures a bridge capability
-  // token and routes storage/preference/HTTP through it, so v2 bytecode on
-  // disk is stale and must be recompiled.
-  // Bumped to 4 — the wrapper takes the token as a function argument instead
-  // of reading it off a shared global (see [_buildIife]), so v3 bytecode is
-  // stale too.
+  // Bump whenever [_buildIife]'s wrapper text changes: the version is part of
+  // the .qbc filename, so bytecode compiled from an older wrapper is ignored
+  // rather than loaded.
   static const int _iifeWrapperVersion = 4;
 
   final JsEngineService _jsEngine;
   final String _scriptPath;
   String get scriptPath => _scriptPath;
-  // Unique package identifier
   final String _packageName;
   @override
   String get packageName => _packageName;
 
   final String? _namespace;
-  String? get namespace => _namespace; // Expose namespace
+  String? get namespace => _namespace;
   final String? _forcedName;
   final String? _providerId;
   // Scopes JS getPreference/setPreference — sub-providers share parent's namespace
@@ -110,12 +102,10 @@ class JsBasedProvider extends SkyStreamProvider {
   Future<void>? _initFuture;
   final String? _customBaseUrl;
 
-  // Per-plugin invocation lock — serializes calls into THIS plugin's exported
-  // functions so concurrent invocations (e.g. search + getHome in parallel)
-  // can't race on plugin-local closure state. The shared JS runtime is
-  // single-threaded but async-yields between bridge calls; without this
-  // lock, two `search()` calls could interleave at every `await fetch(...)`
-  // point and clobber each other's local variables. Audit PR-07.
+  // Serializes calls into this plugin's exported functions. The shared JS
+  // runtime is single-threaded but async-yields between bridge calls, so two
+  // concurrent `search()` calls would interleave at every `await fetch(...)`
+  // point and clobber each other's local variables.
   Future<void>? _invokeLock;
 
   Future<T> _serializedInvoke<T>(Future<T> Function() body) async {
@@ -124,7 +114,7 @@ class JsBasedProvider extends SkyStreamProvider {
       try {
         await _invokeLock;
       } catch (_) {
-        // Predecessor failed — that's their problem; we still want to run.
+        // A predecessor's failure must not stop this call from running.
       }
     }
     final c = Completer<void>();
@@ -132,8 +122,7 @@ class JsBasedProvider extends SkyStreamProvider {
     try {
       return await body();
     } finally {
-      // Only release if we're still the holder; defensive against weird
-      // race shapes during hot-reload.
+      // Only release if we are still the holder.
       if (identical(_invokeLock, c.future)) _invokeLock = null;
       c.complete();
     }
@@ -199,9 +188,8 @@ class JsBasedProvider extends SkyStreamProvider {
   }
 
   /// Where this provider's compiled wrapper bytecode lives, or null for asset
-  /// plugins. Test seam: lets a test put a fresh `.qbc` in place and drive the
-  /// bytecode fast path without hard-coding [_iifeWrapperVersion] into a
-  /// filename that would silently go stale on the next bump.
+  /// plugins. Test seam, so a test driving the bytecode fast path does not
+  /// hard-code [_iifeWrapperVersion] into a filename.
   @visibleForTesting
   String? get bytecodePath => _qbcPath;
 
@@ -216,25 +204,19 @@ class JsBasedProvider extends SkyStreamProvider {
   /// manifest, storage API and HTTP, all bound to this plugin's bridge
   /// capability token.
   ///
-  /// The token itself is NOT in here: it is minted fresh per launch, and
-  /// baking it into the wrapper text would make the compiled bytecode
-  /// unusable on the next launch. Instead the wrapper publishes a one-shot
-  /// installer under a name derived from this plugin's namespace, and the
-  /// one-line eval [_installBridgeToken] runs right after this one takes that
-  /// installer off `globalThis` and calls it WITH the token as an argument.
+  /// The token itself is not in here: it is minted fresh per launch, and
+  /// baking it into the wrapper text would make the compiled bytecode unusable
+  /// on the next launch. Instead the wrapper publishes a one-shot installer
+  /// under a name derived from this plugin's namespace, and
+  /// [_installBridgeToken] takes that installer off `globalThis` and calls it
+  /// with the token as an argument.
   ///
-  /// The token must never travel through a slot shared between plugins. This
-  /// wrapper used to read it off one global `__ssBridgeToken` that Dart parked
-  /// just before the wrapper eval, and concurrent plugin init is the normal
-  /// path — a search fans out to every installed provider at once, and
-  /// ExtensionManager `Future.wait`s a batch of loads. Each plugin's two evals
-  /// are separated by real awaits (a staleness check, a bytecode read), so the
-  /// worker's single FIFO eval queue interleaves them as
-  /// `park A, park B, wrapper A, wrapper B`: A captured B's token and B
-  /// captured nothing, which put A's storage and preference writes in B's key
-  /// space and had B's refused for lack of a token, for the life of the
-  /// process. A per-plugin installer taking the token as an argument cannot
-  /// cross, in any interleaving. Audit W12.
+  /// The token must never travel through a slot shared between plugins.
+  /// Concurrent plugin init is the normal path and each plugin's two evals are
+  /// separated by real awaits, so one shared global would let the worker's
+  /// FIFO eval queue interleave them and hand one plugin another's token. A
+  /// per-plugin installer taking the token as an argument cannot cross, in any
+  /// interleaving.
   @visibleForTesting
   String buildIife(String rawScript) => _buildIife(rawScript);
 
@@ -326,36 +308,28 @@ class JsBasedProvider extends SkyStreamProvider {
   /// that hands it to the installer [_buildIife] published, then drops the
   /// installer.
   ///
-  /// Runs AFTER the wrapper eval, and only ever touches this plugin's own
-  /// installer name, so another plugin's init interleaving here — the normal
-  /// case — cannot cross the two tokens. Taking the installer off `globalThis`
-  /// before calling it also makes it one-shot: a second, concurrent init of
-  /// the same namespace finds nothing to call and leaves the already-installed
-  /// (correctly attributed) exports alone. Audit W12.
+  /// Runs after the wrapper eval, and only ever touches this plugin's own
+  /// installer name, so another plugin's init interleaving here cannot cross
+  /// the two tokens. Taking the installer off `globalThis` before calling it
+  /// also makes it one-shot: a second, concurrent init of the same namespace
+  /// finds nothing to call and leaves the already-installed exports alone.
   ///
-  /// Text is generated per launch and deliberately never compiled to cached
-  /// bytecode — it is the only place the token appears.
+  /// The text is generated per launch and deliberately never compiled to
+  /// cached bytecode - it is the only place the token appears.
   ///
   /// The slot is read with `getOwnPropertyDescriptor` and the token is handed
-  /// over only if it holds a plain, configurable, own data property — i.e.
-  /// exactly what this plugin's own wrapper assignment leaves there. Every
-  /// plugin shares one `globalThis`, and this installer name is derived from
-  /// the namespace, so it is predictable to a hostile co-resident plugin: one
-  /// loaded earlier could `Object.defineProperty(globalThis, thisName, {...})`
-  /// a non-configurable accessor whose setter captures the real installer and
-  /// whose getter returns a trampoline. Plain `globalThis[name]` would then
-  /// read the trampoline, the `delete` would silently fail, and the line below
-  /// would hand this plugin's capability token to the attacker while the
-  /// plugin kept working — after which every bridge call the attacker makes is
-  /// attributed here, reading and overwriting this plugin's stored
-  /// credentials, session tokens and settings.
+  /// over only if it holds a plain, configurable, own data property, which is
+  /// what this plugin's own wrapper assignment leaves there. Every plugin
+  /// shares one `globalThis` and this installer name is derived from the
+  /// namespace, so a hostile co-resident plugin could otherwise define a
+  /// non-configurable accessor over it, capture the real installer and be
+  /// handed this plugin's capability token - after which its bridge calls read
+  /// and overwrite this plugin's stored credentials and settings.
   ///
-  /// A squatted slot therefore fails closed and loud: no token is handed out,
-  /// the installer is never called, so the plugin body does not run and the
-  /// plugin is simply unavailable for the session, with the reason logged.
-  /// That is the right trade — a co-resident plugin can always deny another
-  /// one service in a shared realm (it can clobber the exports slot just as
-  /// easily); what it must never get is a working impersonation. Audit W12.
+  /// A squatted slot therefore fails closed: no token is handed out, the
+  /// installer is never called, the plugin body does not run and the plugin is
+  /// unavailable for the session with the reason logged. Denial of service is
+  /// available to a co-resident plugin anyway; impersonation must not be.
   Future<void> _installBridgeToken() async {
     final namespace = _namespace;
     final installer = _installerGlobal;
@@ -412,8 +386,7 @@ class JsBasedProvider extends SkyStreamProvider {
         final bytes = await File(qbc).readAsBytes();
         await _jsEngine.loadBytes(bytes, tag: _packageName);
         // Nothing has run yet: the wrapper only published this plugin's
-        // installer. Hand it the capability token to actually install the
-        // plugin. Audit W12.
+        // installer. Hand it the capability token to install the plugin.
         await _installBridgeToken();
         if (kDebugMode) {
           talker.debug("JsBasedProvider: Loaded bytecode for $_packageName");
@@ -490,7 +463,6 @@ class JsBasedProvider extends SkyStreamProvider {
     return "JS Extension";
   }
 
-  // ... (rest of simple getters)
   @override
   String get mainUrl =>
       _customBaseUrl ?? (_manifest['baseUrl'] as String?) ?? "";
@@ -646,8 +618,7 @@ class JsBasedProvider extends SkyStreamProvider {
         final result = await _jsEngine.invokeAsync(_fn('getHome'));
         if (result is Map) {
           // Bound the per-section list size before crossing the isolate
-          // boundary. Audit M25 — a plugin returning 100k items per section
-          // would otherwise force compute() to serialise all of it.
+          // boundary: compute() has to serialise everything that crosses it.
           final bounded = <dynamic, dynamic>{};
           for (final entry in result.entries) {
             final v = entry.value;
@@ -686,8 +657,8 @@ class JsBasedProvider extends SkyStreamProvider {
           query,
         ], cancelToken);
         if (result is List) {
-          // Cap before compute() so a malicious plugin can't force the
-          // isolate boundary to serialise an unbounded payload. Audit M25.
+          // Cap before compute() so a malicious plugin cannot force the
+          // isolate boundary to serialise an unbounded payload.
           final bounded = result.length > _kMaxResultListLength
               ? result.sublist(0, _kMaxResultListLength)
               : result;
@@ -713,7 +684,7 @@ class JsBasedProvider extends SkyStreamProvider {
     // Serialized like every other export: the engine cancels a namespace's
     // in-flight HTTP when that namespace's last invocation ends, so two
     // overlapping invocations on one namespace would let either one's end
-    // hang up on the other's sockets. Audit W12.
+    // hang up on the other's sockets.
     return _serializedInvoke(() async {
       try {
         final result = await _jsEngine.invokeAsync(_fn('load'), [url]);
@@ -747,9 +718,9 @@ class JsBasedProvider extends SkyStreamProvider {
       try {
         final result = await _jsEngine.invokeAsync(_fn('loadStreams'), [url]);
         if (result is List) {
-          // Cap the per-call result list. Audit M25 — a misbehaving plugin
-          // could otherwise stream tens of thousands of entries through the
-          // fanout below.
+          // Cap the per-call result list: a misbehaving plugin could
+          // otherwise push tens of thousands of entries through the fanout
+          // below.
           final bounded = result.length > _kMaxStreamsPerCall
               ? result.sublist(0, _kMaxStreamsPerCall)
               : result;
@@ -759,16 +730,14 @@ class JsBasedProvider extends SkyStreamProvider {
               "capping to $_kMaxStreamsPerCall (audit M25).",
             );
           }
-          // Process in bounded-concurrency chunks. Audit M23 — was
-          // unbounded Future.wait, allowing N parallel compute() spawns +
-          // proxy fetches for an N-entry plugin response.
+          // Bounded-concurrency chunks: an unbounded Future.wait would spawn
+          // one compute() and one proxy fetch per entry.
           return await _processInChunks(bounded, _kStreamFanoutConcurrency, (
             e,
           ) async {
             final map = Map<String, dynamic>.from(e as Map);
             String finalUrl = map['url'] as String;
 
-            // MAGIC M3U8 HANDLING
             if (finalUrl.startsWith("magic_m3u8:")) {
               try {
                 final base64Content = finalUrl.substring("magic_m3u8:".length);
@@ -781,9 +750,8 @@ class JsBasedProvider extends SkyStreamProvider {
                 if (kDebugMode) debugPrint("Magic M3U8 Error: $err");
               }
             }
-            // DIRECT PROXY URL HANDLING
-            // If the URL starts with MAGIC_PROXY_v1/v2, it means we need to use a local proxy
-            // to inject necessary headers into HLS segments.
+            // A MAGIC_PROXY url goes through the local proxy, which injects
+            // the headers HLS segment requests need.
             else if (finalUrl.startsWith("MAGIC_PROXY_v1") ||
                 finalUrl.startsWith("MAGIC_PROXY:")) {
               try {
@@ -977,13 +945,8 @@ String _processMagicM3u8(String base64Content) {
   final bytes = base64.decode(base64Content);
   final m3u8Content = utf8.decode(bytes);
 
-  // Compatibility: Replace MAGIC_PROXY_v1 with real local proxy URLs
-  // Note: We can't easily access LocalProxyService from here without passing it or its base URL,
-  // but we can at least do the heavy regex work or return the clean string.
-  // Actually, LocalProxyService is a singleton, so if it's initialized, it might work,
-  // but it's better to keep Isolates pure.
-  // For now, we perform the decoding and let the main thread handle the proxy mapping if needed,
-  // or use the fact that it's a string replacement.
+  // Any MAGIC_PROXY_v1 rewriting is left to the caller: this runs in an
+  // isolate, where LocalProxyService is not reachable.
 
   return m3u8Content;
 }

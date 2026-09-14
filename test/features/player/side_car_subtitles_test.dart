@@ -123,6 +123,31 @@ void main() {
 
     tearDown(() => engine.dispose());
 
+    // The first open of a session: setMedia and every addSubtitle are queued
+    // and replayed at attach, so this whole function runs against a controller
+    // with no view id. Anything here that needs one throws, and the throw does
+    // not stay local - it escapes the open chain and fails the playback.
+    test('an unattached controller costs the reorder, not the playback', () async {
+      final controller = VlcPlayerController();
+      addTearDown(controller.dispose);
+
+      // enable: 0 with three files is the case that wants the pre-read, and
+      // it is the common one: sources list English first and the preferred
+      // language defaults to English.
+      await expectLater(
+        addSideCarSubtitles(controller, <Uri>[
+          Uri.parse('https://example.com/en.srt'),
+          Uri.parse('https://example.com/fr.srt'),
+          Uri.parse('https://example.com/es.srt'),
+        ], enable: 0),
+        completes,
+      );
+
+      // Nothing reached the engine, because nothing could: the adds are held
+      // on the controller until a VlcPlayer attaches it.
+      expect(engine.methods, isEmpty);
+    });
+
     test('adds every subtitle, in the order given', () async {
       final controller = await engine.attach();
 

@@ -99,9 +99,6 @@ class AppLocalizationsGu extends AppLocalizations {
   String get seekDuration => 'સીક સમયગાળો';
 
   @override
-  String get bufferDepth => 'બફર ડેપ્થ';
-
-  @override
   String get defaultResizeMode => 'ડિફૉલ્ટ રીસાઇઝ મોડ';
 
   @override
@@ -466,9 +463,6 @@ class AppLocalizationsGu extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'સીક સમયગાળો પસંદ કરો';
-
-  @override
-  String get selectBufferDepth => 'બફર ડેપ્થ પસંદ કરો';
 
   @override
   String get subtitleSettings => 'સબટાઈટલ સેટિંગ્સ';
@@ -933,6 +927,11 @@ class AppLocalizationsGu extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName મળ્યું નથી. આંતરિક પ્લેયર શરૂ થઈ રહ્યું છે.';
   }
@@ -1204,7 +1203,10 @@ class AppLocalizationsGu extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi ગુણવત્તા પસંદગી';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'મોબાઇલ ડેટા ગુણવત્તા પસંદગી';
@@ -1660,4 +1662,18 @@ class AppLocalizationsGu extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'તમારા કોઈ સ્ક્રેપર પાસે આ શીર્ષક નથી.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

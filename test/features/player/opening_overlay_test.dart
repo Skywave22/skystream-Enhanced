@@ -16,12 +16,10 @@ import 'vlc_screen_harness.dart';
 /// The startup gap this file exists for.
 ///
 /// `setMedia` does no network work: it hands libVLC a URL and returns, so the
-/// screen used to flip to the playing stage while the engine had not opened
-/// anything yet. The spinner went away, `VlcPlayer` mounted an empty surface,
-/// and the viewer got black with a seek bar over it until the first frame
-/// arrived - which on a cold source is many seconds and on a dead one is
-/// never. The video widget has to stay mounted through that (nothing attaches
-/// otherwise), so what covers the gap is an opaque overlay above it.
+/// screen can reach the playing stage while the engine has opened nothing and
+/// `VlcPlayer` is showing an empty surface - many seconds on a cold source,
+/// forever on a dead one. The video widget has to stay mounted through that
+/// (nothing attaches otherwise), so an opaque overlay above it covers the gap.
 void main() {
   setUp(installEngineMocks);
   tearDown(removeEngineMocks);
@@ -84,10 +82,9 @@ void main() {
       'a long source name never pushes the probe badge off a narrow screen',
       variant: texturePlatform,
       (tester) async {
-        // The probe row used to cap the name at a fixed 260px. With the icon
-        // and gaps that is 296px before the badge is even drawn, so on a
-        // 320px phone the Row overflowed by the badge's width - the
-        // yellow-and-black stripe the owner hit. The name is Flexible now.
+        // A source name capped at a fixed width, plus the icon and the gaps,
+        // leaves no room for the badge on a 320px phone and the Row overflows.
+        // The name is Flexible instead.
         tester.view.physicalSize = const Size(320, 640);
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);

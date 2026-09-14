@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Dupla koppintás a kereséshez",
   "swipeToSeek": "Csúsztatás a kereséshez",
   "seekDuration": "Keresési időtartam",
-  "bufferDepth": "Puffer mélysége",
   "defaultResizeMode": "Alapértelmezett méretezési mód",
   "hardwareDecoding": "Hardveres dekódolás",
   "network": "Hálózat",
@@ -177,7 +176,6 @@
   "left": "bal oldali",
   "right": "jobb oldali",
   "selectSeekDuration": "Keresési időtartam kiválasztása",
-  "selectBufferDepth": "Puffer mélységének kiválasztása",
   "subtitleSettings": "Felirat beállításai",
   "size": "Méret: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Wi-Fi minőségi preferencia",
   "mobileQualityPreference": "Mobilhálózati minőségi preferencia",
   "anyNoPreference": "Nincs preferencia",
   "subtitleAccounts": "Felirat fiókok",

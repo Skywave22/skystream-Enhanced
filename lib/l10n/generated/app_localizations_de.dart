@@ -99,9 +99,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get seekDuration => 'Sprungdauer';
 
   @override
-  String get bufferDepth => 'Puffertiefe';
-
-  @override
   String get defaultResizeMode => 'Standard-Anpassungsmodus';
 
   @override
@@ -469,9 +466,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Sprungdauer wählen';
-
-  @override
-  String get selectBufferDepth => 'Puffertiefe wählen';
 
   @override
   String get subtitleSettings => 'Untertitel-Einstellungen';
@@ -938,6 +932,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName nicht gefunden. Interner Player wird gestartet.';
   }
@@ -1209,7 +1208,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Wi-Fi-Qualitätspräferenz';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Mobilfunk-Qualitätspräferenz';
@@ -1666,4 +1668,18 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Keiner deiner Scraper hat diesen Titel.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

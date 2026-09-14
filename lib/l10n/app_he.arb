@@ -25,7 +25,6 @@
   "doubleTapToSeek": "הקשה כפולה לחיפוש",
   "swipeToSeek": "החלק לחיפוש",
   "seekDuration": "משך חיפוש",
-  "bufferDepth": "עומק באפר",
   "defaultResizeMode": "מצב שינוי גודל ברירת מחדל",
   "hardwareDecoding": "פענוח חומרה",
   "network": "רשת",
@@ -177,7 +176,6 @@
   "left": "שמאלית",
   "right": "ימנית",
   "selectSeekDuration": "בחר משך חיפוש",
-  "selectBufferDepth": "בחר עומק באפר",
   "subtitleSettings": "הגדרות כתוביות",
   "size": "גודל: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "העדפת איכות Wi-Fi",
   "mobileQualityPreference": "העדפת איכות נתונים ניידים",
   "anyNoPreference": "ללא העדפה",
   "subtitleAccounts": "חשבונות כתוביות",

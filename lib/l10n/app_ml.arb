@@ -25,7 +25,6 @@
   "doubleTapToSeek": "സീക്ക് ചെയ്യാൻ രണ്ടുതവണ ടാപ്പ് ചെയ്യുക",
   "swipeToSeek": "സീക്ക് ചെയ്യാൻ സ്വൈപ്പ് ചെയ്യുക",
   "seekDuration": "സീക്ക് ദൈർഘ്യം",
-  "bufferDepth": "ബഫർ ഡെപ്ത്",
   "defaultResizeMode": "ഡിഫോൾട്ട് റീസൈസ് മോഡ്",
   "hardwareDecoding": "ഹാർഡ്‌വെയർ ഡീകോഡിംഗ്",
   "network": "നെറ്റ്‌വർക്ക്",
@@ -177,7 +176,6 @@
   "left": "ഇടത്",
   "right": "വലത്",
   "selectSeekDuration": "സീക്ക് ദൈർഘ്യം തിരഞ്ഞെടുക്കുക",
-  "selectBufferDepth": "ബഫർ ഡെപ്ത് തിരഞ്ഞെടുക്കുക",
   "subtitleSettings": "സബ്ടൈറ്റിൽ ക്രമീകരണങ്ങൾ",
   "size": "വലുപ്പം: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "വൈ-ഫൈ ഗുണനിലവാര മുൻഗണന",
   "mobileQualityPreference": "മൊബൈൽ ഗുണനിലവാര മുൻഗണന",
   "anyNoPreference": "മുൻഗണനയില്ല",
   "subtitleAccounts": "സബ്‌ടൈറ്റിൽ അക്കൗണ്ടുകൾ",

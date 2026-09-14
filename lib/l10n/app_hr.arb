@@ -25,7 +25,6 @@
   "doubleTapToSeek": "Dvaput dodirnite za traženje",
   "swipeToSeek": "Povucite za traženje",
   "seekDuration": "Trajanje traženja",
-  "bufferDepth": "Dubina međuspremnika",
   "defaultResizeMode": "Zadani način promjene veličine",
   "hardwareDecoding": "Hardversko dekodiranje",
   "network": "Mreža",
@@ -177,7 +176,6 @@
   "left": "Lijevo",
   "right": "Desno",
   "selectSeekDuration": "Odaberi trajanje traženja",
-  "selectBufferDepth": "Odaberi dubinu međuspremnika",
   "subtitleSettings": "Postavke titlova",
   "size": "Veličina: {size}",
   "@size": {
@@ -546,7 +544,6 @@
       }
     }
   },
-  "wifiQualityPreference": "Kvaliteta na Wi-Fi mreži",
   "mobileQualityPreference": "Kvaliteta na mobilnoj mreži",
   "anyNoPreference": "Bez preferencije",
   "subtitleAccounts": "Računi za titlove",

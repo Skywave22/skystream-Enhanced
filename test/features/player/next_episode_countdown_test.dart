@@ -11,11 +11,8 @@ import 'package:skystream/l10n/generated/app_localizations.dart';
 import 'package:skystream/shared/widgets/thumbnail_error_placeholder.dart';
 
 /// Hosts the card the way the player does: an overlay layer in a [Stack] over
-/// a (here, absent) video surface.
-///
-/// [locale] and [textScale] are the two axes the card's geometry has to hold
-/// across: the action labels are two and a half times wider in Kannada than in
-/// English, and a viewer can ask for 2.0 on the touch branches.
+/// a (here, absent) video surface. [locale] and [textScale] are the two axes
+/// its geometry has to hold across.
 Widget _host(Widget child, {String locale = 'en', double textScale = 1.0}) {
   return MaterialApp(
     locale: Locale(locale),
@@ -42,10 +39,9 @@ Future<void> _teardown(WidgetTester tester) =>
 
 String? get _focusLabel => FocusManager.instance.primaryFocus?.debugLabel;
 
-/// A 1080p television: 1920x1080 physical at devicePixelRatio 2 is **960x540
-/// logical dp**, which is the canvas every ten-foot number in the card is
-/// derived against. `devicePixelRatio = 1` here, so the numbers below are
-/// logical dp directly.
+/// A 1080p television: 1920x1080 physical at devicePixelRatio 2 is 960x540
+/// logical dp. [_sizeView] sets devicePixelRatio to 1, so the numbers below
+/// are logical dp directly.
 const Size _tv = Size(960, 540);
 
 /// A phone held sideways, which is the only orientation the player runs in on
@@ -55,29 +51,23 @@ const Size _phone = Size(844, 390);
 /// A desktop window / tablet: shortest side at or over 600 dp, not a TV.
 const Size _wide = Size(1280, 800);
 
-/// The smallest viewport the stacked branch is reachable on: a 7-inch tablet
-/// held sideways clears the 600 dp shortest side by exactly nothing, and it is
-/// where accessibility text scaling bites first.
+/// The smallest viewport the stacked branch is reachable on: a shortest side
+/// of exactly 600 dp.
 const Size _smallTablet = Size(1000, 600);
 
 /// The band the card holds clear of the scrubber wherever the bottom bar is
 /// one flat control row - which is everywhere but a handset held upright.
 ///
 /// `HotstarPlayerStyle.bottomChromeHeight + 12`. Measured through the real
-/// [PlayerBottomBar]: 123 dp on touch, tablet and desktop (124 on a live edge)
-/// at every viewport width and every action count, and 137 on TV, so 144
-/// clears the taller of them by 7. Below [PlayerBottomBar.narrowTouchWidth] of
-/// inner width the bar puts its action strip on a run of its own and stands
-/// 171, and the card adds the same 48 dp back.
-///
-/// The card used to reserve 60 + 12 on the compact branch, and covered the
-/// right third of the phone scrubber by 51 dp; see the "clears the real
-/// PlayerBottomBar" group, which measures the bar rather than trusting this.
+/// [PlayerBottomBar]: 123 dp on touch, tablet and desktop and 137 on TV, so
+/// 144 clears the taller of them by 7. Below
+/// [PlayerBottomBar.narrowTouchWidth] of inner width the bar puts its action
+/// strip on a run of its own and stands 171, and the card adds the same 48 dp
+/// back.
 const double _kClearance = 144;
 
-/// Catalogue text that is longer than the card. Real synopses run to a
-/// paragraph and real episode titles to a sentence, and Hindi and Kannada set
-/// taller than Latin - the card's height budget has to survive all of it.
+/// Catalogue text longer than the card, which its height budget has to
+/// survive.
 const String _longTitle =
     'The One Where Everybody Finds Out That The Title Of This Episode Runs On';
 const String _longSynopsis =
@@ -85,9 +75,8 @@ const String _longSynopsis =
     'follows is told almost entirely without music, in long unbroken takes '
     'that refuse the audience any relief at all, right through to the end.';
 
-/// The three locales the card ships in, and the only three
-/// `playNow`/`cancel` strings that exist - the ARB set is owned elsewhere and
-/// the card is not allowed to shorten any of them.
+/// The locales the card ships in. The ARB strings are owned elsewhere, so the
+/// card cannot shorten a label to make it fit.
 const List<String> _shippedLocales = ['en', 'hi', 'kn'];
 
 void _sizeView(WidgetTester tester, Size size) {
@@ -107,19 +96,15 @@ Rect _cardRect(WidgetTester tester) => tester.getRect(
       .first,
 );
 
-/// A button's painted slab, which is what "equal width" is about.
 Rect _buttonRect(WidgetTester tester, String label) => tester.getRect(
   find
       .ancestor(of: find.text(label), matching: find.byType(AnimatedContainer))
       .first,
 );
 
-/// What a label needs against what its slab actually hands it.
-///
-/// `needs` is the paragraph's own `maxIntrinsicWidth` - the width at which it
-/// lays out on one line - and `gets` is the box the layout gave it. A label is
-/// ellipsised exactly when `needs > gets`, which is the condition the old
-/// side-by-side row failed in all three shipped locales.
+/// What a label needs against what its slab hands it: `needs` is the
+/// paragraph's `maxIntrinsicWidth` and `gets` is the box the layout gave it,
+/// so the label is ellipsised exactly when `needs > gets`.
 ({double needs, double gets}) _label(WidgetTester tester, String text) {
   final paragraph = tester.renderObject<RenderParagraph>(find.text(text));
   return (
@@ -157,7 +142,7 @@ void main() {
 
       await tester.pump(const Duration(seconds: 10));
       expect(find.text('0'), findsOneWidget);
-      // An AnimationController's simulation is done only *past* its duration,
+      // An AnimationController's simulation is done only past its duration,
       // so the advance lands on the frame after zero rather than on it.
       await tester.pump(const Duration(milliseconds: 16));
       expect(played, 1);
@@ -274,8 +259,8 @@ void main() {
         reason: 'the remote should land on the action the timeout will take',
       );
 
-      // Down, not Right: the two actions are stacked so each of them can hold
-      // a label the row could not. See next_episode_countdown.dart, _actions.
+      // Down, not Right: the two actions are stacked so each can hold a label
+      // the row could not.
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pump();
       expect(_focusLabel, kCancelFocusLabel);
@@ -371,14 +356,10 @@ void main() {
   });
 
   group('NextEpisodeCountdown composition', () {
-    /// The reference design's card, at the size the reference has to survive.
-    ///
-    /// Every number here is read off the rendered tree; none of them is a
-    /// design estimate. 960x540 dp; the card is held between the top bar's
-    /// band (0..92, measured through the real screen in tv_overlay_focus_test)
-    /// and the scrubber (132 + 12 dp of clearance, so its last pixel is 396),
-    /// which is 304 dp. The panel takes the 226 its text needs and the still
-    /// takes the 78 that are left.
+    /// On 960x540 the card is held between the top bar's band (0..92, measured
+    /// through the real screen in tv_overlay_focus_test) and the scrubber
+    /// (132 + 12 dp of clearance, so its last pixel is 396), which is 304 dp:
+    /// 226 for the panel's text and the 78 that are left for the still.
     testWidgets('on a 960x540 television the still leads at full width', (
       tester,
     ) async {
@@ -409,11 +390,9 @@ void main() {
             'occupies, right on the 48 dp overscan inset, and 300 dp wide - '
             'the width the longest action label needs, not a height solve',
       );
-      // There is no chrome in this host at all, and the card still tops out
-      // on 92: the clearance over the running title is a constant the card
-      // holds unconditionally, not a reaction to the bars being visible. The
-      // card can be raised with them hidden, and one that resized when the
-      // viewer tapped would be worse than one that overlapped.
+      // There is no chrome in this host and the card still tops out on 92:
+      // the clearance over the running title is unconditional, not a reaction
+      // to the bars being visible.
       expect(find.byType(NextEpisodeCountdown), findsOneWidget);
       expect(
         card.bottom,
@@ -459,8 +438,7 @@ void main() {
         lessThanOrEqualTo(tester.getRect(find.text(_longSynopsis)).top),
       );
 
-      // The countdown ring reads with the new composition instead of being
-      // dropped: it rides the UP NEXT badge over the still's corner.
+      // The countdown ring rides the UP NEXT badge over the still's corner.
       final ring = tester.getRect(find.text('15'));
       expect(still.contains(ring.center), isTrue);
       expect(
@@ -532,14 +510,9 @@ void main() {
       await _teardown(tester);
     });
 
-    /// The defect this composition exists to answer, in the locale that
-    /// exposes it worst.
-    ///
-    /// Side by side on the old 272 dp card each slab was 117 dp with 10 dp of
-    /// padding, so 97 dp of label - against measured intrinsics of 130.0
-    /// (English), 146.3 (Hindi) and 227.5 (Kannada). All three ellipsised the
-    /// primary action of a *destructive* auto-advance. The ARB values are not
-    /// this file's to shorten, so the budget moved instead.
+    /// Side by side, each slab left 97 dp of label against measured
+    /// intrinsics of 130.0 (English), 146.3 (Hindi) and 227.5 (Kannada), so
+    /// all three ellipsised the primary action of a destructive auto-advance.
     for (final locale in _shippedLocales) {
       testWidgets('no action label is clipped on a television in $locale', (
         tester,
@@ -650,9 +623,8 @@ void main() {
             'held above is the same bar: 123 dp on touch, 137 on TV',
       );
 
-      // The part that pins the restyle rather than the shape master already
-      // had: the actions are stacked here too, because a 300 dp card split in
-      // half leaves 113 dp for a Kannada label that wants 185.5.
+      // The actions are stacked here too: a 300 dp card split in half leaves
+      // 113 dp for a Kannada label that wants 185.5.
       final play = _buttonRect(tester, 'Play Now');
       final cancel = _buttonRect(tester, 'Cancel');
       expect(
@@ -779,8 +751,7 @@ void main() {
       );
 
       // One line of title and two of synopsis, at the line heights the panel's
-      // 226 dp assumes: 18/1.2 and 14/1.3. The title's second line was the
-      // cheapest 21.6 dp available and it went straight into the still.
+      // 226 dp assumes: 18/1.2 and 14/1.3.
       expect(
         tester.getRect(find.text(_longTitle)).height,
         closeTo(18 * 1.2, 1),
@@ -808,13 +779,8 @@ void main() {
       await _teardown(tester);
     });
 
-    /// The ten-foot type floor, which is 14 sp
-    /// (vlc/panel/player_panel_metrics.dart). Exactly one string on this card
-    /// is under it - the ring's digits at 13, declared in the file the way
-    /// player_panel_metrics declares its own 13. The pill and the
-    /// runtime/rating were a second and a third, at 12 sp (24 real pixels on
-    /// a 1080p set), declared nowhere; the UP NEXT eyebrow was a fourth and
-    /// went to 14 because the badge's height is the ring's, so it was free.
+    /// The ten-foot type floor is 14 sp (vlc/panel/player_panel_metrics.dart).
+    /// Exactly one string on this card is under it: the ring's digits at 13.
     testWidgets('every informational string clears the ten-foot floor', (
       tester,
     ) async {
@@ -848,8 +814,8 @@ void main() {
 
       expect(sizeOf(find.text('UP NEXT')), 14);
 
-      // The one declared exception, pinned so a second cannot be smuggled in
-      // beside it: two digits at 14 sp do not fit a 30 dp ring.
+      // The one declared exception: two digits at 14 sp do not fit a 30 dp
+      // ring.
       expect(sizeOf(find.text('15')), 13);
 
       await _teardown(tester);
@@ -857,10 +823,6 @@ void main() {
 
     /// Accessibility scaling, on the branch that can reach it: TV is immune
     /// because main.dart pins `TextScaler.noScaling` there.
-    ///
-    /// Before the card clamped what it honours, 1000x600 with full catalogue
-    /// data left 2 dp of headroom at 1.5 and printed "A RenderFlex overflowed
-    /// by 7.0 pixels on the bottom" at 1.6, 20 at 1.75 and 39 at 2.0.
     for (final scale in [1.0, 1.3, 1.5, 1.75, 2.0]) {
       testWidgets('the stacked card holds at text scale $scale', (
         tester,
@@ -924,9 +886,8 @@ void main() {
     }
 
     /// The compact branch has no flexible child to give - its thumbnail is a
-    /// fixed 96x54 - so the clamp is the only thing standing between it and
-    /// the same overflow, and a phone is where a viewer is most likely to
-    /// have asked for large type in the first place.
+    /// fixed 96x54 - so the clamp is all that stands between it and an
+    /// overflow.
     for (final scale in [1.0, 1.3, 2.0]) {
       testWidgets('the compact card holds at text scale $scale', (
         tester,
@@ -971,20 +932,11 @@ void main() {
       });
     }
 
-    /// Both clearances are preferences, not promises the card will break
-    /// itself to keep — and the order they are given up in is the point.
-    ///
-    /// A 360 dp-wide phone is the commonest Android width there is, and held
-    /// sideways it is 360 dp *tall*: `360 - 144 chrome - 92 title` is 124 dp
-    /// for a compact card that measures 218. The clearance over the running
-    /// title goes first (the title is text, and the only *control* in the top
-    /// bar is Back, at the far left of a bar this right-anchored card never
-    /// reaches); only once that is spent does the clearance over the scrubber
-    /// start giving, a dp at a time, and only because 218 + 123 does not fit
-    /// on a 320 dp screen at all.
-    ///
-    /// Measured with a flat 144 and no give: "A RenderFlex overflowed by 2.0
-    /// pixels on the bottom" at 360, 22 at 340 and 34 at 320.
+    /// Both clearances are preferences, and the order they are given up in is
+    /// the point. Held sideways a 360 dp phone leaves
+    /// `360 - 144 chrome - 92 title` = 124 dp for a compact card that measures
+    /// 218. The clearance over the running title goes first; only once that is
+    /// spent does the clearance over the scrubber start giving, a dp at a time.
     for (final height in [360.0, 340.0, 320.0]) {
       testWidgets('a ${height.toInt()} dp phone gets the card, not a break', (
         tester,
@@ -1012,9 +964,8 @@ void main() {
           218,
           reason: 'the card is whole; what gives is the clearance around it',
         );
-        // 224 is [_kMinCardHeight]: the floor is what the clearance is
-        // measured back from, so the card is never handed less room than it
-        // needs however short the viewport gets.
+        // 224 is [_kMinCardHeight]: the clearance is measured back from that
+        // floor, so the card is never handed less room than it needs.
         expect(
           card.bottom,
           height == 360.0 ? height - 136 : 224,
@@ -1046,8 +997,7 @@ void main() {
 
       // The still is flush to the card's top and both sides, so a border at
       // the default DecorationPosition.background is painted and then covered
-      // by the image: against a bright frame the card's top edge had no
-      // outline at all.
+      // by the image.
       final outline = tester
           .widgetList<DecoratedBox>(
             find.descendant(
@@ -1074,8 +1024,8 @@ void main() {
         reason: 'flush, which is why the border has to paint in front',
       );
 
-      // And the image is clipped to the radius *inside* the line rather than
-      // to the card's outer 14, where its corner sat proud of the border.
+      // The image is clipped to the radius inside the line rather than to the
+      // card's outer 14, where its corner would sit proud of the border.
       final clip = tester.widget<ClipRRect>(
         find
             .ancestor(
@@ -1114,10 +1064,8 @@ void main() {
       );
       await tester.pump();
 
-      // The composition changed under the focus, so the traversal order is
-      // re-pinned at the size it has to hold: one autofocus, on the action the
-      // timeout will take, and Cancel one step *down* - the actions are a
-      // column now, not a row.
+      // One autofocus, on the action the timeout will take, and Cancel one
+      // step down: the actions are a column, not a row.
       expect(_focusLabel, kPlayNextFocusLabel);
       final play = _buttonRect(tester, 'Play Now');
       final cancel = _buttonRect(tester, 'Cancel');
@@ -1139,7 +1087,7 @@ void main() {
       await tester.pump();
       expect(_focusLabel, kPlayNextFocusLabel);
 
-      // And Back out of the card is still "no", not "leave the player".
+      // Back out of the card is "no", not "leave the player".
       await tester.sendKeyEvent(
         LogicalKeyboardKey.goBack,
         platform: 'android',
@@ -1152,27 +1100,20 @@ void main() {
     });
   });
 
-  /// The one thing the card's whole height budget exists for, measured against
-  /// the widget it is a budget *of*.
+  /// The card's height budget, measured against the widget it is a budget of.
   ///
-  /// Every other number in this file is checked against arithmetic. These are
-  /// checked against a real [PlayerBottomBar] standing in the same [Stack], in
-  /// the order the player composes them — controls first, card second, so the
-  /// card paints and **hit-tests in front of** the bar. That order is why an
-  /// overlap here is not a cosmetic complaint: the card is opaque to the
-  /// pointer, so any part of the scrubber it covers is a part of the scrubber
-  /// that cannot be dragged, and the last fifteen seconds of an episode is
-  /// exactly when a viewer reaches for the right end of it to get back into
-  /// the scene.
+  /// A real [PlayerBottomBar] stands in the same [Stack], in the order the
+  /// player composes them - controls first, card second - so the card paints
+  /// and hit-tests in front of the bar and any part of the scrubber it covers
+  /// cannot be dragged.
   ///
   /// The bar is built here rather than driven through `VlcPlayerControls`
   /// because the controls pick their touch layout off `Platform.isAndroid ||
   /// Platform.isIOS`, which on a macOS or Linux test host is always false: a
-  /// test that went through them would silently measure the *desktop* bar and
-  /// pin nothing about a phone. `isTouch: true` here is the phone branch, and
-  /// the leading group carries the 40 dp play/pause glyph that sets the
-  /// transport row's height, so the bar lays out at the 123 dp a phone
-  /// actually gets.
+  /// test that went through them would measure the desktop bar. `isTouch: true`
+  /// here is the phone branch, and the leading group carries the 40 dp
+  /// play/pause glyph that sets the transport row's height, so the bar lays
+  /// out at the 123 dp a phone actually gets.
   group('NextEpisodeCountdown clears the real PlayerBottomBar', () {
     Widget withBar(Widget card, {required bool isTv}) {
       return ProviderScope(
@@ -1288,16 +1229,14 @@ void main() {
         await tester.pumpWidget(withBar(cardFor(isTv: isTv), isTv: isTv));
         // The touch strip reports its scroll metrics in a microtask after
         // layout and re-runs the narrow/flat decision on the frame after that,
-        // so an unsettled tree measures the *flat* bar even where the shipped
+        // so an unsettled tree measures the flat bar even where the shipped
         // one is two rows. Settle before reading anything.
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pump(const Duration(milliseconds: 300));
         expect(tester.takeException(), isNull);
 
-        // The harm first, because it is the harm and not the geometry: the
-        // right-hand end of the seek bar - the end a viewer reaches for to
-        // scrub back into the scene the credits are rolling over - still
-        // receives the pointer.
+        // The right-hand end of the seek bar - the end a viewer reaches for
+        // to scrub back into the scene - still receives the pointer.
         final seek = tester.getRect(find.byType(PlayerSeekBar));
         // Inside the seek bar's own rectangle by construction, and at the end
         // of it the right-anchored card hangs over.

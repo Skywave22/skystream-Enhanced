@@ -71,7 +71,15 @@ Future<DeviceProfile> deviceProfile(Ref ref) async {
       final deviceInfo = DeviceInfoPlugin();
       if (Platform.isAndroid) {
         final androidInfo = await deviceInfo.androidInfo;
-        isTv = androidInfo.systemFeatures.contains('android.software.leanback');
+        // Two signals, because one of them misses. Certified Android TV
+        // devices must declare leanback, but an uncertified AOSP box on a
+        // television declares only the older television feature - and such a
+        // box lands as a *phone*, not a tablet, because a 1080p panel at TV
+        // density measures 960x540dp and 540 is under the tablet threshold
+        // above. A phone verdict is what lets the player pin an orientation on
+        // something that cannot rotate.
+        isTv = androidInfo.systemFeatures.contains('android.software.leanback') ||
+            androidInfo.systemFeatures.contains('android.hardware.type.television');
         physicalRamMb = androidInfo.physicalRamSize;
         // Trust Android's own verdict first — ActivityManager.isLowRamDevice()
         // is set by the OEM and accounts for more than raw megabytes.

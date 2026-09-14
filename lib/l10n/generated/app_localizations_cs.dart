@@ -99,9 +99,6 @@ class AppLocalizationsCs extends AppLocalizations {
   String get seekDuration => 'Délka posunu';
 
   @override
-  String get bufferDepth => 'Hloubka vyrovnávací paměti';
-
-  @override
   String get defaultResizeMode => 'Výchozí režim velikosti';
 
   @override
@@ -470,9 +467,6 @@ class AppLocalizationsCs extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Vybrat délku posunu';
-
-  @override
-  String get selectBufferDepth => 'Vybrat hloubku vyrovnávací paměti';
 
   @override
   String get subtitleSettings => 'Nastavení titulků';
@@ -927,6 +921,11 @@ class AppLocalizationsCs extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return '$playerName nebyl nalezen.';
   }
@@ -1197,7 +1196,10 @@ class AppLocalizationsCs extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Preference kvality Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Preference kvality mobilních dat';
@@ -1651,4 +1653,18 @@ class AppLocalizationsCs extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Žádný z vašich scraperů tento titul nemá.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }

@@ -16,7 +16,11 @@ class OpenSubtitlesProvider extends SubtitleProvider {
   /// Settings still takes precedence over this, exactly as before; when neither
   /// is set the provider is simply skipped, which the search flow already
   /// handles because SubDL behaves the same way without a key.
-  static const String _defaultApiKey = String.fromEnvironment(
+  ///
+  /// Public because the Accounts screen has to answer "can this provider run
+  /// at all" and must read the same define rather than a second copy of its
+  /// name.
+  static const String buildTimeApiKey = String.fromEnvironment(
     'OPENSUBTITLES_API_KEY',
   );
   static const String _userAgent = "SkyStream v2.2.1";
@@ -37,7 +41,7 @@ class OpenSubtitlesProvider extends SubtitleProvider {
        _apiKey = apiKey;
 
   String get _effectiveApiKey =>
-      (_apiKey != null && _apiKey!.isNotEmpty) ? _apiKey! : _defaultApiKey;
+      (_apiKey != null && _apiKey!.isNotEmpty) ? _apiKey! : buildTimeApiKey;
 
   Future<void> _loginIfNeeded() async {
     if (_username == null ||

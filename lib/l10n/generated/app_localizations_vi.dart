@@ -99,9 +99,6 @@ class AppLocalizationsVi extends AppLocalizations {
   String get seekDuration => 'Thời gian tua';
 
   @override
-  String get bufferDepth => 'Độ sâu bộ đệm';
-
-  @override
   String get defaultResizeMode => 'Chế độ thu phóng mặc định';
 
   @override
@@ -461,9 +458,6 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get selectSeekDuration => 'Chọn thời gian tua';
-
-  @override
-  String get selectBufferDepth => 'Chọn độ sâu bộ đệm';
 
   @override
   String get subtitleSettings => 'Cài đặt phụ đề';
@@ -916,6 +910,11 @@ class AppLocalizationsVi extends AppLocalizations {
   }
 
   @override
+  String externalPlayerCannotSendHeaders(String playerName, String headers) {
+    return '$playerName cannot send $headers. Using internal player.';
+  }
+
+  @override
   String playerNotDetected(String playerName) {
     return 'Không tìm thấy $playerName. Đang khởi động trình phát nội bộ.';
   }
@@ -1183,7 +1182,10 @@ class AppLocalizationsVi extends AppLocalizations {
   String get subSource => 'SubSource';
 
   @override
-  String get wifiQualityPreference => 'Ưu tiên chất lượng Wi-Fi';
+  String get unmeteredQualityPreference => 'Wi-Fi & Wired Quality Preference';
+
+  @override
+  String get playerNotOnThisDevice => 'Not offered on this device';
 
   @override
   String get mobileQualityPreference => 'Ưu tiên chất lượng di động';
@@ -1637,4 +1639,18 @@ class AppLocalizationsVi extends AppLocalizations {
   @override
   String get sourcesEmptyNothingFound =>
       'Không scraper nào của bạn có tựa đề này.';
+
+  @override
+  String get subtitleDefault => 'Subtitles by default';
+
+  @override
+  String get subtitleDefaultAuto => 'Auto';
+
+  @override
+  String get subtitleDefaultAutoDetail =>
+      'A video starts with the subtitle its source selects, preferring your subtitle language when the source offers it.';
+
+  @override
+  String get subtitleDefaultOffDetail =>
+      'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.';
 }
