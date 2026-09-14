@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:vlc_player/vlc_player.dart';
 
@@ -26,6 +27,7 @@ import '../widgets/player_stream_widgets.dart';
 /// from what is displayed.
 class VlcProgressBar extends StatefulWidget {
   const VlcProgressBar({
+    this.bufferedFraction,
     required this.controller,
     this.isTv = false,
     this.isLive = false,
@@ -37,6 +39,12 @@ class VlcProgressBar extends StatefulWidget {
   });
 
   final VlcPlayerController controller;
+
+  /// How much of the media has been fetched ahead of the playhead, 0..1.
+  ///
+  /// A notifier so a stats sample repaints the band alone. Null on hosts that
+  /// do not measure it, and the band then stays empty.
+  final ValueListenable<double>? bufferedFraction;
 
   /// Ten-foot sizing, passed straight to [PlayerScrubber], where the numbers
   /// live.
@@ -240,6 +248,17 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
     return ValueListenableBuilder<VlcPlayerValue>(
       valueListenable: widget.controller,
       builder: (context, value, _) {
+        final listenable = widget.bufferedFraction;
+        if (listenable == null) return _body(value, 0);
+        return ValueListenableBuilder<double>(
+          valueListenable: listenable,
+          builder: (context, buffered, _) => _body(value, buffered),
+        );
+      },
+    );
+  }
+
+  Widget _body(VlcPlayerValue value, double buffered) {
         final duration = value.duration;
         final hasDuration = duration > Duration.zero;
         // Live is a verdict - the app's or the engine's, which every native
@@ -260,7 +279,7 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
           // libVLC reports buffering as a 0..100 percentage of the current
           // fill operation, not of the media, and it sits at 100 during steady
           // playback, so the band stays empty until there is a real figure.
-          bufferRatio: 0,
+          bufferRatio: buffered,
           canSeek: canSeek,
           isLive: isLive,
           skipSegments: widget.skipSegments,
@@ -278,7 +297,5 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
             _endSeek(target);
           },
         );
-      },
-    );
   }
 }

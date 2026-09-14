@@ -60,6 +60,7 @@ import '../../../settings/presentation/player_settings_provider.dart';
 /// exist.
 class VlcPlayerControls extends ConsumerStatefulWidget {
   const VlcPlayerControls({
+    this.bufferedFraction,
     required this.controller,
     this.chrome,
     required this.title,
@@ -86,6 +87,10 @@ class VlcPlayerControls extends ConsumerStatefulWidget {
   });
 
   final VlcPlayerController controller;
+
+  /// Fraction of the media fetched ahead of the playhead, for the seek bar's
+  /// buffered band. Null where the host does not measure it.
+  final ValueListenable<double>? bufferedFraction;
 
   /// Whether the bars are up, when supplied by the screen.
   ///
@@ -1794,6 +1799,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
                       progressBar: RepaintBoundary(
                         child: VlcProgressBar(
                           controller: widget.controller,
+                          bufferedFraction: widget.bufferedFraction,
                           isTv: isTv,
                           isLive: widget.isLive,
                           skipSegments: widget.skipSegments,

@@ -29,7 +29,12 @@ class JsBytecodeCompiler {
 
   static JavascriptRuntime _runtime() {
     _idleTimer?.cancel();
-    _rt ??= getJavascriptRuntime();
+    // xhr: false skips enableFetch(), which pulls a polyfill through rootBundle
+    // and so needs ServicesBinding.instance. This runtime only ever compiles
+    // source to bytecode and never runs it, so the polyfill is dead weight -
+    // and asking for it ties compilation to a thread that has a binding, which
+    // is not true of the isolates this runs on. Same reason as JsWorkerRunner.
+    _rt ??= getJavascriptRuntime(xhr: false);
     _idleTimer = Timer(_idleTimeout, _releaseRuntime);
     return _rt!;
   }

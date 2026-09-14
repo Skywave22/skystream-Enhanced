@@ -120,6 +120,7 @@ class VlcNetworkConfig {
     this.referer,
     this.adaptiveLogic,
     this.adaptiveMaxHeight,
+    this.prefetchBufferKiB,
   });
 
   /// Buffer held for network streams, in milliseconds (`--network-caching`).
@@ -153,6 +154,24 @@ class VlcNetworkConfig {
   /// a rendition it cannot decode.
   final int? adaptiveMaxHeight;
 
+  /// How much of a network stream to hold in memory ahead of and behind the
+  /// read point, in KiB (`--prefetch-buffer-size`).
+  ///
+  /// Read-ahead, which is a different thing from [networkCaching]. Caching is
+  /// output latency - every stream has to fill it before it emits, so raising
+  /// it delays a newly selected audio or subtitle track by exactly that long.
+  /// This buffer sits under the demuxer instead, so a larger one costs memory
+  /// and nothing else, and it is what makes a seek land without going back to
+  /// the network. The window serves reads in both directions, so it covers a
+  /// skip backwards as well as forwards.
+  ///
+  /// Setting this also asks for the `prefetch` stream filter, which libVLC
+  /// does not select on its own. The filter declines local files, where the
+  /// operating system's own cache does better, and PID-filtered streams, where
+  /// it would add latency - both cleanly, so this is inert rather than harmful
+  /// where it does not apply.
+  final int? prefetchBufferKiB;
+
   /// Emits the `--…` options this config represents.
   List<String> toOptions() {
     return <String>[
@@ -164,6 +183,11 @@ class VlcNetworkConfig {
       if (referer != null && referer!.isNotEmpty) '--http-referrer=$referer',
       if (adaptiveLogic != null) '--adaptive-logic=${adaptiveLogic!._value}',
       if (adaptiveMaxHeight != null) '--adaptive-maxheight=$adaptiveMaxHeight',
+      // The filter scores 0, so naming it is the only way it is ever selected.
+      if (prefetchBufferKiB != null) ...<String>[
+        '--stream-filter=prefetch',
+        '--prefetch-buffer-size=$prefetchBufferKiB',
+      ],
     ];
   }
 }

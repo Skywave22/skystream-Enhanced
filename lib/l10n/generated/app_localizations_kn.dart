@@ -1683,4 +1683,14 @@ class AppLocalizationsKn extends AppLocalizations {
   @override
   String get subtitleDefaultOffDetail =>
       'ವೀಡಿಯೊ ಯಾವುದೇ ಉಪಶೀರ್ಷಿಕೆ ಇಲ್ಲದೆ ಪ್ರಾರಂಭವಾಗುತ್ತದೆ. ಪ್ಲೇಯರ್‌ನ ಉಪಶೀರ್ಷಿಕೆ ಮೆನುವಿನಿಂದ ನೀವು ಅದನ್ನು ಈಗಲೂ ಆನ್ ಮಾಡಬಹುದು.';
+
+  @override
+  String get networkBuffer => 'ನೆಟ್‌ವರ್ಕ್ ಬಫರ್';
+
+  @override
+  String get networkBufferSubtitle =>
+      'ಸ್ಟ್ರೀಮ್‌ನ ಎಷ್ಟು ಭಾಗವನ್ನು ಮೆಮೊರಿಯಲ್ಲಿ ಇರಿಸಬೇಕು. ದೊಡ್ಡ ಬಫರ್ ಸೀಕ್ ಅನ್ನು ಸುಗಮಗೊಳಿಸುತ್ತದೆ ಮತ್ತು ದುರ್ಬಲ ಸಂಪರ್ಕವನ್ನು ನಿಭಾಯಿಸುತ್ತದೆ, ಆದರೆ ಹೆಚ್ಚು ಮೆಮೊರಿ ಬಳಸುತ್ತದೆ.';
+
+  @override
+  String get selectNetworkBuffer => 'ನೆಟ್‌ವರ್ಕ್ ಬಫರ್ ಆಯ್ಕೆಮಾಡಿ';
 }

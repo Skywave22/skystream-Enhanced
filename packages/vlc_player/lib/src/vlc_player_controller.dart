@@ -196,6 +196,18 @@ abstract class VlcPlayerController extends ValueNotifier<VlcPlayerValue> {
   /// [position] must be non-negative.
   Future<void> seekTo(Duration position);
 
+  /// How many seeks have been asked for on this controller.
+  ///
+  /// Only ever increases, and increases the moment a seek is requested rather
+  /// than when the engine acts on one. A host watching for a dead source needs
+  /// that distinction: a seek freezes the reported position while the demuxer
+  /// repositions and refills, and on a slow source it can stay frozen for
+  /// longer than any sane "nothing is happening" threshold. Counting that as a
+  /// dead source reopens the media underneath a viewer who only skipped
+  /// forward. Comparing this against a remembered value tells a host the freeze
+  /// it is looking at was asked for.
+  int get seekRequests;
+
   /// Sets VLC volume.
   ///
   /// Values are clamped to VLC's `0..200` range.
@@ -976,11 +988,17 @@ class _VlcPlayerController extends VlcPlayerController
     _pausedForAudioFocus = false;
   }
 
+  int _seekRequests = 0;
+
+  @override
+  int get seekRequests => _seekRequests;
+
   @override
   Future<void> seekTo(Duration position) {
     if (position.isNegative) {
       throw ArgumentError.value(position, 'position', 'Must be non-negative.');
     }
+    _seekRequests += 1;
     // After a rebuffer, the gap between a seek and the first frame at the new
     // position is the stall a viewer feels most, so the clock restarts here
     // rather than waiting for a snapshot to notice nothing moved.

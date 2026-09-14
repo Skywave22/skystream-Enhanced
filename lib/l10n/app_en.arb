@@ -1088,5 +1088,17 @@
   "subtitleDefaultOffDetail": "A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.",
   "@subtitleDefaultOffDetail": {
     "description": "Explanatory line under the 'Off' choice in the subtitleDefault dialog. The second sentence is load-bearing: Off is a default, not a lock, and the row must not read as 'subtitles are disabled'. The choice itself reuses the existing 'off' key."
+  },
+  "networkBuffer": "Network buffer",
+  "@networkBuffer": {
+    "description": "Title of the player setting controlling how much of a network stream is held in memory ahead of and behind playback."
+  },
+  "networkBufferSubtitle": "How much of a stream to hold in memory. A larger buffer makes seeking smoother and rides out a shaky connection, at the cost of memory.",
+  "@networkBufferSubtitle": {
+    "description": "Explains the trade-off of the network buffer setting: smoother seeking and resilience, in exchange for memory."
+  },
+  "selectNetworkBuffer": "Select network buffer",
+  "@selectNetworkBuffer": {
+    "description": "Title of the dialog for choosing the network buffer size."
   }
 }

@@ -173,8 +173,9 @@ class PlayerTracksTab extends StatelessWidget {
           icon: Icons.subtitles_off_outlined,
           selected: active == null,
           autofocus: autofocus && anchor == 0,
-          onTap: () =>
-              unawaited(_setTrack(context, controller.disableSubtitle)),
+          onTap: () => unawaited(
+            _setTrack(context, controller.disableSubtitle, reseat: false),
+          ),
         ),
       if (listed.isEmpty)
         PanelEmpty(
@@ -241,14 +242,43 @@ class PlayerTracksTab extends StatelessWidget {
   /// since. So the list is read again.
   Future<void> _setTrack(
     BuildContext context,
-    Future<void> Function() call,
-  ) async {
+    Future<void> Function() call, {
+    bool reseat = true,
+  }) async {
     try {
       await call();
+      if (reseat) await _reseat();
     } on VlcPlayerException catch (_) {
       // The panel can be closed, or the list already re-read under us, while
       // the call is in flight; a reload then belongs to nobody.
       if (context.mounted) onTracksChanged();
+    }
+  }
+
+  /// Re-issues the current position so the new track starts here, now.
+  ///
+  /// A stream selected mid-playback begins at the demuxer's read point, which
+  /// sits a whole caching interval ahead of the picture, so the new track is
+  /// silent until the clock catches up to it. Seeking flushes every stream and
+  /// refills them together, which is what makes the switch land immediately -
+  /// the same thing a viewer discovers by scrubbing a little after switching.
+  ///
+  /// The cost is honest and deliberate: a short rebuffer in place of a longer
+  /// wrong-sounding one. It is also cheap now that a read-ahead buffer sits
+  /// under the demuxer, because a seek back to where we already are is served
+  /// from memory rather than from the network.
+  ///
+  /// Refused where a seek means nothing - a live feed has nowhere to go, and
+  /// an unseekable source would simply fail the call.
+  Future<void> _reseat() async {
+    final value = controller.value;
+    if (value.isLive || !value.isSeekable) return;
+    if (value.position <= Duration.zero) return;
+    try {
+      await controller.seekTo(value.position);
+    } on Object {
+      // A refused seek costs the immediacy, not the track change, which has
+      // already happened.
     }
   }
 

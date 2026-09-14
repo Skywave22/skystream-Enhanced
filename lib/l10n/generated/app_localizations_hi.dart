@@ -1672,4 +1672,14 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get subtitleDefaultOffDetail =>
       'वीडियो बिना किसी उपशीर्षक के शुरू होता है। आप प्लेयर के उपशीर्षक मेन्यू से इसे कभी भी चालू कर सकते हैं।';
+
+  @override
+  String get networkBuffer => 'नेटवर्क बफ़र';
+
+  @override
+  String get networkBufferSubtitle =>
+      'स्ट्रीम का कितना हिस्सा मेमोरी में रखा जाए। बड़ा बफ़र सीक को आसान बनाता है और कमज़ोर कनेक्शन को संभालता है, पर मेमोरी ज़्यादा लेता है।';
+
+  @override
+  String get selectNetworkBuffer => 'नेटवर्क बफ़र चुनें';
 }

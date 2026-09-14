@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/device_info_provider.dart';
+import '../../player/domain/network_buffer.dart';
+import '../../player/domain/playback_recovery.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/utils/layout_constants.dart';
 import '../../../core/utils/stream_quality_sorter.dart';
@@ -25,6 +28,20 @@ class PlayerSettingsScreen extends ConsumerWidget {
     final playerSettings =
         ref.watch(playerSettingsProvider).asData?.value ??
         const PlayerSettings();
+
+    // What the read-ahead wish gets converted against: the rendition this
+    // device will ask for, and the memory it can spare. Both come off the same
+    // profile the player itself uses, so the figure shown here is the figure
+    // the player will use.
+    final bufferTier = profile?.tier ?? DeviceTier.standard;
+    final bufferMaxHeight = adaptiveMaxHeightFor(
+      tier: bufferTier,
+      panelHeightPx: 0,
+      hardwareDecode: hardwareDecodeAvailable(
+        platform: defaultTargetPlatform,
+        preference: playerSettings.hardwareDecoding,
+      ),
+    );
 
     // Whether this device has a touchscreen, which is the only thing the four
     // gesture rows below depend on: a swipe, a drag and a double-tap are the
@@ -150,6 +167,26 @@ class PlayerSettingsScreen extends ConsumerWidget {
                       context,
                       ref,
                       playerSettings.seekDuration,
+                    ),
+                  ),
+                  SettingsTile(
+                    icon: Icons.download_for_offline_rounded,
+                    title: l10n.networkBuffer,
+                    subtitle: formatNetworkBuffer(
+                      playerSettings.networkBufferMinutes,
+                      prefetchBufferMbFor(
+                        minutes: playerSettings.networkBufferMinutes,
+                        maxHeight: bufferMaxHeight,
+                        tier: bufferTier,
+                      ),
+                      l10n,
+                    ),
+                    onTap: () => showNetworkBufferDialog(
+                      context,
+                      ref,
+                      playerSettings.networkBufferMinutes,
+                      maxHeight: bufferMaxHeight,
+                      tier: bufferTier,
                     ),
                   ),
                   SettingsTile(

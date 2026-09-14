@@ -3104,6 +3104,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'A video starts with no subtitle. You can still turn one on from the Subtitles menu in the player.'**
   String get subtitleDefaultOffDetail;
+
+  /// Title of the player setting controlling how much of a network stream is held in memory ahead of and behind playback.
+  ///
+  /// In en, this message translates to:
+  /// **'Network buffer'**
+  String get networkBuffer;
+
+  /// Explains the trade-off of the network buffer setting: smoother seeking and resilience, in exchange for memory.
+  ///
+  /// In en, this message translates to:
+  /// **'How much of a stream to hold in memory. A larger buffer makes seeking smoother and rides out a shaky connection, at the cost of memory.'**
+  String get networkBufferSubtitle;
+
+  /// Title of the dialog for choosing the network buffer size.
+  ///
+  /// In en, this message translates to:
+  /// **'Select network buffer'**
+  String get selectNetworkBuffer;
 }
 
 class _AppLocalizationsDelegate

@@ -28,6 +28,11 @@ import '../../domain/episode_navigator.dart';
 import '../../../skip/data/skip_service.dart';
 import '../../domain/clear_key.dart';
 import '../../domain/playback_progress.dart';
+import '../../domain/buffered_ahead.dart';
+import '../../domain/network_buffer.dart';
+import '../../../../core/logger/app_logger.dart';
+import '../../domain/smoothness.dart';
+import '../../domain/track_memory.dart';
 import '../../domain/playback_recovery.dart';
 import '../../domain/side_car_subtitles.dart';
 import '../../domain/skip_segments.dart';
@@ -177,6 +182,19 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// padlock on a television or a desktop. Never written from here except to
   /// clear it; only the padlock sets it.
   final ValueNotifier<bool> _locked = ValueNotifier<bool>(false);
+
+  /// How far ahead of the playhead the stream has been fetched, as a fraction
+  /// of the media, for the seek bar's buffered band.
+  ///
+  /// A notifier rather than state: this moves on every stats sample and the
+  /// bar is the only thing that cares, so rebuilding the chrome for it would
+  /// undo the work that stopped a position tick repainting everything.
+  final ValueNotifier<double> _bufferedFraction = ValueNotifier<double>(0);
+
+  /// The demux counter from the previous stats sample, and when it was taken.
+  /// The estimate is a rate, so it needs two readings.
+  int? _lastDemuxReadBytes;
+  Duration _lastStatsAt = Duration.zero;
 
   /// The window in which a second Back means "I really do want out".
   ///
@@ -359,7 +377,18 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// Deltas from here are what [videoHealthFor] reads, so the ragged first
   /// seconds after an open are the baseline rather than the evidence. Null
   /// until the first sample of an attempt lands.
-  ({int displayed, int lost})? _videoBaseline;
+  ({
+    int displayed,
+    int lost,
+    int corrupted,
+    int discontinuity,
+    int decoded,
+  })?
+  _videoBaseline;
+
+  /// The last smoothness verdict logged, so a steady state is reported once
+  /// rather than every window.
+  PlaybackSmoothness _lastSmoothness = PlaybackSmoothness.unknown;
   Duration _videoWindow = Duration.zero;
 
   /// Whether a stats request is in flight, so a slow platform round trip
@@ -403,6 +432,26 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// The last position observed, used to tell real playback from a stuck state
   /// enum.
   Duration _lastSeenPosition = Duration.zero;
+
+  /// Seeks the watchdog has already forgiven, so a new one can be spotted.
+  int _seenSeekRequests = 0;
+
+  /// The audio and subtitle the viewer was on, carried across a reopen.
+  ///
+  /// Scoped to the content, not the session: [_startEpisode] clears them,
+  /// because the next episode's tracks are its own. Within one episode every
+  /// reopen - a failover to another provider, a same-source recovery, a
+  /// rendition step-down - is the same film, so the pick still means something.
+  RememberedTrack? _rememberedAudio;
+  RememberedTrack? _rememberedSubtitle;
+
+  /// The ids the last snapshot reported, so a change can be spotted without
+  /// asking the engine for its track list on every tick.
+  int? _seenAudioTrackId;
+  int? _seenSubtitleTrackId;
+
+  /// Set by [_openAttempt], cleared once the picks have been put back.
+  bool _restorePending = false;
 
   /// The last non-zero length the engine reported for this attempt.
   ///
@@ -634,6 +683,18 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
           // has no read-ahead-in-seconds control for this to stand in for, and
           // a large value here buys nothing but the silence above.
           networkCaching: kNetworkCachingMs,
+          // Read-ahead, which is the knob the caching one was mistaken for:
+          // it buys resilience and cheap seeks without delaying a stream that
+          // starts mid-playback. The viewer's wish is in minutes; libVLC only
+          // takes bytes, so it is converted here against the rendition this
+          // device will actually ask for and capped at what it can hold.
+          prefetchBufferKiB: prefetchBufferKiBFor(
+            minutes: settings.networkBufferMinutes,
+            maxHeight: _deviceAdaptiveMaxHeight,
+            tier:
+                ref.read(deviceProfileProvider).asData?.value.tier ??
+                DeviceTier.standard,
+          ),
           userAgent: kDefaultBrowserUserAgent,
           // libVLC does adapt, but its estimator starts pessimistic and can
           // sit on a low rendition for a long stretch, so pin the highest.
@@ -945,6 +1006,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         _read(playerSettingsProvider).asData?.value.subtitleDefault ==
         SubtitleDefault.off;
     _subtitleOffAsked = null;
+    // Whatever the viewer was listening to and reading goes back on once the
+    // new media has published its tracks. A reopen restores the position; it
+    // has no business also changing the language.
+    _restorePending = _rememberedAudio != null || _rememberedSubtitle != null;
     // Every way back into playback goes through here - Start Over, a failover,
     // a hand-picked source - and none of them may leave the ended card up over
     // media that is opening.
@@ -1211,6 +1276,112 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     unawaited(_disableSubtitles());
   }
 
+  /// Watches which tracks are on, and puts them back after a reopen.
+  ///
+  /// Two jobs, one tick, because both hang off the same two ids.
+  ///
+  /// REMEMBERING is lazy on purpose. Resolving an id to a language needs the
+  /// engine's track list, which is a round trip, so it is only asked for when
+  /// an id actually changes - a few times a session rather than four times a
+  /// second. Whatever is playing is remembered, not only what the viewer
+  /// chose: after a failover the thing to restore is the track they were
+  /// hearing, whoever picked it.
+  ///
+  /// RESTORING waits for the new media to publish tracks. `setAudioTrack`
+  /// before they exist is refused, and libVLC 3 queues an added slave to the
+  /// input thread, so the list arrives some ticks after the open completes.
+  /// A non-null active id is the proof that it has.
+  void _rememberTracks(VlcPlayerValue value) {
+    final audioId = value.activeAudioTrackId;
+    final subtitleId = value.activeSubtitleTrackId;
+
+    if (_restorePending) {
+      // Nothing to match against yet.
+      if (audioId == null && subtitleId == null) return;
+      _restorePending = false;
+      unawaited(_restoreTracks());
+      return;
+    }
+
+    if (audioId != _seenAudioTrackId) {
+      _seenAudioTrackId = audioId;
+      if (audioId != null) unawaited(_snapshotAudio(audioId));
+    }
+    if (subtitleId != _seenSubtitleTrackId) {
+      _seenSubtitleTrackId = subtitleId;
+      // A cleared subtitle is a choice too - "off" has to survive a reopen as
+      // surely as a language does.
+      _rememberedSubtitle = null;
+      if (subtitleId != null) unawaited(_snapshotSubtitle(subtitleId));
+    }
+  }
+
+  Future<void> _snapshotAudio(int id) async {
+    final generation = _generation;
+    try {
+      final tracks = await _controller.getAudioTracks();
+      if (_disposed || generation != _generation) return;
+      _rememberedAudio = RememberedTrack.of(
+        tracks.where((t) => t.id == id).firstOrNull,
+      );
+    } on Object {
+      // A list the engine will not produce is not worth failing an attempt
+      // over; the pick simply is not carried this time.
+    }
+  }
+
+  Future<void> _snapshotSubtitle(int id) async {
+    final generation = _generation;
+    try {
+      final tracks = await _controller.getSubtitleTracks();
+      if (_disposed || generation != _generation) return;
+      _rememberedSubtitle = RememberedTrack.of(
+        tracks.where((t) => t.id == id).firstOrNull,
+      );
+    } on Object {
+      // See above.
+    }
+  }
+
+  /// Puts the remembered picks back on the media that has just opened.
+  ///
+  /// Each half is independent: a source that carries the right audio but not
+  /// the right subtitle should still get the audio.
+  Future<void> _restoreTracks() async {
+    final generation = _generation;
+    try {
+      final audio = _rememberedAudio;
+      if (audio != null) {
+        final match = matchRememberedTrack(
+          await _controller.getAudioTracks(),
+          audio,
+        );
+        if (_disposed || generation != _generation) return;
+        if (match != null) await _controller.setAudioTrack(match.id);
+      }
+
+      final subtitle = _rememberedSubtitle;
+      if (subtitle != null) {
+        if (_disposed || generation != _generation) return;
+        final match = matchRememberedTrack(
+          await _controller.getSubtitleTracks(),
+          subtitle,
+        );
+        if (_disposed || generation != _generation) return;
+        if (match != null) {
+          // The viewer was reading subtitles, so the Off default has been
+          // overruled for this media already; putting one back must not then
+          // be undone by the standing rule.
+          _subtitlesOffPending = false;
+          await _controller.setSubtitleTrack(match.id);
+        }
+      }
+    } on Object {
+      // A refusal leaves the engine's own choice, which is where a viewer
+      // would have been without any of this.
+    }
+  }
+
   /// One `disableSubtitle`, with the engine's refusal absorbed.
   ///
   /// Never allowed to throw: on the open chain it sits between `setMedia` and
@@ -1342,6 +1513,22 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       _resetStallClock();
       return;
     }
+    // A seek freezes the reported position on purpose: the demuxer has to
+    // reposition and refill before it reports anything at the new place, and
+    // on a slow source that outlasts the recover threshold. Measured from
+    // before the seek it reads as a dead source, and the recovery reopens the
+    // media - which is why a skip forward could end with the duration blank,
+    // the position at zero and every track back at the engine's own choice.
+    // The window restarts instead, so a source that really cannot deliver
+    // after a seek is still caught, just measured from the seek.
+    final seeks = _controller.seekRequests;
+    if (seeks != _seenSeekRequests) {
+      _seenSeekRequests = seeks;
+      if (_lastStallAction != StallAction.none) _setStatus('');
+      _resetStallClock();
+      return;
+    }
+
     _attemptAge += _kWatchdogTick;
     _stalledFor += _kWatchdogTick;
 
@@ -1405,6 +1592,95 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     unawaited(_sampleVideoHealth());
   }
 
+  /// Says which side a stutter is coming from, once per change of verdict.
+  ///
+  /// "The video is not smooth" has two causes with opposite fixes: a decoder
+  /// that cannot keep up wants a lower rendition, and a source arriving
+  /// corrupt wants a different source. libVLC counts both, so the answer does
+  /// not have to be guessed at from a description.
+  ///
+  /// Logged rather than shown. It is a diagnosis for whoever reads a report,
+  /// and the player already acts on the half it can fix by itself - see
+  /// [videoHealthFor] and the rendition step-down.
+  void _reportSmoothness(
+    VlcMediaStats stats,
+    ({
+      int displayed,
+      int lost,
+      int corrupted,
+      int discontinuity,
+      int decoded,
+    })
+    baseline,
+  ) {
+    final displayed = stats.displayedPictures - baseline.displayed;
+    final lost = stats.lostPictures - baseline.lost;
+    final corrupted = stats.demuxCorrupted - baseline.corrupted;
+    final discontinuity = stats.demuxDiscontinuity - baseline.discontinuity;
+
+    final verdict = classifySmoothness(
+      statsAvailable: stats.isAvailable,
+      measuredFor: _videoWindow,
+      displayed: displayed,
+      lost: lost,
+      corrupted: corrupted,
+      discontinuity: discontinuity,
+      decoded: stats.decodedVideo - baseline.decoded,
+    );
+    if (verdict == _lastSmoothness) return;
+    _lastSmoothness = verdict;
+    if (verdict == PlaybackSmoothness.unknown) return;
+
+    final line = smoothnessReport(
+      verdict,
+      displayed: displayed,
+      lost: lost,
+      corrupted: corrupted,
+      discontinuity: discontinuity,
+    );
+    if (verdict == PlaybackSmoothness.fine) {
+      talker.info('Playback: $line');
+    } else {
+      talker.warning('Playback: $line');
+    }
+  }
+
+  /// Turns one stats sample into the seek bar's buffered band.
+  ///
+  /// Rides the health sampler rather than polling on its own: the round trip
+  /// is already being made once a second, and a second one for a cosmetic band
+  /// would be a real cost on a weak device for no extra information.
+  ///
+  /// Cleared to nothing whenever the estimate cannot be trusted, so the band
+  /// disappears instead of freezing at a stale width - a bar that keeps
+  /// claiming a buffer through a stall is worse than one that admits it does
+  /// not know.
+  void _updateBufferedAhead(VlcMediaStats stats) {
+    final now = _attemptAge;
+    final previous = _lastDemuxReadBytes;
+    final interval = now - _lastStatsAt;
+    _lastDemuxReadBytes = stats.demuxReadBytes;
+    _lastStatsAt = now;
+
+    if (!stats.isAvailable || previous == null) {
+      _bufferedFraction.value = 0;
+      return;
+    }
+
+    final value = _controller.value;
+    final fraction = bufferedFraction(
+      position: value.position,
+      duration: value.duration,
+      ahead: bufferedAhead(
+        readBytes: stats.readBytes,
+        demuxReadBytes: stats.demuxReadBytes,
+        previousDemuxReadBytes: previous,
+        sampleInterval: interval,
+      ),
+    );
+    _bufferedFraction.value = fraction ?? 0;
+  }
+
   /// One `getMediaStats` round trip, and what it means.
   Future<void> _sampleVideoHealth() async {
     final generation = _generation;
@@ -1420,16 +1696,23 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _statsInFlight = false;
     if (_disposed || generation != _generation) return;
 
+    _updateBufferedAhead(stats);
+
     final baseline = _videoBaseline;
     if (baseline == null) {
       // First reading of the window is the datum, never the verdict.
       _videoBaseline = (
         displayed: stats.displayedPictures,
         lost: stats.lostPictures,
+        corrupted: stats.demuxCorrupted,
+        discontinuity: stats.demuxDiscontinuity,
+        decoded: stats.decodedVideo,
       );
       _videoWindow = Duration.zero;
       return;
     }
+
+    _reportSmoothness(stats, baseline);
 
     final health = videoHealthFor(
       statsAvailable: stats.isAvailable,
@@ -1493,6 +1776,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     final generation = _generation;
     if (value.isSeekable && value.position > Duration.zero) {
       await _controller.seekTo(value.position);
+      // Account for that seek before the next tick reads the counter. The
+      // watchdog forgives a freeze the viewer asked for, and this one is its
+      // own - left unclaimed it would clear the line it just put up and
+      // restart the window it is trying to run down.
+      _seenSeekRequests = _controller.seekRequests;
       if (_disposed || generation != _generation) return;
     }
     await _controller.play();
@@ -2082,6 +2370,13 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _sample = null;
     _lastStreamUrl = null;
     _resolved = null;
+    // The next episode's tracks are its own; carrying the last one's pick over
+    // would answer a question this viewer has not been asked yet.
+    _rememberedAudio = null;
+    _rememberedSubtitle = null;
+    _seenAudioTrackId = null;
+    _seenSubtitleTrackId = null;
+    _restorePending = false;
     _preloaded = null; // route sources belong to the first episode only
     _skipSegments = const <SkipSegment>[]; // previous episode's intro/outro
     // Both offers belong to the episode that just ended. The refusal
@@ -2161,6 +2456,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // and the window this closes has to close on the same tick whatever the
     // state says.
     _applySubtitleDefault(value);
+    _rememberTracks(value);
     final recorder = _recorder;
     if (recorder == null) return;
 
@@ -2733,6 +3029,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // an open panel's builder may still unsubscribe, which a disposed
     // notifier allows.
     _panelData.dispose();
+    _bufferedFraction.dispose();
     unawaited(_connectivity?.cancel());
     // Unconditional and required: Android keeps delivering over this channel
     // while it tears the PiP window down, and a handler left registered closes
@@ -2908,6 +3205,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                 RepaintBoundary(
                   child: VlcPlayerControls(
                     controller: _controller,
+                    bufferedFraction: _bufferedFraction,
                     chrome: _chrome,
                     // The texture platforms honour fit through VlcPlayer's
                     // FittedBox, not through the native setFit, so the button
