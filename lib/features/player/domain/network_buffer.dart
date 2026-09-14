@@ -1,71 +1,40 @@
-/// Turning "how many minutes of video to hold" into the byte count libVLC
-/// actually takes.
+/// How large a read-ahead buffer to start a device with.
 ///
-/// libVLC 3 has no read-ahead measured in time. `--prefetch-buffer-size` is
-/// bytes, and the only time-based option is `--network-caching`, which is
-/// output latency and is capped by libVLC at 60 s. So minutes have to be
-/// converted, and a conversion needs a bitrate the buffer is sized before
-/// anyone knows: the option goes on the libVLC instance, before a stream is
-/// open. The rendition ceiling is the best guess available at that point.
-///
-/// mpv, which is where the minutes idea comes from, does the same thing in two
-/// halves - `--demuxer-readahead-secs` for the wish and `--demuxer-max-bytes`
-/// for the ceiling - and the ceiling is the half that matters, because three
-/// minutes of 4K is over half a gigabyte of resident memory and an OOM kill on
-/// anything but a desktop.
+/// A default, never a cap. An earlier version of this converted a duration
+/// into bytes and then clamped the result to what the device could hold, which
+/// meant most of the choices on offer produced the same buffer and the control
+/// mostly did nothing. The number a viewer picks is now reserved exactly; this
+/// only decides where a fresh install starts.
 library;
 
 import '../../../core/providers/device_info_provider.dart';
 
-/// Nominal bitrate for a rendition height, in bits per second.
+/// The sizes offered, in megabytes.
 ///
-/// Deliberately generous rather than accurate. Undershooting buys less buffer
-/// than asked for, which is a disappointment; overshooting reserves memory a
-/// device may not have, which is a crash.
-int nominalBitrateFor(int maxHeight) => switch (maxHeight) {
-  >= 2160 => 25000000,
-  >= 1440 => 16000000,
-  >= 1080 => 8000000,
-  >= 720 => 5000000,
-  >= 480 => 2500000,
-  _ => 1500000,
+/// Stops at 512. The buffer is resident and competes with the decoder's own
+/// picture pool, so past this the returns are small and the risk is not - but
+/// it is offered, because a desktop with plenty of memory can spend it and
+/// nothing here should decide that on the owner's behalf.
+const List<int> kNetworkBufferChoicesMb = <int>[32, 64, 128, 256, 512];
+
+/// Where a device starts before anyone chooses.
+///
+/// Scaled by tier rather than by a raw megabyte count because the tier already
+/// folds in Android's own low-RAM flag, which an OEM sets knowing things about
+/// the device that a number does not capture.
+int defaultNetworkBufferMb(DeviceTier tier) => switch (tier) {
+  // Cheap sticks and old phones. 64 MB is still four times libVLC's own
+  // default and leaves the decoder room to work.
+  DeviceTier.low => 64,
+
+  // Ordinary phones, tablets and TV boxes.
+  DeviceTier.standard => 128,
+
+  // Desktops and anything with memory to spare.
+  DeviceTier.high => 256,
 };
 
-/// The most memory a device should ever hold in the read-ahead buffer.
-///
-/// The buffer is resident and never paged out, and it competes with the
-/// decoder's own picture pool. A low-tier stick has a few hundred megabytes to
-/// its name in total, so its ceiling is the one that stops this feature being
-/// a crash rather than a setting.
-int bufferCeilingBytesFor(DeviceTier tier) => switch (tier) {
-  DeviceTier.low => 48 * 1024 * 1024,
-  DeviceTier.standard => 128 * 1024 * 1024,
-  DeviceTier.high => 256 * 1024 * 1024,
-};
-
-/// The `--prefetch-buffer-size` value, in KiB, for a wish of [minutes].
-///
-/// Clamped to [bufferCeilingBytesFor], so the answer is "as much of that wish
-/// as this device can afford". Never zero: a buffer smaller than libVLC's own
-/// 4 KiB floor is refused by the option's range.
-int prefetchBufferKiBFor({
-  required int minutes,
-  required int maxHeight,
-  required DeviceTier tier,
-}) {
-  final wanted = minutes * 60 * (nominalBitrateFor(maxHeight) ~/ 8);
-  final allowed = wanted.clamp(4 * 1024, bufferCeilingBytesFor(tier));
-  return allowed ~/ 1024;
-}
-
-/// What that wish actually costs, in whole megabytes, for showing beside the
-/// setting. A viewer choosing "3 min" deserves to see it became 128 MB.
-int prefetchBufferMbFor({
-  required int minutes,
-  required int maxHeight,
-  required DeviceTier tier,
-}) => prefetchBufferKiBFor(
-  minutes: minutes,
-  maxHeight: maxHeight,
-  tier: tier,
-) ~/ 1024;
+/// The buffer to actually use: what the viewer chose, or this device's default
+/// when they have not chosen.
+int resolveNetworkBufferMb(int? chosen, DeviceTier tier) =>
+    chosen ?? defaultNetworkBufferMb(tier);

@@ -98,7 +98,7 @@ class PlayerSettings {
   /// Default: [QualityFilterMode.any] (sort only, no filtering).
   final QualityFilterMode qualityFilterMode;
 
-  /// How much of a network stream to hold in memory, in minutes of video.
+  /// How much of a network stream to hold in memory, in megabytes.
   ///
   /// Read-ahead, not latency. It feeds libVLC's prefetch buffer, which sits
   /// under the demuxer and holds a window either side of the read point, so a
@@ -107,12 +107,17 @@ class PlayerSettings {
   /// is output latency, and a large value there is what made a newly selected
   /// audio track silent for a full minute.
   ///
-  /// Minutes are the wish, not the promise. libVLC sizes this buffer in bytes
-  /// and never in time, so the figure is converted against the rendition's
-  /// nominal bitrate and then capped at what the device can hold - see
-  /// `prefetchBufferKiBFor`. A viewer asking for three minutes of 4K is asking
-  /// for half a gigabyte, and the cap is what stops that being a crash.
-  final int networkBufferMinutes;
+  /// Megabytes rather than minutes because libVLC sizes this in bytes and
+  /// never in time. Converting from minutes needed a guess at the bitrate and
+  /// a cap for the memory, and the two together made most of the choices
+  /// identical - four different durations all landing on the same buffer.
+  /// The number chosen here is the number reserved.
+  ///
+  /// Null means nobody has chosen, and the device picks - see
+  /// `defaultNetworkBufferMb`. Stored as null rather than as a resolved figure
+  /// so the answer follows the hardware if the same account is restored onto a
+  /// different device.
+  final int? networkBufferMb;
 
   /// Maximum volume the player allows, as a percentage (100–200).
   /// mpv can amplify beyond the source level; 100 disables the boost.
@@ -169,7 +174,7 @@ class PlayerSettings {
     this.wifiQuality = kDefaultWifiQuality,
     this.mobileQuality = QualityPreference.q1080,
     this.qualityFilterMode = QualityFilterMode.any,
-    this.networkBufferMinutes = 3,
+    this.networkBufferMb,
     this.maxVolumePercent = 200,
     this.showRemainingTime = false,
     this.showPip = true,
@@ -203,7 +208,7 @@ class PlayerSettings {
     QualityPreference? wifiQuality,
     QualityPreference? mobileQuality,
     QualityFilterMode? qualityFilterMode,
-    int? networkBufferMinutes,
+    int? networkBufferMb,
     int? maxVolumePercent,
     bool? showRemainingTime,
     bool? showPip,
@@ -239,7 +244,7 @@ class PlayerSettings {
       wifiQuality: wifiQuality ?? this.wifiQuality,
       mobileQuality: mobileQuality ?? this.mobileQuality,
       qualityFilterMode: qualityFilterMode ?? this.qualityFilterMode,
-      networkBufferMinutes: networkBufferMinutes ?? this.networkBufferMinutes,
+      networkBufferMb: networkBufferMb ?? this.networkBufferMb,
       maxVolumePercent: maxVolumePercent ?? this.maxVolumePercent,
       showRemainingTime: showRemainingTime ?? this.showRemainingTime,
       showPip: showPip ?? this.showPip,
@@ -401,12 +406,11 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
         ) ??
         true;
 
-    final networkBufferMinutes =
-        storage.getPlayerSetting<int>(
-          'player_network_buffer_minutes',
-          defaultValue: 3,
-        ) ??
-        3;
+    // No defaultValue: an absent key has to stay absent, because null is what
+    // "let the device decide" is stored as.
+    final networkBufferMb = storage.getPlayerSetting<int>(
+      'player_network_buffer_mb',
+    );
     final maxVolumePercent =
         storage.getPlayerSetting<int>('player_max_volume', defaultValue: 200) ??
         200;
@@ -430,7 +434,7 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
       wifiQuality: wifiQ,
       mobileQuality: mobileQ,
       qualityFilterMode: filterMode,
-      networkBufferMinutes: networkBufferMinutes,
+      networkBufferMb: networkBufferMb,
       maxVolumePercent: maxVolumePercent,
       showRemainingTime: showRemaining,
       showPip: showPip,
@@ -540,13 +544,10 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
     _update((PlayerSettings c) => c.copyWith(hardwareDecoding: val));
   }
 
-  Future<void> setNetworkBufferMinutes(int minutes) async {
-    final clamped = minutes.clamp(1, 10);
-    await _repository.setPlayerSetting(
-      'player_network_buffer_minutes',
-      clamped,
-    );
-    _update((PlayerSettings c) => c.copyWith(networkBufferMinutes: clamped));
+  Future<void> setNetworkBufferMb(int megabytes) async {
+    final clamped = megabytes.clamp(32, 512);
+    await _repository.setPlayerSetting('player_network_buffer_mb', clamped);
+    _update((PlayerSettings c) => c.copyWith(networkBufferMb: clamped));
   }
 
   Future<void> setMaxVolumePercent(int percent) async {

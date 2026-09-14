@@ -64,18 +64,13 @@ void main() {
     final options = createdOptions();
     expect(options, contains('--stream-filter=prefetch'));
 
-    // The default wish is three minutes. What that becomes in bytes depends
-    // on the rendition and the device, so the assertion is the contract - a
-    // real, capped, KiB figure - not a magic number.
-    final size = options.firstWhere(
-      (o) => o.startsWith('--prefetch-buffer-size='),
-    );
-    final kib = int.parse(size.split('=').last);
-    expect(kib, greaterThanOrEqualTo(4));
+    // Nothing chosen, so this device's default applies. The harness reports
+    // no device profile, which resolves to the standard tier.
     expect(
-      kib,
-      lessThanOrEqualTo(256 * 1024),
-      reason: 'never past the largest ceiling any tier allows',
+      options,
+      contains(
+        '--prefetch-buffer-size=${defaultNetworkBufferMb(DeviceTier.standard) * 1024}',
+      ),
     );
 
     await tester.pumpWidget(const SizedBox());
@@ -105,50 +100,47 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  group('minutes into bytes', () {
-    test('a wish is honoured when the device can afford it', () {
-      // 1 minute of 720p is 5 Mbps / 8 * 60 = 37.5 MB, inside every ceiling.
-      final kib = prefetchBufferKiBFor(
-        minutes: 1,
-        maxHeight: 720,
-        tier: DeviceTier.high,
-      );
+  group('what a device starts with', () {
+    test('more memory means a larger buffer, and never the reverse', () {
+      final low = defaultNetworkBufferMb(DeviceTier.low);
+      final standard = defaultNetworkBufferMb(DeviceTier.standard);
+      final high = defaultNetworkBufferMb(DeviceTier.high);
 
-      expect(kib, (5000000 ~/ 8) * 60 ~/ 1024);
+      expect(low, lessThan(standard));
+      expect(standard, lessThan(high));
+      expect(high, 256, reason: 'a desktop can spare it');
     });
 
-    test('a wish past what the device can hold is capped, not granted', () {
-      // Three minutes of 4K is ~562 MB. A low-tier stick has 48 MB to give,
-      // and granting the wish would be an OOM kill rather than a setting.
-      final low = prefetchBufferKiBFor(
-        minutes: 3,
-        maxHeight: 2160,
-        tier: DeviceTier.low,
-      );
-      final high = prefetchBufferKiBFor(
-        minutes: 3,
-        maxHeight: 2160,
-        tier: DeviceTier.high,
-      );
-
-      expect(low, 48 * 1024);
-      expect(high, 256 * 1024);
-      expect(low, lessThan(high));
+    test('every default is one of the sizes actually on offer', () {
+      // Otherwise the dialog opens with nothing selected.
+      for (final tier in DeviceTier.values) {
+        expect(
+          kNetworkBufferChoicesMb,
+          contains(defaultNetworkBufferMb(tier)),
+          reason: 'no row would be ticked on $tier',
+        );
+      }
     });
 
-    test('the label shows what was actually reserved', () {
-      // The number beside "3 min" has to be the capped one, or the setting
-      // promises memory it never took.
+    test('512 MB is offered but is nobody default', () {
+      // Offered because a desktop owner may want it; not a default, because
+      // the buffer is resident and competes with the decoder.
+      expect(kNetworkBufferChoicesMb, contains(512));
       expect(
-        prefetchBufferMbFor(minutes: 3, maxHeight: 2160, tier: DeviceTier.low),
-        48,
+        DeviceTier.values.map(defaultNetworkBufferMb),
+        isNot(contains(512)),
       );
     });
 
-    test('never below libVLC\'s own floor for the option', () {
+    test('a choice beats the device, whichever way it goes', () {
+      expect(resolveNetworkBufferMb(32, DeviceTier.high), 32);
+      expect(resolveNetworkBufferMb(512, DeviceTier.low), 512);
+    });
+
+    test('no choice falls to the device', () {
       expect(
-        prefetchBufferKiBFor(minutes: 1, maxHeight: 360, tier: DeviceTier.low),
-        greaterThanOrEqualTo(4),
+        resolveNetworkBufferMb(null, DeviceTier.high),
+        defaultNetworkBufferMb(DeviceTier.high),
       );
     });
   });

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
-import '../../../player/domain/network_buffer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -17,6 +16,7 @@ import '../../../../core/services/download_service.dart';
 import '../../../../core/theme/theme_provider.dart';
 import '../../../../core/utils/app_utils.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
+import '../../../player/domain/network_buffer.dart';
 import '../player_settings_provider.dart';
 import '../../../../core/utils/stream_quality_sorter.dart';
 import '../general_settings_provider.dart';
@@ -583,16 +583,10 @@ Widget _buildThemeOption(
 }
 
 /// Formats seek duration for display (e.g. "10 sec", "2 min").
-/// The wish and what it actually costs, e.g. "3 min · 128 MB".
-///
-/// Both, because either alone misleads. libVLC sizes this buffer in bytes and
-/// never in time, so the minutes are converted against the rendition's nominal
-/// bitrate and then capped at what the device can hold - three minutes of 4K
-/// asks for half a gigabyte. Showing only the minutes would promise something
-/// the cap often cannot keep; showing only the megabytes would hide what was
-/// chosen.
-String formatNetworkBuffer(int minutes, int megabytes, AppLocalizations l10n) =>
-    '$minutes ${l10n.min} · $megabytes MB';
+/// Plain megabytes. The buffer holds bytes, so this is the whole truth about
+/// it - how many seconds those buy depends on the bitrate, which is not known
+/// until a stream is open and differs per rendition anyway.
+String formatNetworkBuffer(int megabytes) => '$megabytes MB';
 
 String formatSeekDuration(int seconds, AppLocalizations l10n) {
   if (seconds >= 60) {
@@ -695,18 +689,12 @@ void showGestureDialog(
 /// Shows a dialog to pick the seek duration.
 /// Picks how much of a stream to hold in memory.
 ///
-/// Stops at 128 MB: past that the returns are small and the cost is real on a
-/// television or a low-memory handset, which are the devices least able to
-/// spare it.
-void showNetworkBufferDialog(
-  BuildContext context,
-  WidgetRef ref,
-  int current, {
-  required int maxHeight,
-  required DeviceTier tier,
-}) {
+/// [current] is the size in force, which is this device's default until the
+/// viewer picks something. Picking stores the number, so it then follows them
+/// rather than the hardware.
+void showNetworkBufferDialog(BuildContext context, WidgetRef ref, int current) {
   final l10n = AppLocalizations.of(context)!;
-  final options = <int>[1, 2, 3, 5, 10];
+  const options = kNetworkBufferChoicesMb;
 
   showDialog<void>(
     context: context,
@@ -717,36 +705,24 @@ void showNetworkBufferDialog(
         groupValue: current,
         onChanged: (val) {
           if (val == null) return;
-          ref
-              .read(playerSettingsProvider.notifier)
-              .setNetworkBufferMinutes(val);
+          ref.read(playerSettingsProvider.notifier).setNetworkBufferMb(val);
           Navigator.pop<void>(context);
         },
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: options.map((minutes) {
-              final bool isCurrent = minutes == current;
+            children: options.map((mb) {
+              final bool isCurrent = mb == current;
               return _currentOption(
                 isCurrent: isCurrent,
                 child: ListTile(
                   autofocus: isCurrent,
-                  title: Text(
-                    formatNetworkBuffer(
-                      minutes,
-                      prefetchBufferMbFor(
-                        minutes: minutes,
-                        maxHeight: maxHeight,
-                        tier: tier,
-                      ),
-                      l10n,
-                    ),
-                  ),
-                  leading: Radio<int>(value: minutes),
+                  title: Text(formatNetworkBuffer(mb)),
+                  leading: Radio<int>(value: mb),
                   onTap: () {
                     ref
                         .read(playerSettingsProvider.notifier)
-                        .setNetworkBufferMinutes(minutes);
+                        .setNetworkBufferMb(mb);
                     Navigator.pop<void>(context);
                   },
                 ),

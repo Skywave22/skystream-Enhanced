@@ -29,8 +29,8 @@ import '../../../skip/data/skip_service.dart';
 import '../../domain/clear_key.dart';
 import '../../domain/playback_progress.dart';
 import '../../domain/buffered_ahead.dart';
-import '../../domain/network_buffer.dart';
 import '../../../../core/logger/app_logger.dart';
+import '../../domain/network_buffer.dart';
 import '../../domain/smoothness.dart';
 import '../../domain/track_memory.dart';
 import '../../domain/playback_recovery.dart';
@@ -685,16 +685,14 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
           networkCaching: kNetworkCachingMs,
           // Read-ahead, which is the knob the caching one was mistaken for:
           // it buys resilience and cheap seeks without delaying a stream that
-          // starts mid-playback. The viewer's wish is in minutes; libVLC only
-          // takes bytes, so it is converted here against the rendition this
-          // device will actually ask for and capped at what it can hold.
-          prefetchBufferKiB: prefetchBufferKiBFor(
-            minutes: settings.networkBufferMinutes,
-            maxHeight: _deviceAdaptiveMaxHeight,
-            tier:
+          // starts mid-playback. KiB is libVLC's unit.
+          prefetchBufferKiB:
+              resolveNetworkBufferMb(
+                settings.networkBufferMb,
                 ref.read(deviceProfileProvider).asData?.value.tier ??
-                DeviceTier.standard,
-          ),
+                    DeviceTier.standard,
+              ) *
+              1024,
           userAgent: kDefaultBrowserUserAgent,
           // libVLC does adapt, but its estimator starts pessimistic and can
           // sit on a low rendition for a long stretch, so pin the highest.
