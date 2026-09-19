@@ -46,16 +46,18 @@ void main() {
       );
       final l10n = await english();
 
-      await tester.tap(find.text(l10n.playerSkipSource));
+      // The first source dies before it ever plays.
+      await sendEvent(tester, snapshot(state: 'error'));
       await settle(tester);
 
       expect(find.textContaining(l10n.sourceAttempt(2, 2)), findsOneWidget);
       expect(
-        find.text(l10n.playerReasonSkipped),
+        find.text('Alpha · 1080p · ${l10n.playerReasonPlaybackError}'),
         findsOneWidget,
         reason:
-            'the source line replaces the status in the same run, so the '
-            'reason needs a line of its own or it is never seen',
+            'the reason names the source it belongs to: the line above it now '
+            'names the next one, and "playback error" alone says nothing '
+            'about which',
       );
 
       await tester.pumpWidget(const SizedBox());

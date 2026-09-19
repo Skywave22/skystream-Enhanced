@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/features/player/domain/playback_recovery.dart';
+import 'package:skystream/features/player/domain/stream_resolver.dart'
+    show ProbeOutcome;
 
 void main() {
   group('stallActionFor', () {
@@ -112,6 +114,99 @@ void main() {
     test('an empty candidate list has no next', () {
       expect(
         nextFailoverIndex(from: 0, total: 0, tried: const <int>{}),
+        isNull,
+      );
+    });
+
+    // The reachability check already said these are dead, and a dead source
+    // that hangs rather than erroring costs the full stall deadline.
+    test('passes over candidates the check found unreachable', () {
+      expect(
+        nextFailoverIndex(from: 0, total: 4, tried: {0}, unreachable: {1, 2}),
+        3,
+      );
+    });
+
+    // Not dropped: a slow host or one that refuses the probe's requests reads
+    // as unreachable and still streams, so it is the last resort, not nothing.
+    test('reaches the unreachable ones once nothing else is left', () {
+      expect(
+        nextFailoverIndex(
+          from: 3,
+          total: 4,
+          tried: {0, 3},
+          unreachable: {1, 2},
+        ),
+        1,
+      );
+      expect(
+        nextFailoverIndex(
+          from: 1,
+          total: 4,
+          tried: {0, 1, 3},
+          unreachable: {1, 2},
+        ),
+        2,
+      );
+    });
+
+    test('an unreachable candidate that has been tried stays tried', () {
+      expect(
+        nextFailoverIndex(from: 0, total: 3, tried: {0, 1}, unreachable: {1}),
+        2,
+      );
+      expect(
+        nextFailoverIndex(
+          from: 2,
+          total: 3,
+          tried: {0, 1, 2},
+          unreachable: {1},
+        ),
+        isNull,
+      );
+    });
+  });
+
+  // Where to go when a source being opened turns out unreachable: back to one
+  // the check has already vouched for, rather than on down the list.
+  group('firstReachableIndex', () {
+    test('is the first candidate the check found reachable', () {
+      expect(
+        firstReachableIndex(
+          total: 4,
+          probes: {1: ProbeOutcome.healthy, 2: ProbeOutcome.healthy},
+          failed: const <int>{},
+          except: 3,
+        ),
+        1,
+      );
+    });
+
+    test('passes over the one being abandoned and any that failed', () {
+      expect(
+        firstReachableIndex(
+          total: 4,
+          probes: {
+            0: ProbeOutcome.healthy,
+            1: ProbeOutcome.healthy,
+            2: ProbeOutcome.healthy,
+          },
+          failed: const <int>{0},
+          except: 1,
+        ),
+        2,
+      );
+    });
+
+    // A probe still out, or one that got no answer, has vouched for nothing.
+    test('is nothing when no candidate has been vouched for', () {
+      expect(
+        firstReachableIndex(
+          total: 3,
+          probes: {0: ProbeOutcome.trying, 1: ProbeOutcome.unhealthy},
+          failed: const <int>{},
+          except: 2,
+        ),
         isNull,
       );
     });

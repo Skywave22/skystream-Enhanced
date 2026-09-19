@@ -3122,6 +3122,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Select network buffer'**
   String get selectNetworkBuffer;
+
+  /// Startup screen status while the plugin is still being asked for this title's links. {plugin} is the plugin's name, a proper noun.
+  ///
+  /// In en, this message translates to:
+  /// **'Getting links from {plugin}…'**
+  String playerGettingLinks(String plugin);
+
+  /// Status on one row of the source list: its reachability check is running.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking…'**
+  String get playerSourceChecking;
+
+  /// Status on the row of the source list the player is opening right now, before its first picture.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening…'**
+  String get playerSourceOpening;
+
+  /// Reachability column of the source list, for a link nobody has checked: the check only looks at the top few links, and cannot look at torrents or local files at all. Deliberately not 'Unknown', which reads as a verdict that something is wrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Not checked'**
+  String get playerSourceNotChecked;
+
+  /// Why one source gave up: it was opened without having been checked, the reachability check then got no answer from it, and the player went back to a source the check had vouched for. Matches the row's "Unknown": no answer is not proof the link is dead. A lowercase fragment, like the other playerReason strings: shown after the source's name.
+  ///
+  /// In en, this message translates to:
+  /// **'no answer from the link'**
+  String get playerReasonNoAnswer;
+
+  /// Status on a row of the source list for a link that was opened and would not play, or stopped playing. It may still be reachable - the reachability column says so separately.
+  ///
+  /// In en, this message translates to:
+  /// **'Unplayable'**
+  String get playerSourceUnplayable;
 }
 
 class _AppLocalizationsDelegate

@@ -1682,4 +1682,24 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get selectNetworkBuffer => 'नेटवर्क बफ़र चुनें';
+
+  @override
+  String playerGettingLinks(String plugin) {
+    return '$plugin से लिंक लिए जा रहे हैं…';
+  }
+
+  @override
+  String get playerSourceChecking => 'जाँच हो रही है…';
+
+  @override
+  String get playerSourceOpening => 'खुल रहा है…';
+
+  @override
+  String get playerSourceNotChecked => 'जाँचा नहीं गया';
+
+  @override
+  String get playerReasonNoAnswer => 'लिंक से कोई जवाब नहीं मिला';
+
+  @override
+  String get playerSourceUnplayable => 'चल नहीं सका';
 }

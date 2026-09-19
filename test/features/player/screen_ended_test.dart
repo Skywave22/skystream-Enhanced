@@ -732,7 +732,10 @@ void main() {
               'lie the viewer would act on',
         );
         expect(find.byKey(openingOverlayKey), findsOneWidget);
-        expect(find.text(l10n.playerReasonStreamEndedEarly), findsOneWidget);
+        expect(
+          find.textContaining(l10n.playerReasonStreamEndedEarly),
+          findsOneWidget,
+        );
 
         await tester.pumpWidget(const SizedBox());
       },
@@ -772,7 +775,10 @@ void main() {
           findsOneWidget,
           reason: 'the failover ladder is trying the source again instead',
         );
-        expect(find.text(l10n.playerReasonStreamEndedEarly), findsOneWidget);
+        expect(
+          find.textContaining(l10n.playerReasonStreamEndedEarly),
+          findsOneWidget,
+        );
 
         await tester.pumpWidget(const SizedBox());
       },

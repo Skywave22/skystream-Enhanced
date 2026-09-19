@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart'
     show ProviderListenable;
 import 'package:skystream/core/domain/entity/multimedia_item.dart';
@@ -359,10 +363,10 @@ void main() {
       },
     );
 
-    // Skip during the probe means "stop waiting", not "give up": whatever the
-    // race has actually proved by then is better than another three seconds of
-    // spinner.
-    test('skipping the probe takes the best candidate known so far', () async {
+    // A row picked from the source list while the check runs is a choice the
+    // viewer made: the race ends on it, even on a row the check would have
+    // passed over.
+    test('a row picked during the check ends it on exactly that row', () async {
       final settled = <int>[];
       final resolved = await resolvePlayback(
         read: readerOf(defaults),
@@ -373,18 +377,258 @@ void main() {
         onProbe: (index, outcome) {
           if (outcome != ProbeOutcome.trying) settled.add(index);
         },
-        stopProbing: Future<void>.value(),
+        pick: Future<int>.value(2),
       );
 
       expect(
         resolved.index,
-        0,
-        reason: 'nothing had been proved yet, so the preferred source stands',
+        2,
+        reason: 'the check would have opened 1; the viewer asked for 2',
       );
       expect(
         settled,
         isNotEmpty,
         reason: 'the probes in flight still report what they find',
+      );
+    });
+  });
+
+  // The check used to look at the top three and stop. A dead one among them
+  // was never replaced, and three dead ones opened the first of them anyway -
+  // up to 25 s of stall - before failover walked the rest one at a time.
+  group('the rolling check', () {
+    StreamResult at(String name) =>
+        StreamResult(url: 'https://cdn.test/$name.mkv', source: name);
+
+    /// Answers each candidate by name: [dead] ones refuse both of the probe's
+    /// requests, [held] ones wait on their completer and then answer, and
+    /// everything else answers at once.
+    MockClient answering({
+      Set<String> dead = const <String>{},
+      Map<String, Completer<void>> held = const <String, Completer<void>>{},
+    }) => MockClient((request) async {
+      final name = request.url.pathSegments.last.replaceAll('.mkv', '');
+      await held[name]?.future;
+      if (dead.contains(name)) {
+        if (request.method == 'HEAD') return http.Response('', 404);
+        throw http.ClientException('refused', request.url);
+      }
+      return http.Response('', 200);
+    });
+
+    Future<void> drain() async {
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    test('a candidate found dead is replaced by the next in line', () async {
+      final b = Completer<void>();
+      final dispatched = <int>[];
+      await http.runWithClient(() async {
+        final resolving = resolvePlayback(
+          read: readerOf(defaults),
+          item: itemWith(),
+          videoUrl: 'https://example.com/episode/1',
+          preloadedStreams: [at('a'), at('b'), at('c'), at('d')],
+          onProbe: (index, outcome) {
+            if (outcome == ProbeOutcome.trying) dispatched.add(index);
+          },
+        );
+        await drain();
+        expect(
+          dispatched,
+          contains(3),
+          reason: 'a is dead, so d is checked in its place',
+        );
+
+        b.complete();
+        final resolved = await resolving;
+        expect(
+          resolved.index,
+          1,
+          reason: 'b answers, and it outranks c and d',
+        );
+      }, () => answering(dead: {'a'}, held: {'b': b}));
+    });
+
+    test('when the first three are dead, the next three are checked and the '
+        'first reachable opens', () async {
+      final dispatched = <int>[];
+      final resolved = await http.runWithClient(
+        () => resolvePlayback(
+          read: readerOf(defaults),
+          item: itemWith(),
+          videoUrl: 'https://example.com/episode/1',
+          preloadedStreams: [
+            at('a'),
+            at('b'),
+            at('c'),
+            at('d'),
+            at('e'),
+            at('f'),
+          ],
+          onProbe: (index, outcome) {
+            if (outcome == ProbeOutcome.trying) dispatched.add(index);
+          },
+        ),
+        () => answering(dead: {'a', 'b', 'c', 'd'}),
+      );
+
+      expect(dispatched, containsAll(<int>[3, 4]));
+      expect(resolved.index, 4, reason: 'e is the first that answers');
+    });
+
+    // The check is wrong about slow hosts, so all of them failing it is not
+    // proof that none will play.
+    test('when every candidate is dead, the preferred one opens anyway', () async {
+      final resolved = await http.runWithClient(
+        () => resolvePlayback(
+          read: readerOf(defaults),
+          item: itemWith(),
+          videoUrl: 'https://example.com/episode/1',
+          preloadedStreams: [at('a'), at('b'), at('c'), at('d')],
+        ),
+        () => answering(dead: {'a', 'b', 'c', 'd'}),
+      );
+
+      expect(resolved.index, 0);
+    });
+
+    // The check ends as soon as the best link is known, and links still being
+    // checked answer after it. One of those found dead used to leave its slot
+    // empty, so the list showed three verdicts and then nothing.
+    test('a link found dead after the check settled is still replaced', () async {
+      final b = Completer<void>();
+      final dispatched = <int>[];
+      await http.runWithClient(() async {
+        final resolved = await resolvePlayback(
+          read: readerOf(defaults),
+          item: itemWith(),
+          videoUrl: 'https://example.com/episode/1',
+          preloadedStreams: [at('a'), at('b'), at('c'), at('d')],
+          onProbe: (index, outcome) {
+            if (outcome == ProbeOutcome.trying) dispatched.add(index);
+          },
+        );
+        expect(resolved.index, 0, reason: 'a answered first');
+        expect(dispatched, isNot(contains(3)));
+
+        b.complete();
+        await drain();
+        expect(dispatched, contains(3), reason: 'b died, so d takes its place');
+      }, () => answering(dead: {'b'}, held: {'b': b}));
+    });
+
+    test('and nothing more is checked once the caller abandons it', () async {
+      final b = Completer<void>();
+      final abandon = Completer<void>();
+      final dispatched = <int>[];
+      await http.runWithClient(() async {
+        await resolvePlayback(
+          read: readerOf(defaults),
+          item: itemWith(),
+          videoUrl: 'https://example.com/episode/1',
+          preloadedStreams: [at('a'), at('b'), at('c'), at('d')],
+          onProbe: (index, outcome) {
+            if (outcome == ProbeOutcome.trying) dispatched.add(index);
+          },
+          abandon: abandon.future,
+        );
+        abandon.complete();
+        await drain();
+
+        b.complete();
+        await drain();
+        expect(dispatched, isNot(contains(3)));
+      }, () => answering(dead: {'b'}, held: {'b': b}));
+    });
+
+    // Fifty dead links at up to six seconds a batch is minutes of spinner.
+    test('the time limit opens the best found so far', () async {
+      final slow = Completer<void>();
+      final resolved = await http.runWithClient(
+        () => resolvePlayback(
+          read: readerOf(defaults),
+          item: itemWith(),
+          videoUrl: 'https://example.com/episode/1',
+          preloadedStreams: [at('a'), at('b')],
+          probeBudget: const Duration(milliseconds: 50),
+        ),
+        () => answering(held: {'a': slow}),
+      );
+
+      expect(
+        resolved.index,
+        1,
+        reason: 'a has not answered, b has - no longer worth waiting on a',
+      );
+    });
+
+    test('and the preferred one when nothing has answered', () async {
+      final slow = Completer<void>();
+      final resolved = await http.runWithClient(
+        () => resolvePlayback(
+          read: readerOf(defaults),
+          item: itemWith(),
+          videoUrl: 'https://example.com/episode/1',
+          preloadedStreams: [at('a'), at('b')],
+          probeBudget: const Duration(milliseconds: 50),
+        ),
+        () => answering(held: {'a': slow, 'b': slow}),
+      );
+
+      expect(resolved.index, 0);
+    });
+  });
+
+  // The same check the race runs, for one source on its own: a link opened
+  // outside the top three is checked while it opens.
+  group('isReachable', () {
+    const stream = StreamResult(url: 'https://cdn.test/a.mkv', source: 'A');
+
+    test('is true for a source that answers', () async {
+      final ok = await http.runWithClient(
+        () => isReachable(stream),
+        () => MockClient((_) async => http.Response('', 200)),
+      );
+      expect(ok, isTrue);
+    });
+
+    test('is false for one that refuses both requests', () async {
+      final ok = await http.runWithClient(
+        () => isReachable(stream),
+        () => MockClient((request) async {
+          if (request.method == 'HEAD') return http.Response('', 404);
+          throw http.ClientException('refused', request.url);
+        }),
+      );
+      expect(ok, isFalse);
+    });
+  });
+
+  // The startup view names the plugin it is waiting on, and has to know when
+  // there is none: a local file or a direct link is never handed to one.
+  group('pluginFor', () {
+    test('is the plugin resolution would ask', () {
+      final plugin = FakePlugin(const []);
+      final reader = readerOf([(activeProviderProvider, plugin), ...defaults]);
+
+      expect(
+        pluginFor(reader, itemWith(), 'https://example.com/episode/1'),
+        same(plugin),
+      );
+    });
+
+    test('is nobody for a local file or a torrent', () {
+      final reader = readerOf(defaults);
+      expect(
+        pluginFor(reader, itemWith(provider: 'Local'), '/movies/a.mkv'),
+        isNull,
+      );
+      expect(
+        pluginFor(reader, itemWith(), 'magnet:?xt=urn:btih:abc'),
+        isNull,
       );
     });
   });

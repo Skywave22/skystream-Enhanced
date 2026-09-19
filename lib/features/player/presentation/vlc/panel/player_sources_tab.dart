@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../../core/domain/entity/multimedia_item.dart';
 import '../../../../../l10n/generated/app_localizations.dart';
+import '../../../domain/source_row_status.dart';
 import '../../../domain/stream_resolver.dart';
 import 'player_panel_labels.dart';
 import 'player_panel_metrics.dart';
@@ -25,6 +26,8 @@ class PlayerSourcesTab extends StatelessWidget {
     required this.currentIndex,
     required this.onPick,
     this.probes = const <int, ProbeOutcome>{},
+    this.failed = const <int>{},
+    this.played = const <int>{},
     this.qualityFilteredFallback = false,
     this.anchorIndex,
     this.autofocus = false,
@@ -44,6 +47,14 @@ class PlayerSourcesTab extends StatelessWidget {
 
   /// Live health of each candidate, keyed the same way [sources] is indexed.
   final Map<int, ProbeOutcome> probes;
+
+  /// Sources that were played and would not play, keyed the same way.
+  final Set<int> failed;
+
+  /// Sources that have shown a picture, keyed the same way. They read
+  /// reachable whatever the probe said: the one playing never says "not
+  /// checked" under its own picture.
+  final Set<int> played;
 
   /// Whether the quality filter matched nothing and was dropped, which is why
   /// sources below the viewer's preference are in this list.
@@ -67,7 +78,9 @@ class PlayerSourcesTab extends StatelessWidget {
 
     return PanelAnchoredList(
       anchorIndex: qualityFilteredFallback ? anchor + 1 : anchor,
-      estimatedRowExtent: 84,
+      // Every row carries a reachability chip - "Not checked" where the probe
+      // never looked - so a torrent row's badges run to a second line.
+      estimatedRowExtent: 98,
       autofocus: autofocus,
       itemCount: sources.length + (qualityFilteredFallback ? 1 : 0),
       itemBuilder: (context, position) {
@@ -80,13 +93,19 @@ class PlayerSourcesTab extends StatelessWidget {
         final stream = sources[index];
         final facts = sourceFactsOf(stream);
         final selected = index == currentIndex;
-        final (status, statusColour) = _probeState(l10n, probes[index]);
+        final reachability = sourceReachabilityOf(
+          stream,
+          probes[index],
+          hasPlayed: played.contains(index),
+        );
+        // Only a failure is worth a second chip here. The row being played
+        // already wears `Now playing`, and one being opened is the same row -
+        // the startup view is where "Opening" is said.
+        final hasFailed = failed.contains(index);
 
         return PanelRow(
           label: facts.title,
-          detail: stream.providerName.trim().isEmpty
-              ? null
-              : stream.providerName,
+          detail: sourceProvider(stream),
           badges: <String>[
             ?facts.quality,
             ?facts.size,
@@ -94,8 +113,10 @@ class PlayerSourcesTab extends StatelessWidget {
           ],
           selected: selected,
           selectedLabel: l10n.playerNowPlaying,
-          status: status,
-          statusColor: statusColour,
+          status: sourceReachabilityLabel(l10n, reachability),
+          statusColor: _reachabilityColour(reachability),
+          outcome: hasFailed ? l10n.playerSourceUnplayable : null,
+          outcomeColor: hasFailed ? const Color(0xFFE57373) : null,
           autofocus: autofocus && index == anchor,
           icon: Icons.dns_outlined,
           onTap: () => onPick(index),
@@ -104,26 +125,22 @@ class PlayerSourcesTab extends StatelessWidget {
     );
   }
 
-  /// The probe result as a chip. Only the states the viewer can act on: a
-  /// candidate still being tried, one that answered, one that did not.
-  (String?, Color?) _probeState(AppLocalizations l10n, ProbeOutcome? outcome) {
-    return switch (outcome) {
-      null => (null, null),
-      // No colour: the chip falls through to the ramp's own badge treatment
-      // (`metrics.secondaryText` on `metrics.divider`), so on a television it
-      // is as legible as the two beside it. A colour here would have to be a
-      // literal, and a literal is what left this one chip at the phone's 45 %
-      // white on a set that crushes it - "still looking" reading as "nothing
-      // there". Green and red stay: those two say something the word does
-      // not.
-      ProbeOutcome.trying => (l10n.trying, null),
-      ProbeOutcome.healthy => (
-        l10n.playerSourceReachable,
-        const Color(0xFF4CAF50),
-      ),
-      ProbeOutcome.unhealthy => (l10n.failed, const Color(0xFFE57373)),
-    };
-  }
+  /// The reachability chip's colour, worded the way the startup view words it.
+  ///
+  /// Colour only where it says something the word does not: green for a
+  /// source that answered, amber for one the check got no answer from - a
+  /// warning, since the probe is wrong about slow hosts. (Red is the failure
+  /// chip's, for a source that was played and failed.) Everything else falls
+  /// through to the ramp's own badge treatment (`metrics.secondaryText` on
+  /// `metrics.divider`), so on a television it is as legible as the badges
+  /// beside it. A literal there is what once left "still looking" at the
+  /// phone's 45 % white on a set that crushes it, reading as "nothing there".
+  static Color? _reachabilityColour(SourceReachability reachability) =>
+      switch (reachability) {
+        SourceReachability.reachable => const Color(0xFF4CAF50),
+        SourceReachability.unreachable => const Color(0xFFFFB74D),
+        SourceReachability.checking || SourceReachability.notChecked => null,
+      };
 }
 
 /// Says why sources the viewer's quality preference excludes are in the list.

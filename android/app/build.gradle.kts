@@ -10,7 +10,7 @@ plugins {
 
 android {
     namespace = "dev.akash.skystream"
-    compileSdk = rootProject.extra["projectCompileSdk"] as Int
+    compileSdkVersion(rootProject.extra["projectCompileSdk"] as String)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -36,6 +36,7 @@ import '../../domain/track_memory.dart';
 import '../../domain/playback_recovery.dart';
 import '../../domain/side_car_subtitles.dart';
 import '../../domain/skip_segments.dart';
+import '../../domain/source_row_status.dart';
 import '../../domain/playback_tracker.dart';
 import '../../domain/stream_resolver.dart';
 import '../../domain/subtitle_search_target.dart';
@@ -46,6 +47,7 @@ import '../subtitle_search_provider.dart' show subtitleLanguageProvider;
 import 'chrome_visibility_controller.dart';
 import 'ended_card.dart';
 import 'next_episode_countdown.dart';
+import 'player_startup_view.dart';
 import 'panel/player_panel.dart';
 import 'player_value_selector.dart';
 import 'resume_hint.dart';
@@ -205,10 +207,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   _Stage _stage = _Stage.resolving;
 
-  /// Guards Skip against remote key-repeat; see [_skip]. Held as a Timer so
-  /// teardown can cancel it - a bare delayed future outlives the State.
-  Timer? _skipCooldown;
-  bool get _skipping => _skipCooldown?.isActive ?? false;
+  /// Guards a row picked on the startup view against remote key-repeat; see
+  /// [_pickFromStartup]. Held as a Timer so teardown can cancel it - a bare
+  /// delayed future outlives the State.
+  Timer? _pickCooldown;
   String _error = '';
 
   /// Shown under the spinner while opening, when there is something worth
@@ -293,10 +295,38 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// of this episode from an advance to the next one.
   Object? _publishedSourcesMedia;
 
-  /// Completed when the viewer refuses to wait for the health probe. Null once
-  /// resolution is past it, which is how Skip knows it now means "abandon the
-  /// source the engine is opening" instead.
-  Completer<void>? _skipProbe;
+  /// Completed with a row the viewer picked while the health probe was still
+  /// racing; the resolver ends the race on it. Null once resolution is past
+  /// the race.
+  Completer<int>? _pick;
+
+  /// Completed when this screen stops waiting on the resolve in flight - it
+  /// closed, or a new resolve replaced it - so the reachability check stops
+  /// and nothing it armed outlives the screen.
+  Completer<void>? _abandonResolve;
+
+  /// Whether this resolve has yet to open anything. True from [_start] until
+  /// it hands its choice to [_openAttempt]: in that window a pick has nothing
+  /// to switch away from, so it becomes [_start]'s choice instead of racing it.
+  bool _awaitingFirstOpen = true;
+
+  /// A row picked after the race ended but before the first open began, for
+  /// [_start] to open in place of the resolver's own choice.
+  int? _pickedBeforeOpen;
+
+  /// Rows that were opened this resolve and would not play, or stopped. Keyed
+  /// the way [_candidates] is indexed, and cleared with it.
+  final Set<int> _failedRows = <int>{};
+
+  /// Rows that have shown a picture this resolve. A picture is proof of reach
+  /// no probe can beat, so the source lists call these reachable whatever the
+  /// probe said - or, for a torrent or a local file, could not say.
+  final Set<int> _playedRows = <int>{};
+
+  /// The plugin this resolve is asking, by its own name, for the startup view
+  /// to say who it is waiting on. Null when no plugin is involved: a local
+  /// file, a direct link, or sources a sheet already gathered.
+  String? _pluginName;
 
   /// The episode currently playing. Mutable because advancing swaps media on
   /// this same State rather than pushing a new route.
@@ -358,6 +388,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// fires once. Cleared the moment the position moves.
   StallAction _lastStallAction = StallAction.none;
   Timer? _watchdog;
+
+  /// The current attempt's [kFirstFrameDeadline], armed as it starts opening
+  /// and gone with its first picture. See [_armFirstFrameDeadline].
+  Timer? _firstFrameDeadline;
 
   /// The tallest adaptive rendition this session may be handed.
   ///
@@ -554,13 +588,6 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _container = ProviderScope.containerOf(context, listen: false);
-    // The first thing the spinner has to say. Here rather than in _start(),
-    // which runs before the first build: reading localizations takes an
-    // inherited-widget dependency, and doing that from initState is an
-    // assertion. No setState for the same reason - nothing has built yet.
-    if (_stage == _Stage.resolving && _status.isEmpty) {
-      _status = AppLocalizations.of(context)?.loading ?? '';
-    }
   }
 
   T _read<T>(ProviderListenable<T> provider) {
@@ -800,16 +827,43 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // Whatever the last run learned describes the last run. A retry re-probes
     // and an episode advance resolves different media, and either one showing
     // the previous attempt list is worse than showing nothing.
-    _candidates = const <StreamResult>[];
-    _probes.clear();
+    _forgetSources();
     _publishPanelData();
     _setFailReason(null);
-    final skipProbe = _skipProbe = Completer<void>();
+    _awaitingFirstOpen = true;
+    _pickedBeforeOpen = null;
+    final pick = _pick = Completer<int>();
+    _abandonPendingResolve();
+    final abandon = _abandonResolve = Completer<void>();
+    final currentEpisode = _currentEpisode;
+    // Asked alongside the plugin rather than after it. Where to resume does
+    // not depend on which source opens, and with trackers linked the lookup
+    // can take its whole three-second budget - which used to be spent after
+    // the probe, in front of setMedia, with nothing on screen moving.
+    //
+    // Its error handler is attached here, not where it is awaited: resolution
+    // can outlast it, and a failure with no handler yet is an unhandled one. A
+    // lookup that fails starts playback from the top rather than failing it.
+    final resumeLookup =
+        resolveResumePoint(
+          read: _read,
+          item: widget.item,
+          episode: currentEpisode,
+          videoUrl: _videoUrl,
+        ).then<ResumePoint?>(
+          (point) => point,
+          onError: (Object e) {
+            if (kDebugMode) debugPrint('resume lookup failed: $e');
+            return null;
+          },
+        );
     try {
+      _pluginName = _preloaded == null
+          ? pluginFor(_read, widget.item, _videoUrl)?.name
+          : null;
       // Plugin resolution is a network round trip and can be the longest part
-      // of startup; the spinner says so from didChangeDependencies, the probe
-      // narrates itself through [_onCandidates] and [_onProbe], and the
-      // per-source line takes over from _openAttempt.
+      // of startup. The view narrates it from what [_onCandidates] and
+      // [_onProbe] record, and a row picked during the probe race ends it.
       final resolved = await resolvePlayback(
         read: _read,
         item: widget.item,
@@ -818,18 +872,18 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         isCancelled: () => _disposed,
         onCandidates: (streams) => _onCandidates(generation, streams),
         onProbe: (index, outcome) => _onProbe(generation, index, outcome),
-        stopProbing: skipProbe.future,
+        pick: pick.future,
+        abandon: abandon.future,
       );
       if (_disposed) return;
       _resolved = resolved;
       _publishPanelData();
-      // Resolution is done deciding, so Skip stops meaning "stop waiting for
-      // the probe" and starts meaning "abandon the source being opened".
-      _skipProbe = null;
+      // The race is over. A pick from here on is held for the first open -
+      // see [_pickSource].
+      _pick = null;
 
       _token++;
       _recordedLivestream = false;
-      final currentEpisode = _currentEpisode;
       _recorder = PlaybackProgressRecorder(
         read: _read,
         item: widget.item,
@@ -854,12 +908,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       // last wins, so pausing on the television and picking up the phone
       // resumes rather than restarts. The lookup falls back to the local
       // answer on any tracker failure.
-      _initialResume = await resolveResumePoint(
-        read: _read,
-        item: widget.item,
-        episode: currentEpisode,
-        videoUrl: _videoUrl,
-      );
+      _initialResume = await resumeLookup;
       if (_disposed) return;
       // From here the resume point belongs to the session rather than to the
       // stored history entry: every later attempt, failover or hand-picked,
@@ -879,7 +928,12 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       // crowdsourced databases, and playback must not wait on a convenience.
       unawaited(_loadSkipSegments(currentEpisode));
 
-      await _openAttempt(resolved.index, startAt: _resumePosition);
+      // A row picked while the resume lookup was finishing is the viewer's
+      // choice, and it outranks the resolver's.
+      final first = _pickedBeforeOpen ?? resolved.index;
+      _pickedBeforeOpen = null;
+      _awaitingFirstOpen = false;
+      await _openAttempt(first, startAt: _resumePosition);
     } catch (e) {
       final l10n = _l10n;
       _fail(switch ((e, l10n)) {
@@ -890,6 +944,21 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         _ => 'Playback failed: $e',
       });
     }
+  }
+
+  void _abandonPendingResolve() {
+    final abandon = _abandonResolve;
+    if (abandon != null && !abandon.isCompleted) abandon.complete();
+  }
+
+  /// Drops everything the source list knew about the last resolve. Written
+  /// without setState: [_start] runs from initState, and every caller that
+  /// runs later rebuilds in the same stretch anyway.
+  void _forgetSources() {
+    _candidates = const <StreamResult>[];
+    _probes.clear();
+    _failedRows.clear();
+    _playedRows.clear();
   }
 
   /// The candidate list, the moment resolution has one.
@@ -916,55 +985,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     setState(() {
       _probes[index] = outcome;
       _publishPanelData();
-      // Past the resolving stage the line belongs to the open, and _status is
-      // only cleared on the first frame - so a late probe would leave a wrong
-      // source name up for the whole episode.
-      if (_stage == _Stage.resolving) _status = _probingStatus() ?? _status;
     });
-  }
-
-  /// Which candidate the probe is still waiting on, named.
-  ///
-  /// Null once they have all settled, and the caller keeps whatever the line
-  /// said rather than blanking it — the next thing to happen is the open, and
-  /// that writes its own line a moment later.
-  String? _probingStatus() {
-    final l10n = _l10n;
-    if (l10n == null || _candidates.isEmpty) return null;
-    for (final entry in _probes.entries) {
-      if (entry.value != ProbeOutcome.trying) continue;
-      if (entry.key >= _candidates.length) continue;
-      return '${l10n.sourceAttempt(entry.key + 1, _candidates.length)}'
-          ' · ${_candidates[entry.key].displaySource}';
-    }
-    return null;
-  }
-
-  /// The viewer refuses to keep waiting.
-  ///
-  /// During the probe this means stop racing and take the best candidate
-  /// proved so far, through the resolver's own [stopProbing] seam. During an
-  /// open it means hand this source to the failover ring.
-  void _skip() {
-    if (_disposed || _skipping) return;
-    // A remote repeats OK while held, and the button survives the press with
-    // focus intact, so without this one hold burns every remaining source.
-    _skipCooldown?.cancel();
-    _skipCooldown = Timer(const Duration(milliseconds: 700), () {});
-    final skipProbe = _skipProbe;
-    if (skipProbe != null && !skipProbe.isCompleted) {
-      skipProbe.complete();
-      // Not nulled here: _start owns the field and clears it when resolution
-      // returns, which is the moment Skip changes meaning.
-      setState(() {});
-      return;
-    }
-    // No same-source retry: re-opening the URL the viewer just walked away
-    // from is precisely what they refused.
-    _failAttempt(
-      _l10n?.playerReasonSkipped ?? 'you skipped this source',
-      allowSameSourceRetry: false,
-    );
   }
 
   /// Opens one candidate.
@@ -1012,7 +1033,16 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // a hand-picked source - and none of them may leave the ended card up over
     // media that is opening.
     _ended = null;
-    _attemptIndex = index;
+    // A rebuild of its own: the startup view's highlighted row, source line
+    // and "Source n of m" all follow this, and nothing else in an open is
+    // guaranteed to change the screen - a failover from a source that never
+    // played changes no other state the build reads.
+    setState(() {
+      _attemptIndex = index;
+      // Opened again - re-picked by the viewer - so its earlier failure no
+      // longer describes it; the row reads as opening from here.
+      _failedRows.remove(index);
+    });
     // Published here, not only at open: this is the write the panel's
     // 'Now playing' tick follows through a failover or a trial revert.
     _publishPanelData();
@@ -1038,14 +1068,23 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
     final stream = resolved.streams[index];
 
-    // Which candidate is being tried, named. Sources failing over are
-    // otherwise indistinguishable from one source hanging.
-    _setStatus(
-      _l10n == null
-          ? ''
-          : '${_l10n!.sourceAttempt(index + 1, resolved.streams.length)}'
-                ' · ${stream.displaySource}',
+    _armFirstFrameDeadline(
+      generation,
+      torrent: isTorrentSource(stream) || _torrentFileIndex != null,
     );
+
+    // The race only checked the top few. A source opened from past them -
+    // picked by the viewer, or reached by failover - is checked now, while it
+    // opens rather than in front of it, so its row says what it would have.
+    if (!_probes.containsKey(index) && !isUncheckableSource(stream)) {
+      _checkWhileOpening(index, stream);
+    }
+
+    // Which candidate is being tried is the startup view's to say - its pill,
+    // its source line and its highlighted row all follow [_attemptIndex]. What
+    // is left for the status line is anything unusual about this open, and a
+    // line left over from the last one is not that.
+    _setStatus('');
 
     // libVLC cannot decrypt CENC on any build we ship, so ClearKey content is
     // decrypted in the local proxy and handed to the engine as plaintext.
@@ -1400,7 +1439,14 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// Resumes from [_resumePosition] rather than from `controller.value`, which
   /// `setMedia` has already zeroed by the time any retry runs — losing the
   /// user's position is the one thing failover must never do.
-  void _failAttempt(String reason, {bool allowSameSourceRetry = true}) {
+  ///
+  /// [jumpTo] names where to go instead of the next in line, when the caller
+  /// already knows a source that works.
+  void _failAttempt(
+    String reason, {
+    bool allowSameSourceRetry = true,
+    int? jumpTo,
+  }) {
     if (_disposed) return;
     final resolved = _resolved;
     if (resolved == null) return;
@@ -1413,6 +1459,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     final revert = _revertTo;
     if (revert != null) {
       _revertTo = null;
+      _markFailed(_attemptIndex);
       _notify(
         _l10n?.playerSourceRestoredPrevious ??
             'That source would not play. Restored the previous one.',
@@ -1423,9 +1470,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
     // Failover is otherwise silent: the engine is quietly handed a different
     // URL behind a frame that has stopped moving, which reads as a freeze.
-    // This says why, under the name of the source being tried next, until
-    // that source produces a frame.
-    _setFailReason(reason);
+    // This says why, until the next source produces a frame - naming the
+    // source it is about, because the line above it names the next one.
+    _setFailReason(
+      '${sourceRowLabel(resolved.streams[_attemptIndex])} · $reason',
+    );
 
     // A source that produced frames and then died is worth another try at the
     // same URL; one that never played at all is simply dead.
@@ -1445,10 +1494,19 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       return;
     }
 
-    final next = nextFailoverIndex(
+    _markFailed(_attemptIndex);
+    // [jumpTo] is a source already proven, which beats the next in line.
+    final next = jumpTo ?? nextFailoverIndex(
       from: _attemptIndex,
       total: resolved.streams.length,
       tried: _tried,
+      // Known dead before anything opened them, and a dead source that hangs
+      // rather than erroring costs the whole stall deadline. Walked last, not
+      // dropped: the probe is wrong about slow hosts.
+      unreachable: <int>{
+        for (final entry in _probes.entries)
+          if (entry.value == ProbeOutcome.unhealthy) entry.key,
+      },
     );
     if (next == null) {
       // Say what actually went wrong: a single-source channel refused for DRM
@@ -1462,6 +1520,102 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       );
     }
     unawaited(_openAttempt(next, startAt: startAt));
+  }
+
+  /// Runs the reachability check for [stream], opened without having been
+  /// checked.
+  ///
+  /// Alongside the open, never in front of it: a pick is the viewer's choice
+  /// and failover has already waited long enough. A "no" can still end the
+  /// open - see [_abandonUnreachable] - but only on the terms set there.
+  /// Stamped with the resolve it belongs to, like the race's own probes, so an
+  /// answer that lands after the list has changed is dropped.
+  void _checkWhileOpening(int index, StreamResult stream) {
+    final generation = _resolveGeneration;
+    final attempt = _generation;
+    _onProbe(generation, index, ProbeOutcome.trying);
+    unawaited(
+      isReachable(stream).then(
+        (reached) {
+          _onProbe(
+            generation,
+            index,
+            reached ? ProbeOutcome.healthy : ProbeOutcome.unhealthy,
+          );
+          if (!reached) _abandonUnreachable(attempt, index);
+        },
+        onError: (Object _) =>
+            _onProbe(generation, index, ProbeOutcome.unhealthy),
+      ),
+    );
+  }
+
+  /// Gives up on the source at [index], which the check has just found
+  /// unreachable while it opened, for one known to work.
+  ///
+  /// Only the open that asked, and only before it has a picture - a source on
+  /// screen was reached, whatever the probe says. And only when there is
+  /// somewhere proven to go: the session a hand-picked source interrupted, or
+  /// a source the check vouched for. With neither, the open carries on,
+  /// because the probe is wrong about slow hosts and its word alone must not
+  /// end the only hope left.
+  ///
+  /// The row keeps its "unreachable" once this has run, so picking it again
+  /// opens it with no check to overrule the viewer: they have seen the verdict
+  /// and asked anyway.
+  void _abandonUnreachable(int attempt, int index) {
+    if (_disposed || attempt != _generation || _attemptIndex != index) return;
+    if (_sawFrames) return;
+    final resolved = _resolved;
+    if (resolved == null) return;
+    final target = firstReachableIndex(
+      total: resolved.streams.length,
+      probes: _probes,
+      failed: _failedRows,
+      except: index,
+    );
+    if (_revertTo == null && target == null) return;
+    _failAttempt(
+      _l10n?.playerReasonNoAnswer ?? 'no answer from the link',
+      allowSameSourceRetry: false,
+      jumpTo: target,
+    );
+  }
+
+  /// Gives the attempt stamped [generation] until [kFirstFrameDeadline] - three
+  /// minutes for a [torrent], which is waiting on pieces to seed - to show a
+  /// picture, and moves on to the next source if it has not.
+  ///
+  /// Its own timer, counted from the moment the source starts opening and
+  /// whatever the engine reports. The stall watchdog cannot be the judge
+  /// here: it stands down while the engine says paused, stopped or ended, and
+  /// before the screen reaches its playing stage, and a source stuck in any of
+  /// those said "Opening…" for minutes. Off screen - backgrounded, or in
+  /// picture-in-picture - the wait is nobody's, so it starts over rather than
+  /// giving up on a source nobody is watching.
+  void _armFirstFrameDeadline(int generation, {required bool torrent}) {
+    _firstFrameDeadline?.cancel();
+    _firstFrameDeadline = Timer(
+      torrent ? kTorrentStallRecoverAfter : kFirstFrameDeadline,
+      () {
+        if (_disposed || generation != _generation || _sawFrames) return;
+        if (!_foreground || _inPip) {
+          _armFirstFrameDeadline(generation, torrent: torrent);
+          return;
+        }
+        _recover(
+          _l10n?.playerReasonSourceNeverStarted ?? 'the source never started',
+        );
+      },
+    );
+  }
+
+  /// Records that row [index] was opened and would not play, for the source
+  /// lists to say so.
+  void _markFailed(int index) {
+    if (_disposed || !mounted) return;
+    setState(() => _failedRows.add(index));
+    _publishPanelData();
   }
 
   /// Starts both attempt clocks. Called when an attempt begins and again when
@@ -1544,6 +1698,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _videoBaseline = null;
     _videoWindow = Duration.zero;
 
+    // A source that has never shown a picture is the first-frame deadline's to
+    // judge, on its own clock - see [_armFirstFrameDeadline]. This one stands
+    // down in exactly the states such a source gets stuck in.
+    if (!_sawFrames) return;
+
     final action = stallActionFor(
       stalledFor: _stalledFor,
       hadFrames: _sawFrames,
@@ -1583,7 +1742,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   void _watchVideoHealth() {
     if (!_handedToEngine || _statsInFlight) return;
     // No picture is expected before the engine has produced one, and the
-    // opening overlay is already saying so.
+    // startup view is already saying so.
     if (!_sawFrames) return;
     _videoWindow += _kWatchdogTick;
     _statsInFlight = true;
@@ -1884,7 +2043,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       return;
     }
     // The only place the card can be raised from. Everything above is a
-    // failure dressed as an ending and lands on the opening overlay with a
+    // failure dressed as an ending and lands on the startup view with a
     // named reason instead.
     unawaited(
       _advance(automatic: true).then((outcome) {
@@ -2147,6 +2306,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       // A copy, so a later _probes.clear() cannot empty the chips under an
       // open panel.
       probes: Map<int, ProbeOutcome>.unmodifiable(_probes),
+      failedSources: Set<int>.unmodifiable(_failedRows),
+      playedSources: Set<int>.unmodifiable(_playedRows),
       qualityFilteredFallback: resolved?.qualityFilteredFallback ?? false,
       // The list the next arrow walks, filtered the same way, so what the
       // panel offers and what Next does can never disagree.
@@ -2173,17 +2334,26 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// should walk the failover ladder like any other candidate.
   void _pickSource(int index, {required bool onTrial}) {
     if (_disposed) return;
+    // Before this resolve has opened anything there is nothing to switch away
+    // from, so a pick is this resolve's choice: it ends the probe race if the
+    // race is still running, and [_start] opens it either way. Recorded as
+    // well as sent, because a pick landing as the race finishes would
+    // otherwise be completed into a race nobody is listening to any more.
+    if (_awaitingFirstOpen) {
+      // Only against this resolve's own list. Until the plugin answers, a list
+      // on screen - the panel keeps the last one up through a re-resolve - is
+      // the previous resolve's, and its row numbers mean nothing in the next.
+      if (index < 0 || index >= _candidates.length) return;
+      setState(() => _pickedBeforeOpen = index);
+      final pick = _pick;
+      if (pick != null && !pick.isCompleted) pick.complete(index);
+      return;
+    }
     // Picking the row already playing is a no-op - but in the failed stage
     // nothing is playing, and picking the candidate the ladder died on is a
     // deliberate 'try that one again'.
     if (index == _attemptIndex && _stage != _Stage.failed) return;
-    // The panel keeps the last list up through a re-resolve, so a pick can
-    // land while nothing is resolved to switch from. Say so; the resolve in
-    // flight will open its own choice in a moment.
-    if (_resolved == null) {
-      _setStatus(_l10n?.loading ?? '');
-      return;
-    }
+    if (_resolved == null) return;
     // Carry the position across, exactly as failover does, including before
     // the first sample lands.
     final at = _controller.value.isLive ? Duration.zero : _resumePosition;
@@ -2198,6 +2368,19 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       _attemptRetries = 0;
     }
     unawaited(_openAttempt(index, startAt: at));
+  }
+
+  /// A row selected on the startup view.
+  ///
+  /// Never on trial: the view is only up while nothing is playing, so there is
+  /// no session behind the pick to put back if it will not open, and it walks
+  /// the failover ladder from there like any other source.
+  void _pickFromStartup(int index) {
+    if (_disposed || (_pickCooldown?.isActive ?? false)) return;
+    // A remote repeats OK while it is held. Without this one long press on a
+    // row whose source fails fast reopens it again and again.
+    _pickCooldown = Timer(const Duration(milliseconds: 700), () {});
+    _pickSource(index, onTrial: false);
   }
 
   /// Switches playback to another file inside the season-pack torrent.
@@ -2335,7 +2518,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // resume lookup can take seconds, and they would otherwise be spent on a
     // frozen last frame.
     _setSawFrames(false);
-    _setStatus(_l10n?.loading ?? '');
+    _setStatus('');
     unawaited(_start());
   }
 
@@ -2368,6 +2551,12 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _sample = null;
     _lastStreamUrl = null;
     _resolved = null;
+    // Now rather than in _start(): the download lookup below can take a
+    // moment, and the startup view is up through it listing whatever
+    // sources it is given - which must not be the finished episode's.
+    _forgetSources();
+    _awaitingFirstOpen = true;
+    _pickedBeforeOpen = null;
     // The next episode's tracks are its own; carrying the last one's pick over
     // would answer a question this viewer has not been asked yet.
     _rememberedAudio = null;
@@ -2404,7 +2593,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // resolve, the resume lookup - can take seconds over a frozen frame.
     _handedToEngine = false;
     _setSawFrames(false);
-    _setStatus(_l10n?.loading ?? '');
+    _setStatus('');
 
     _episode = next;
     _publishPanelData();
@@ -2557,6 +2746,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // the first frame alone would leave the pill up through a recovery.
     if (firstFrame || recovering) _setStatus('');
     if (firstFrame) {
+      _firstFrameDeadline?.cancel();
+      // Recorded for the source lists: this row has proved it can be reached.
+      _playedRows.add(_attemptIndex);
+      _publishPanelData();
       _setFailReason(null);
       // A new picture, so the bars come up over it for a moment; on a
       // television that is also where focus lands.
@@ -2600,7 +2793,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   /// Whether this attempt has a picture yet, set through the build.
   ///
-  /// Written here rather than assigned in place because the opening overlay
+  /// Written here rather than assigned in place because the startup view
   /// hangs off it: `setMedia` returns long before the engine has opened
   /// anything, so this is the flag that decides whether the viewer is looking
   /// at the video or at an opaque panel saying what is being tried.
@@ -2911,12 +3104,17 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
   void _fail(String message) {
     if (_disposed) return;
+    // Nothing is opening any more, so nothing has a first frame to be late for.
+    _firstFrameDeadline?.cancel();
     // Same rule as [_showEnded] and [_setSawFrames]: the failed frame unmounts
     // the whole controls subtree, so the chip that undoes the lock goes with
     // it and Back would do nothing on the first press.
     _clearLock();
     setState(() {
       _stage = _Stage.failed;
+      // Resolution itself can fail before anything opened. A pick from the
+      // failed stage is a fresh open, not a choice for a resolve that is over.
+      _awaitingFirstOpen = false;
       _error = message;
       // The failed frame says it in [_error]; carried past here it would
       // resurface under the next hand-picked source's line.
@@ -3012,10 +3210,12 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _tracker?.finish();
     _disposed = true;
     _torrentPoll?.cancel();
-    _skipCooldown?.cancel();
+    _pickCooldown?.cancel();
+    _abandonPendingResolve();
     _backEcho?.cancel();
     _lockEscape?.cancel();
     _watchdog?.cancel();
+    _firstFrameDeadline?.cancel();
     // After the controls, which unmount first and stop listening; its hide
     // clock is still armed and nothing else would stop it.
     _chrome.dispose();
@@ -3076,103 +3276,23 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       },
       child: Scaffold(
         backgroundColor: playerScaffoldColor,
-        body: switch (_stage) {
-          _Stage.resolving => _statusFrame(
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                if (_status.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  // Two lines, then an ellipsis. The status carries a source
-                  // name a plugin may have written as a paragraph, and on a
-                  // 320px phone that alone wrapped this Column off the screen.
-                  Text(
-                    _status,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                ],
-                if (_failReason case final reason?) ...[
-                  const SizedBox(height: 6),
-                  _reasonLine(reason),
-                ],
-                // What the health probe is finding, while it finds it. A
-                // five-source title otherwise spends the whole check behind
-                // one spinner that says nothing. Flexible + scroll so a long
-                // race yields to the spinner and Skip instead of overflowing.
-                if (_probes.isNotEmpty) ...[
-                  const SizedBox(height: 20),
-                  Flexible(
-                    child: SingleChildScrollView(child: _probeList(l10n)),
-                  ),
-                ],
-                if (_canSkip) ...[
-                  const SizedBox(height: 24),
-                  _skipButton(l10n, autofocus: isTv),
-                ],
-              ],
-            ),
-            // Skip is the better landing place when it is there, and two
-            // autofocus nodes in one scope is an assertion.
-            backAutofocus: !(isTv && _canSkip),
-          ),
-          _Stage.failed => _statusFrame(
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _error,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 24),
-                // A dead end with a Back button is not a recovery. Retry
-                // covers the common case - a source that was merely down -
-                // and Sources reaches the candidates the ladder skipped past.
-                Wrap(
-                  spacing: 12,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    FilledButton.icon(
-                      // The one autofocus in this frame - see [_statusFrame],
-                      // whose Back button stands down while this is on screen.
-                      autofocus: true,
-                      onPressed: _retry,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: Text(l10n.retry),
-                    ),
-                    if ((_resolved?.streams.length ?? 0) > 1)
-                      OutlinedButton.icon(
-                        onPressed: () => unawaited(
-                          _openPanel(PlayerPanelTab.sources, onTrial: false),
-                        ),
-                        icon: const Icon(Icons.source_outlined),
-                        label: Text(l10n.sources),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          // One branch, and the VlcPlayer is the first child of it in every
-          // state this screen can be in. A separate PiP branch would change
-          // the widget in this slot, detaching and killing the native player,
-          // so the episode restarts every time the window shrinks. Hiding the
-          // chrome inside the same Stack keeps the element and the engine.
-          _Stage.playing => Stack(
-            fit: StackFit.expand,
-            children: [
-              // The fit is the widget's, not just the engine's: on the texture
-              // path VlcPlayer draws its own FittedBox from this, and the
-              // native setFit behind it is a no-op on Windows and Linux.
-              //
-              // Offstage rather than absent under the diagnostic switch: on
-              // the texture platforms VlcPlayer's own initState attaches the
-              // native player, so a widget left out of the tree is no player
-              // at all. Offstage keeps the element and drops only the paint.
+        // One Stack in every stage. The VlcPlayer is its first child whenever
+        // there is one: a separate PiP branch would change the widget in this
+        // slot, detaching and killing the native player, so the episode
+        // restarts every time the window shrinks. Hiding the chrome inside the
+        // same Stack keeps the element and the engine.
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            // The fit is the widget's, not just the engine's: on the texture
+            // path VlcPlayer draws its own FittedBox from this, and the
+            // native setFit behind it is a no-op on Windows and Linux.
+            //
+            // Offstage rather than absent under the diagnostic switch: on
+            // the texture platforms VlcPlayer's own initState attaches the
+            // native player, so a widget left out of the tree is no player
+            // at all. Offstage keeps the element and drops only the paint.
+            if (_stage == _Stage.playing)
               Offstage(
                 offstage: PlayerDiagnostics.suppressVideoSurface,
                 child: VlcPlayer(
@@ -3183,109 +3303,117 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                   backgroundColor: playerBackdropColor,
                 ),
               ),
-              // `setMedia` hands libVLC a URL and returns; it opens nothing.
-              // So this stage begins with the video widget an empty surface,
-              // and covering it beats black with a seek bar over it.
-              if (!_inPip && !_sawFrames) _openingOverlay(l10n, isTv: isTv),
-              // At PiP size the frame is about a sixth of the screen: bars,
-              // scrims and gesture layers are an unreadable smear over most of
-              // it, and there is nothing there to tap them with anyway.
-              //
-              // `_ended == null` unmounts this subtree rather than fading it.
-              // The controls' play button carries `autofocus: isTv`, so
-              // leaving them mounted under the card would be two autofocus
-              // nodes in one route, and their key sink would keep taking the
-              // remote back.
-              if (!_inPip && _sawFrames && _ended == null) ...[
-                // The overlay gets its own layer so a chrome repaint never
-                // forces the embedder to recomposite the video surface beneath
-                // it.
-                RepaintBoundary(
-                  child: VlcPlayerControls(
-                    controller: _controller,
-                    bufferedFraction: _bufferedFraction,
-                    chrome: _chrome,
-                    // The texture platforms honour fit through VlcPlayer's
-                    // FittedBox, not through the native setFit, so the button
-                    // has to reach this state to do anything there.
-                    fit: _fit,
-                    onFitChanged: (fit) {
-                      if (mounted) setState(() => _fit = fit);
+            // Everything before a picture: getting links, checking them,
+            // opening one - `setMedia` hands libVLC a URL and returns, so the
+            // playing stage begins with the video widget an empty surface -
+            // and the dead end when none of them played. Keyed, so the view
+            // is one element across all of it: the player is inserted
+            // beneath it as opening begins, and unkeyed it would be rebuilt
+            // there with its list back at the top.
+            if (_stage != _Stage.playing || (!_inPip && !_sawFrames))
+              _startupView(l10n, isTv: isTv),
+            // At PiP size the frame is about a sixth of the screen: bars,
+            // scrims and gesture layers are an unreadable smear over most of
+            // it, and there is nothing there to tap them with anyway.
+            //
+            // `_ended == null` unmounts this subtree rather than fading it.
+            // The controls' play button carries `autofocus: isTv`, so
+            // leaving them mounted under the card would be two autofocus
+            // nodes in one route, and their key sink would keep taking the
+            // remote back.
+            if (_stage == _Stage.playing &&
+                !_inPip &&
+                _sawFrames &&
+                _ended == null) ...[
+              // The overlay gets its own layer so a chrome repaint never
+              // forces the embedder to recomposite the video surface beneath
+              // it.
+              RepaintBoundary(
+                child: VlcPlayerControls(
+                  controller: _controller,
+                  bufferedFraction: _bufferedFraction,
+                  chrome: _chrome,
+                  // The texture platforms honour fit through VlcPlayer's
+                  // FittedBox, not through the native setFit, so the button
+                  // has to reach this state to do anything there.
+                  fit: _fit,
+                  onFitChanged: (fit) {
+                    if (mounted) setState(() => _fit = fit);
+                  },
+                  title: _torrentFileLabel ?? widget.item.title,
+                  subtitle: _currentEpisode?.name,
+                  onBack: () => _handleBack(fromChrome: true),
+                  // Each is null unless the thing it does is actually
+                  // available, so the overlay never renders a button that
+                  // would do nothing.
+                  onNextEpisode: _hasNextEpisode
+                      ? () => unawaited(_advance())
+                      : null,
+                  // One panel, one callback: the controls render a button
+                  // per tab in [panelTabs] and open the panel on it. The
+                  // tabs come from the same helper the panel strip reads, so
+                  // a button can never open a tab that does not exist.
+                  onOpenPanel: (tab) => _openPanel(tab),
+                  panelTabs: _panelData.value.tabs,
+                  onEnterPip: _pipAvailable ? _enterPip : null,
+                  onToggleFullscreen: _fullscreenAvailable
+                      ? _toggleFullscreen
+                      : null,
+                  isFullscreen: _isFullscreen,
+                  isLive: _isLive,
+                  skipSegments: _skipSegments,
+                  // Null on a film and on the last episode, where the chip
+                  // keeps its plain seek to the end of the credits because
+                  // there is nothing to move on to.
+                  onSkipOutro: _hasNextEpisode ? _offerNextEpisodeNow : null,
+                  // The skip chip and the up-next card are both bottom-right
+                  // and the card is a later child of this Stack, so without
+                  // this the chip stays underneath it: a tap that lands on
+                  // the card, and an invisible focus stop inside the card's
+                  // rectangle on a remote. `_ended` is here so the rule
+                  // survives the gate above changing.
+                  promptVisible: _nextEpisodeOffer != null || _ended != null,
+                  // Phone and tablet only, and null - not false - anywhere
+                  // else: with nothing here the controls have no padlock to
+                  // render and no locked branch to reach. A remote has no
+                  // accidental surface and a mouse has no pocket.
+                  locked: _form.isTouch ? _locked : null,
+                  torrentStatus: _torrentStatus,
+                ),
+              ),
+              // Both overlays position themselves against the chrome and sit
+              // above it, so they stay readable while the bars are down.
+              if (_showResumeHint && _initialResume != null)
+                _unlessLocked(
+                  ResumeHint(
+                    position: _initialResume!.position,
+                    isTv: isTv,
+                    onStartOver: () {
+                      _resumePosition = Duration.zero;
+                      unawaited(_controller.seekTo(Duration.zero));
                     },
-                    title: _torrentFileLabel ?? widget.item.title,
-                    subtitle: _currentEpisode?.name,
-                    onBack: () => _handleBack(fromChrome: true),
-                    // Each is null unless the thing it does is actually
-                    // available, so the overlay never renders a button that
-                    // would do nothing.
-                    onNextEpisode: _hasNextEpisode
-                        ? () => unawaited(_advance())
-                        : null,
-                    // One panel, one callback: the controls render a button
-                    // per tab in [panelTabs] and open the panel on it. The
-                    // tabs come from the same helper the panel strip reads, so
-                    // a button can never open a tab that does not exist.
-                    onOpenPanel: (tab) => _openPanel(tab),
-                    panelTabs: _panelData.value.tabs,
-                    onEnterPip: _pipAvailable ? _enterPip : null,
-                    onToggleFullscreen: _fullscreenAvailable
-                        ? _toggleFullscreen
-                        : null,
-                    isFullscreen: _isFullscreen,
-                    isLive: _isLive,
-                    skipSegments: _skipSegments,
-                    // Null on a film and on the last episode, where the chip
-                    // keeps its plain seek to the end of the credits because
-                    // there is nothing to move on to.
-                    onSkipOutro: _hasNextEpisode ? _offerNextEpisodeNow : null,
-                    // The skip chip and the up-next card are both bottom-right
-                    // and the card is a later child of this Stack, so without
-                    // this the chip stays underneath it: a tap that lands on
-                    // the card, and an invisible focus stop inside the card's
-                    // rectangle on a remote. `_ended` is here so the rule
-                    // survives the gate above changing.
-                    promptVisible: _nextEpisodeOffer != null || _ended != null,
-                    // Phone and tablet only, and null - not false - anywhere
-                    // else: with nothing here the controls have no padlock to
-                    // render and no locked branch to reach. A remote has no
-                    // accidental surface and a mouse has no pocket.
-                    locked: _form.isTouch ? _locked : null,
-                    torrentStatus: _torrentStatus,
+                    onDismissed: () {
+                      if (mounted) setState(() => _showResumeHint = false);
+                    },
                   ),
                 ),
-                // Both overlays position themselves against the chrome and sit
-                // above it, so they stay readable while the bars are down.
-                if (_showResumeHint && _initialResume != null)
-                  _unlessLocked(
-                    ResumeHint(
-                      position: _initialResume!.position,
-                      isTv: isTv,
-                      onStartOver: () {
-                        _resumePosition = Duration.zero;
-                        unawaited(_controller.seekTo(Duration.zero));
-                      },
-                      onDismissed: () {
-                        if (mounted) setState(() => _showResumeHint = false);
-                      },
-                    ),
-                  ),
-                if (_nextEpisodeOffer != null)
-                  _unlessLocked(_nextEpisodeCard(isTv: isTv)),
-                // Anything the player has to say while a picture is actually
-                // up. A failover no longer lands here - it clears the frame
-                // flag and the opening overlay takes the screen instead.
-                if (_status.isNotEmpty)
-                  Align(
-                    alignment: Alignment.topCenter,
-                    child: IgnorePointer(child: _statusPill(_status)),
-                  ),
-              ],
-              // A sibling of the controls, never a child: see the gate above.
-              if (_ended case final kind? when !_inPip && _sawFrames)
-                _endedCard(kind, isTv: isTv),
+              if (_nextEpisodeOffer != null)
+                _unlessLocked(_nextEpisodeCard(isTv: isTv)),
+              // Anything the player has to say while a picture is actually
+              // up. A failover no longer lands here - it clears the frame
+              // flag and the startup view takes the screen instead.
+              if (_status.isNotEmpty)
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: IgnorePointer(child: _statusPill(_status)),
+                ),
             ],
-          ),
-        },
+            // A sibling of the controls, never a child: see the gate above.
+            if (_ended case final kind?
+                when _stage == _Stage.playing && !_inPip && _sawFrames)
+              _endedCard(kind, isTv: isTv),
+          ],
+        ),
       ),
     );
   }
@@ -3432,21 +3560,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     setState(() {
       _stage = _Stage.resolving;
       _error = '';
-      _status = AppLocalizations.of(context)?.loading ?? '';
+      _status = '';
     });
     _publishPanelData();
     unawaited(_start());
   }
-
-  /// The line under the status that says why the previous source was dropped.
-  /// Quieter than the status: it is context for the line above it, not news.
-  Widget _reasonLine(String reason) => Text(
-    reason,
-    maxLines: 2,
-    overflow: TextOverflow.ellipsis,
-    textAlign: TextAlign.center,
-    style: const TextStyle(color: Colors.white38, fontSize: 13),
-  );
 
   Widget _statusPill(String text) => SafeArea(
     child: Padding(
@@ -3467,176 +3585,99 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     ),
   );
 
-  /// Resolving and failed share one frame so that back is always reachable —
-  /// on TV there is no gesture to fall back on.
-  Widget _statusFrame(Widget child, {bool? backAutofocus}) {
-    return SafeArea(
-      child: Stack(
-        children: [
-          Align(
-            alignment: Alignment.topLeft,
-            child: IconButton(
-              // Only while there is nothing better to land on. The failed
-              // stage's Retry takes it instead, and two autofocus nodes in one
-              // scope is an assertion, not a preference.
-              autofocus: backAutofocus ?? _stage != _Stage.failed,
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: _handleBack,
+  /// The one view up whenever there is no picture: getting links, checking
+  /// them, opening one - and the dead end when none of them played.
+  ///
+  /// Everything it says is decided here, from state this screen already
+  /// keeps; the view only lays it out.
+  Widget _startupView(AppLocalizations l10n, {required bool isTv}) {
+    final sources = _resolved?.streams ?? _candidates;
+    final current = _startupCurrentIndex;
+    final hasCurrent = current != null && current < sources.length;
+    final failed = _stage == _Stage.failed;
+    return PlayerStartupView(
+      key: openingOverlayKey,
+      title: widget.item.title,
+      episodeLine: _episodeLine(l10n),
+      logoUrl: widget.item.logoUrl,
+      backdropUrl: widget.item.backdropImageUrl,
+      sourceName:
+          _torrentFileLabel ??
+          (hasCurrent ? sourceRowLabel(sources[current]) : null),
+      status: _startupStatus(l10n, sources: sources),
+      reason: failed ? null : _failReason,
+      attempt: hasCurrent ? (index: current + 1, total: sources.length) : null,
+      rows: <StartupRow>[
+        for (var i = 0; i < sources.length; i++)
+          StartupRow(
+            label: sourceRowLabel(sources[i]),
+            reachability: sourceReachabilityOf(
+              sources[i],
+              _probes[i],
+              hasPlayed: _playedRows.contains(i),
+            ),
+            playState: sourcePlayStateOf(
+              isCurrent: i == current,
+              hasPicture: _sawFrames,
+              failed: _failedRows.contains(i),
             ),
           ),
-          Center(
-            child: Padding(padding: const EdgeInsets.all(32), child: child),
-          ),
-        ],
-      ),
+      ],
+      currentIndex: current,
+      failed: failed,
+      onPick: _pickFromStartup,
+      onBack: _handleBack,
+      onRetry: _retry,
+      // Desktop only, like the gesture over the video it mirrors: a phone or
+      // a television has no window to full-screen.
+      onDoubleClick: _fullscreenAvailable ? _toggleFullscreen : null,
+      isTv: isTv,
     );
   }
 
-  /// Whether Skip currently means "stop waiting for the probe".
+  /// The row the startup view marks as being opened, or null when none is.
   ///
-  /// Gated on the candidate list because before it exists the player is inside
-  /// the plugin's own `loadStreams()`, and there is nothing to fall back to —
-  /// a Skip there could only cancel playback, which is what Back is for.
-  bool get _canSkipProbe {
-    final skipProbe = _skipProbe;
-    return skipProbe != null &&
-        !skipProbe.isCompleted &&
-        _candidates.isNotEmpty;
+  /// Not [_attemptIndex] until this resolve has opened something: that still
+  /// names the last resolve's source, or nothing at all. Until then it is the
+  /// row the viewer picked, if they have.
+  int? get _startupCurrentIndex {
+    if (_stage == _Stage.failed) return null;
+    if (_awaitingFirstOpen) return _pickedBeforeOpen;
+    return _attemptIndex;
   }
 
-  /// Whether Skip has anything to do at all.
+  /// The startup view's status line: only what its rows cannot say.
   ///
-  /// The second half covers the first attempt, which runs while the screen is
-  /// still on the resolving frame: seeding a cold magnet lives there, and it
-  /// is the longest wait the player has.
-  bool get _canSkip => _canSkipProbe || _resolved != null;
-
-  Widget _skipButton(AppLocalizations l10n, {required bool autofocus}) =>
-      OutlinedButton.icon(
-        autofocus: autofocus,
-        onPressed: _skip,
-        icon: const Icon(Icons.fast_forward_rounded),
-        label: Text(l10n.playerSkipSource),
-      );
-
-  /// What the parallel health probe is finding, as it finds it: which
-  /// candidates are in the race, which are still out, and which have lost.
-  Widget _probeList(AppLocalizations l10n) {
-    final rows = <Widget>[];
-    for (final entry in _probes.entries) {
-      if (entry.key >= _candidates.length) continue;
-      final (icon, badge) = switch (entry.value) {
-        ProbeOutcome.trying => (Icons.more_horiz_rounded, l10n.trying),
-        ProbeOutcome.healthy => (
-          Icons.check_rounded,
-          l10n.playerSourceReachable,
-        ),
-        ProbeOutcome.unhealthy => (Icons.close_rounded, l10n.failed),
-      };
-      rows.add(
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16, color: Colors.white38),
-              const SizedBox(width: 8),
-              // Flexible, not a fixed cap: the name yields to whatever the
-              // badge and icon need, so a plugin with a paragraph for a name
-              // ellipsises instead of pushing the badge off the side.
-              Flexible(
-                child: Text(
-                  _candidates[entry.key].displaySource,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white54, fontSize: 13),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                badge,
-                style: const TextStyle(color: Colors.white38, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-      );
+  /// With a list up, its rows already read "Checking…" and "Opening…", and a
+  /// line repeating them was noise. What is left is the wait before there is
+  /// a list, whatever is unusual about an open - a torrent still being
+  /// prepared, a live feed reconnecting - and why nothing played.
+  String? _startupStatus(
+    AppLocalizations l10n, {
+    required List<StreamResult> sources,
+  }) {
+    if (_stage == _Stage.failed) return _error;
+    if (sources.isEmpty) {
+      final plugin = _pluginName;
+      return plugin == null ? l10n.loading : l10n.playerGettingLinks(plugin);
     }
-    return Column(mainAxisSize: MainAxisSize.min, children: rows);
+    return _status.isEmpty ? null : _status;
   }
 
-  /// The panel that stands in for the video until there is a video.
+  /// `S1 E3 · Name` for an episode of a series, or null for anything else.
   ///
-  /// A plain opaque [ColoredBox] on purpose: this sits over a platform view on
-  /// macOS and iOS, where Flutter gives every layer above one its own
-  /// IOSurface, so an opacity or filter layer here would be window-sized and
-  /// torn down the instant the first frame landed.
-  ///
-  /// The chrome is not merely covered but absent while this is up, so the
-  /// controls' key sink is not there to compete with Skip for the remote.
-  Widget _openingOverlay(AppLocalizations l10n, {required bool isTv}) {
-    return RepaintBoundary(
-      child: ColoredBox(
-        key: openingOverlayKey,
-        color: Colors.black,
-        child: SafeArea(
-          child: Stack(
-            children: [
-              Align(
-                alignment: Alignment.topLeft,
-                child: IconButton(
-                  // Skip is the D-pad's landing place here; Back is reached by
-                  // the remote's own key, which PopScope already routes.
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: _handleBack,
-                ),
-              ),
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Both lines capped: a torrent file name or a plugin's
-                      // source label can run to a paragraph, and this Column
-                      // has no room to give on a phone in portrait.
-                      Text(
-                        _torrentFileLabel ?? widget.item.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      const CircularProgressIndicator(),
-                      if (_status.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Text(
-                          _status,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                      ],
-                      // Why the source before this one was given up on.
-                      if (_failReason case final reason?) ...[
-                        const SizedBox(height: 6),
-                        _reasonLine(reason),
-                      ],
-                      const SizedBox(height: 24),
-                      _skipButton(l10n, autofocus: isTv),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  /// Gated on the content type, not on there being an episode: plugins file a
+  /// film as a one-episode show, which printed "S1 E1 · Full Movie" over it.
+  String? _episodeLine(AppLocalizations l10n) {
+    final type = widget.item.contentType;
+    if (type != MultimediaContentType.series &&
+        type != MultimediaContentType.anime) {
+      return null;
+    }
+    final episode = _currentEpisode;
+    if (episode == null) return null;
+    final number = l10n.playerSeasonEpisode(episode.season, episode.episode);
+    final name = episode.name.trim();
+    return name.isEmpty ? number : '$number · $name';
   }
 }

@@ -1100,5 +1100,35 @@
   "selectNetworkBuffer": "Select network buffer",
   "@selectNetworkBuffer": {
     "description": "Title of the dialog for choosing the network buffer size."
+  },
+  "playerGettingLinks": "Getting links from {plugin}…",
+  "@playerGettingLinks": {
+    "description": "Startup screen status while the plugin is still being asked for this title's links. {plugin} is the plugin's name, a proper noun.",
+    "placeholders": {
+      "plugin": {
+        "type": "String",
+        "example": "HubCloud"
+      }
+    }
+  },
+  "playerSourceChecking": "Checking…",
+  "@playerSourceChecking": {
+    "description": "Status on one row of the source list: its reachability check is running."
+  },
+  "playerSourceOpening": "Opening…",
+  "@playerSourceOpening": {
+    "description": "Status on the row of the source list the player is opening right now, before its first picture."
+  },
+  "playerSourceNotChecked": "Not checked",
+  "@playerSourceNotChecked": {
+    "description": "Reachability column of the source list, for a link nobody has checked: the check only looks at the top few links, and cannot look at torrents or local files at all. Deliberately not 'Unknown', which reads as a verdict that something is wrong."
+  },
+  "playerReasonNoAnswer": "no answer from the link",
+  "@playerReasonNoAnswer": {
+    "description": "Why one source gave up: it was opened without having been checked, the reachability check then got no answer from it, and the player went back to a source the check had vouched for. Matches the row's \"Unknown\": no answer is not proof the link is dead. A lowercase fragment, like the other playerReason strings: shown after the source's name."
+  },
+  "playerSourceUnplayable": "Unplayable",
+  "@playerSourceUnplayable": {
+    "description": "Status on a row of the source list for a link that was opened and would not play, or stopped playing. It may still be reachable - the reachability column says so separately."
   }
 }

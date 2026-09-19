@@ -298,7 +298,7 @@ void main() {
               'up on, not recorded as watched',
         );
         expect(
-          find.text(l10n.playerReasonSourceNeverStarted),
+          find.textContaining(l10n.playerReasonSourceNeverStarted),
           findsOneWidget,
           reason: 'and the viewer has to be told why the picture went away',
         );
@@ -370,7 +370,10 @@ void main() {
         await playSeconds(tester, 12);
 
         expect(engine.callsTo('setSource').length, opensBefore);
-        expect(find.text(l10n.playerReasonSourceNeverStarted), findsNothing);
+        expect(
+          find.textContaining(l10n.playerReasonSourceNeverStarted),
+          findsNothing,
+        );
 
         await tester.pumpWidget(const SizedBox());
       },
@@ -396,7 +399,7 @@ void main() {
         }
 
         expect(
-          find.text(l10n.playerReasonSourceNeverStarted),
+          find.textContaining(l10n.playerReasonSourceNeverStarted),
           findsNothing,
           reason: 'a stalled source has not proved anything about this decoder',
         );

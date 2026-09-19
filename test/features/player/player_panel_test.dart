@@ -518,6 +518,7 @@ void main() {
     int currentSourceIndex = 0,
     List<StreamResult>? sources,
     Map<int, ProbeOutcome> probes = const <int, ProbeOutcome>{},
+    Set<int> failedSources = const <int>{},
     bool qualityFilteredFallback = false,
     List<Episode> episodes = const <Episode>[],
     Episode? currentEpisode,
@@ -555,6 +556,7 @@ void main() {
         sources: sources ?? _sources(),
         currentSourceIndex: currentSourceIndex,
         probes: probes,
+        failedSources: failedSources,
         qualityFilteredFallback: qualityFilteredFallback,
         episodes: episodes,
         currentEpisode: currentEpisode,
@@ -808,8 +810,84 @@ void main() {
         find.widgetWithText(PanelBadge, l10n.playerSourceReachable),
         findsOneWidget,
       );
-      expect(find.widgetWithText(PanelBadge, l10n.failed), findsOneWidget);
-      expect(find.widgetWithText(PanelBadge, l10n.trying), findsOneWidget);
+      expect(
+        find.widgetWithText(PanelBadge, l10n.unknown),
+        findsOneWidget,
+        reason: 'a check that got no answer is not a source that failed',
+      );
+      expect(
+        find.widgetWithText(PanelBadge, l10n.playerSourceChecking),
+        findsOneWidget,
+      );
+      expect(find.widgetWithText(PanelBadge, l10n.playerSourceUnplayable), findsNothing);
+    });
+
+    // "Unknown" is the placeholder for a source whose plugin named no
+    // provider - every JS plugin's is - and it was printed under every row.
+    testWidgets('a source with no provider gets no provider line', (
+      tester,
+    ) async {
+      await pumpPanel(
+        tester,
+        sources: const <StreamResult>[
+          StreamResult(url: 'https://a.test/one', source: 'HubCloud [1080p]'),
+        ],
+        currentSourceIndex: -1,
+      );
+
+      expect(find.text('Unknown'), findsNothing);
+      expect(find.textContaining('HubCloud'), findsOneWidget);
+    });
+
+    // Not "Unknown", which reads as a verdict: these have simply not been
+    // asked, and past the top three most of them never will be.
+    testWidgets('says Not checked for a source nobody has checked', (
+      tester,
+    ) async {
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      await pumpPanel(
+        tester,
+        probes: const <int, ProbeOutcome>{0: ProbeOutcome.healthy},
+      );
+
+      expect(
+        find.widgetWithText(PanelBadge, l10n.playerSourceNotChecked),
+        findsNWidgets(2),
+        reason: 'the check only looks at the top three; the rest said nothing',
+      );
+      expect(find.widgetWithText(PanelBadge, l10n.unknown), findsNothing);
+    });
+
+    // Reachability and how playing went are separate facts, and the panel
+    // shows both: a source that was reachable and then failed says so.
+    testWidgets('a source that would not play still says what the check '
+        'found', (tester) async {
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      await pumpPanel(
+        tester,
+        currentSourceIndex: 0,
+        probes: const <int, ProbeOutcome>{1: ProbeOutcome.healthy},
+        failedSources: const <int>{1},
+      );
+
+      final second = find.ancestor(
+        of: find.text('Vidsrc'),
+        matching: find.byType(PanelRow),
+      );
+      expect(
+        find.descendant(
+          of: second,
+          matching: find.widgetWithText(PanelBadge, l10n.playerSourceReachable),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: second,
+          matching: find.widgetWithText(PanelBadge, l10n.playerSourceUnplayable),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('says why a source below the preference is in the list', (
@@ -1175,14 +1253,14 @@ void main() {
         );
 
         expect(
-          _badgeColour(tester, l10n.trying),
+          _badgeColour(tester, l10n.playerSourceChecking),
           PlayerPanelMetrics.tv.secondaryText,
           reason:
               'the one badge that says "still looking" was the hardest to read '
               'on the set it was hardest to read on',
         );
         expect(
-          _badgeColour(tester, l10n.trying).a,
+          _badgeColour(tester, l10n.playerSourceChecking).a,
           greaterThan(HotstarPlayerStyle.mutedText.a),
           reason: '45 % white is a phone number against a set\'s picture modes',
         );
@@ -1192,9 +1270,11 @@ void main() {
           reason: 'green still means the probe answered',
         );
         expect(
-          _badgeColour(tester, l10n.failed),
-          const Color(0xFFE57373),
-          reason: 'and red still means it did not',
+          _badgeColour(tester, l10n.unknown),
+          const Color(0xFFFFB74D),
+          reason:
+              'amber means the probe got no answer - "unknown", not the red of '
+              'a source that was played and would not play',
         );
       },
     );
@@ -2324,8 +2404,14 @@ void main() {
           2: ProbeOutcome.trying,
         },
       );
-      expect(find.widgetWithText(PanelBadge, l10n.trying), findsNWidgets(2));
-      expect(find.widgetWithText(PanelBadge, l10n.failed), findsNothing);
+      expect(
+        find.widgetWithText(PanelBadge, l10n.playerSourceChecking),
+        findsNWidgets(2),
+      );
+      expect(
+        find.widgetWithText(PanelBadge, l10n.unknown),
+        findsNothing,
+      );
 
       panel.data.value = panel.data.value.copyWith(
         probes: const <int, ProbeOutcome>{
@@ -2336,8 +2422,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.widgetWithText(PanelBadge, l10n.failed), findsOneWidget);
-      expect(find.widgetWithText(PanelBadge, l10n.trying), findsNothing);
+      expect(
+        find.widgetWithText(PanelBadge, l10n.unknown),
+        findsOneWidget,
+      );
+      expect(
+        find.widgetWithText(PanelBadge, l10n.playerSourceChecking),
+        findsNothing,
+      );
       expect(
         find.widgetWithText(PanelBadge, l10n.playerSourceReachable),
         findsNWidgets(2),
@@ -2493,7 +2585,10 @@ void main() {
         find.widgetWithText(PanelBadge, l10n.playerSourceReachable),
         findsOneWidget,
       );
-      expect(find.widgetWithText(PanelBadge, l10n.failed), findsNothing);
+      expect(
+        find.widgetWithText(PanelBadge, l10n.unknown),
+        findsNothing,
+      );
     });
 
     testWidgets('an equal value published again rebuilds nothing', (

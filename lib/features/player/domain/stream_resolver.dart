@@ -212,28 +212,35 @@ enum ProbeOutcome { trying, healthy, unhealthy }
 /// re-sorted, re-filtered nor overridden by watch history — so its first entry
 /// is what opens.
 ///
-/// [probeCandidates] health-checks that many of the top candidates in parallel
-/// and returns the first healthy one, so a dead link fails over before the
-/// engine spins on a connect timeout. Pass 0 to skip probing.
+/// [probeCandidates] is how many candidates are health-checked at once, in
+/// priority order, with a dead one's place going to the next in line until a
+/// healthy one is known - so a dead link fails over before the engine spins on
+/// a connect timeout. Pass 0 to skip probing. [probeBudget] caps how long that
+/// may take before playback starts on the best found so far.
 ///
 /// [onCandidates] fires as soon as the ordered list exists; indices in every
 /// later report and in [ResolvedPlayback] are indices into that list.
 /// [onProbe] fires for each candidate as it is dispatched and again as it
 /// settles. Neither changes what is resolved.
 ///
-/// Completing [stopProbing] ends the race early with the best answer the
-/// probes have produced, or the preferred candidate when they have produced
-/// none. Distinct from [isCancelled], which abandons resolution altogether.
+/// Completing [pick] with an index into that list ends the race on exactly
+/// that candidate: the viewer chose it from the source list while the check
+/// was running, and the probes do not overrule them. Distinct from
+/// [isCancelled], which abandons resolution altogether. Completing [abandon]
+/// ends a check still running, for a caller that has stopped waiting - the
+/// screen closing - so nothing it armed outlives it.
 Future<ResolvedPlayback> resolvePlayback({
   required ProviderReader read,
   required MultimediaItem item,
   required String videoUrl,
   List<StreamResult>? preloadedStreams,
   int probeCandidates = 3,
+  Duration probeBudget = kProbeBudget,
   bool Function()? isCancelled,
   void Function(List<StreamResult> streams)? onCandidates,
   void Function(int index, ProbeOutcome outcome)? onProbe,
-  Future<void>? stopProbing,
+  Future<int>? pick,
+  Future<void>? abandon,
 }) async {
   final direct = _directStream(item, videoUrl);
   if (direct != null) {
@@ -296,9 +303,11 @@ Future<ResolvedPlayback> resolvePlayback({
           streams,
           startIndex: saved,
           limit: probeCandidates,
+          budget: probeBudget,
           isCancelled: isCancelled,
           onProbe: onProbe,
-          stopProbing: stopProbing,
+          pick: pick,
+          abandon: abandon,
         );
 
   return ResolvedPlayback(
@@ -327,6 +336,21 @@ StreamResult? _directStream(MultimediaItem item, String videoUrl) {
     providerName: item.provider ?? 'Local',
     headers: const {},
   );
+}
+
+/// The plugin [resolvePlayback] would ask for [item]'s streams, or null when
+/// it would ask none: a local file, a torrent or a direct link plays as it is.
+///
+/// For saying who is being waited on. Resolution itself does not go through
+/// this, but it answers from the same two functions, so the two cannot name
+/// different plugins.
+SkyStreamProvider? pluginFor(
+  ProviderReader read,
+  MultimediaItem item,
+  String videoUrl,
+) {
+  if (_directStream(item, videoUrl) != null) return null;
+  return _resolveProvider(read, item);
 }
 
 SkyStreamProvider? _resolveProvider(ProviderReader read, MultimediaItem item) {
@@ -412,74 +436,131 @@ int _savedStreamIndex(
   return 0;
 }
 
-/// Probes the top [limit] candidates at once and resolves as soon as the
-/// highest-priority healthy one is known — with [0,1,2], a healthy 0 returns
-/// immediately rather than waiting on 1 and 2. Falls back to [startIndex] if
-/// they all fail, so a wrong probe never blocks playback outright.
+/// How long the rolling check may run before playback starts regardless: on
+/// the best candidate it has found, or the preferred one when it has found
+/// none. Fifty dead links at up to six seconds a batch is minutes of spinner.
+const Duration kProbeBudget = Duration(seconds: 10);
+
+/// Checks candidates in priority order, [limit] at a time, and resolves as
+/// soon as the highest-priority healthy one is known - with [0,1,2], a
+/// healthy 0 returns immediately rather than waiting on 1 and 2.
+///
+/// Rolling: a candidate found dead hands its place to the next unchecked one
+/// in line, so the check keeps [limit] going until something answers - and
+/// carries on doing so after it has answered, in the background, for the ones
+/// still out: the source list shows every slot filled rather than a dead one
+/// left where it fell. It used to look at the top three and stop, which left
+/// a dead one among them unreplaced and, with all three dead, opened the
+/// first of them anyway. Completing the caller's `abandon` stops it.
+///
+/// Falls back to [startIndex] if every candidate fails, so a wrong probe never
+/// blocks playback outright, and to the best found so far once [budget] runs
+/// out.
 Future<int> _firstHealthyStream(
   List<StreamResult> streams, {
   required int startIndex,
   required int limit,
+  required Duration budget,
   bool Function()? isCancelled,
   void Function(int index, ProbeOutcome outcome)? onProbe,
-  Future<void>? stopProbing,
+  Future<int>? pick,
+  Future<void>? abandon,
 }) async {
   if (streams.isEmpty) return 0;
   final start = startIndex.clamp(0, streams.length - 1);
 
-  final candidates = <int>[];
-  for (var i = 0; i < limit; i++) {
-    final idx = (start + i) % streams.length;
-    if (!candidates.contains(idx)) candidates.add(idx);
-  }
-  if (candidates.length <= 1) return start;
+  // Every candidate, in priority order: the preferred one, then the rest of
+  // the ring after it.
+  final order = <int>[
+    for (var i = 0; i < streams.length; i++) (start + i) % streams.length,
+  ];
+  if (order.length <= 1) return start;
 
   final completer = Completer<int>();
   final results = <int, bool>{};
+  var dispatched = 0;
+  var abandoned = false;
+  Timer? deadline;
 
-  /// The best answer the race has actually produced. [start] when it has
-  /// produced none, which is the same fallback an all-failed race takes.
+  /// Ends the check on [index]. The deadline goes in the same breath, not
+  /// after the caller wakes: a probe answering as the screen closes would
+  /// otherwise leave it armed for up to [budget] behind a dead screen.
+  void finish(int index) {
+    if (completer.isCompleted) return;
+    deadline?.cancel();
+    completer.complete(index);
+  }
+
+  /// The best answer the check has actually produced: the highest-priority
+  /// healthy candidate, or [start] when there is none.
   int bestSoFar() {
-    for (final c in candidates) {
+    for (final c in order) {
       if (results[c] ?? false) return c;
     }
     return start;
   }
 
-  void record(int idx, bool healthy) {
-    // Reported before the completion guard, so a candidate that answers after
-    // the race is over still explains itself rather than staying "trying" on
-    // screen forever.
-    onProbe?.call(idx, healthy ? ProbeOutcome.healthy : ProbeOutcome.unhealthy);
+  void decide() {
     if (completer.isCompleted) return;
-    results[idx] = healthy;
-    for (final c in candidates) {
-      if (!results.containsKey(c)) return; // a better one is still in flight
-      if (results[c]!) {
-        completer.complete(c);
+    // Dispatch follows priority, so nothing undispatched can outrank what is.
+    for (final c in order.take(dispatched)) {
+      final answer = results[c];
+      if (answer == null) return; // a better one is still in flight
+      if (answer) {
+        finish(c);
         return;
       }
     }
-    completer.complete(start); // everything failed
+    if (dispatched == order.length) finish(start); // all failed
   }
 
-  // Armed before the probes are dispatched: a skip that has already happened
-  // must win the race rather than lose it by a microtask.
-  if (stopProbing != null) {
-    unawaited(
-      stopProbing.then((_) {
-        if (!completer.isCompleted) completer.complete(bestSoFar());
-      }),
-    );
+  late final void Function() dispatchNext;
+
+  void record(int idx, bool healthy) {
+    // Reported before the completion guard, so a candidate that answers after
+    // the check is over still explains itself rather than staying "trying"
+    // on screen forever.
+    onProbe?.call(idx, healthy ? ProbeOutcome.healthy : ProbeOutcome.unhealthy);
+    results[idx] = healthy;
+    // Also once decided: the replacement is for the list, not the choice.
+    if (!healthy && !abandoned) dispatchNext();
+    decide();
   }
 
-  for (final idx in candidates) {
+  dispatchNext = () {
+    if (dispatched >= order.length) return;
+    final idx = order[dispatched++];
     onProbe?.call(idx, ProbeOutcome.trying);
     unawaited(
       _isHealthy(
         streams[idx],
       ).then((h) => record(idx, h)).catchError((_) => record(idx, false)),
     );
+  };
+
+  // Armed before the probes are dispatched: a pick that has already happened
+  // must win the race rather than lose it by a microtask.
+  if (pick != null) {
+    unawaited(
+      pick.then((index) {
+        if (index < 0 || index >= streams.length) return;
+        finish(index);
+      }),
+    );
+  }
+
+  if (abandon != null) {
+    unawaited(
+      abandon.then((_) {
+        abandoned = true;
+        finish(start);
+      }),
+    );
+  }
+  deadline = Timer(budget, () => finish(bestSoFar()));
+
+  for (var i = 0; i < limit; i++) {
+    dispatchNext();
   }
 
   final winner = await completer.future;
@@ -487,13 +568,25 @@ Future<int> _firstHealthyStream(
   return winner;
 }
 
+/// Whether the health probe has no way to look at this candidate, and so
+/// passes it without asking: a torrent is served by the local engine once it
+/// is seeded, and a bare path is a file on this device.
+///
+/// A pass from the probe on one of these therefore says nothing, which the
+/// source list has to know before it calls one reachable.
+bool isUncheckableSource(StreamResult stream) =>
+    stream.url.startsWith('magnet:') ||
+    stream.url.endsWith('.torrent') ||
+    stream.url.startsWith('/');
+
+/// The health probe for one source, outside the race: the same HEAD and
+/// ranged GET, for a source opened without having been checked - picked by
+/// the viewer from past the top few, or reached by failover.
+Future<bool> isReachable(StreamResult stream) => _isHealthy(stream);
+
 /// HEAD first, then a one-byte ranged GET for servers that reject HEAD.
 Future<bool> _isHealthy(StreamResult stream) async {
-  if (stream.url.startsWith('magnet:') ||
-      stream.url.endsWith('.torrent') ||
-      stream.url.startsWith('/')) {
-    return true;
-  }
+  if (isUncheckableSource(stream)) return true;
 
   final uri = Uri.tryParse(stream.url);
   if (uri == null || !uri.hasScheme) return false;

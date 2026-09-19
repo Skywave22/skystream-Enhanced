@@ -1693,4 +1693,24 @@ class AppLocalizationsKn extends AppLocalizations {
 
   @override
   String get selectNetworkBuffer => 'ನೆಟ್‌ವರ್ಕ್ ಬಫರ್ ಆಯ್ಕೆಮಾಡಿ';
+
+  @override
+  String playerGettingLinks(String plugin) {
+    return '$plugin ನಿಂದ ಲಿಂಕ್‌ಗಳನ್ನು ಪಡೆಯಲಾಗುತ್ತಿದೆ…';
+  }
+
+  @override
+  String get playerSourceChecking => 'ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…';
+
+  @override
+  String get playerSourceOpening => 'ತೆರೆಯಲಾಗುತ್ತಿದೆ…';
+
+  @override
+  String get playerSourceNotChecked => 'ಪರಿಶೀಲಿಸಿಲ್ಲ';
+
+  @override
+  String get playerReasonNoAnswer => 'ಲಿಂಕ್‌ನಿಂದ ಉತ್ತರ ಬಂದಿಲ್ಲ';
+
+  @override
+  String get playerSourceUnplayable => 'ಪ್ಲೇ ಆಗಲಿಲ್ಲ';
 }

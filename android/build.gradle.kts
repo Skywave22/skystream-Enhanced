@@ -12,7 +12,10 @@ allprojects {
  * Centralized Project Settings
  * These versions are enforced across the app and all plugins.
  */
-extra["projectCompileSdk"] = 37
+// A platform hash rather than an API level: Google publishes API 37 only as
+// `android-37.0` (and 37.1, 37.2 ...), and AGP 8.13 turns a bare 37 into
+// `android-37`, a package that no longer exists - locally or for CI to fetch.
+extra["projectCompileSdk"] = "android-37.0"
 extra["projectTargetSdk"] = 36
 val projectJvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
 
@@ -38,7 +41,11 @@ subprojects {
         if (project.hasProperty("android")) {
             project.extensions.configure<com.android.build.gradle.BaseExtension>("android") {
                 // Force API 37 to satisfy permission_handler_android and modern AndroidX dependencies
-                compileSdkVersion(rootProject.extra["projectCompileSdk"] as Int)
+                val wanted = rootProject.extra["projectCompileSdk"] as String
+                // Only where it differs: :app has already set this and been
+                // configured by the time this runs for it, and AGP refuses a
+                // second write of a platform hash once it has been read.
+                if (compileSdkVersion != wanted) compileSdkVersion(wanted)
                 defaultConfig {
                     @Suppress("DEPRECATION")
                     targetSdkVersion(rootProject.extra["projectTargetSdk"] as Int)

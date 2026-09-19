@@ -5,6 +5,7 @@ import 'package:skystream/core/domain/entity/multimedia_item.dart';
 import 'package:skystream/core/extensions/extension_manager.dart';
 import 'package:skystream/core/storage/history_repository.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
+import 'package:skystream/features/player/presentation/vlc/player_startup_view.dart';
 import 'package:skystream/features/player/presentation/vlc/vlc_player_controls.dart';
 import 'package:skystream/features/player/presentation/vlc/vlc_player_screen.dart';
 import 'package:skystream/features/settings/presentation/player_settings_provider.dart';
@@ -79,7 +80,7 @@ void main() {
     );
 
     testWidgets(
-      'a long source name never pushes the probe badge off a narrow screen',
+      'a long source name never pushes the row status off a narrow screen',
       variant: texturePlatform,
       (tester) async {
         // A source name capped at a fixed width, plus the icon and the gaps,
@@ -126,14 +127,11 @@ void main() {
           ),
         );
 
-        // Every probe icon is one of these three.
         var sawRows = false;
         for (var i = 0; i < 6; i++) {
           await tester.pump(const Duration(milliseconds: 50));
           expect(tester.takeException(), isNull);
-          if (find.byIcon(Icons.more_horiz_rounded).evaluate().isNotEmpty ||
-              find.byIcon(Icons.check_rounded).evaluate().isNotEmpty ||
-              find.byIcon(Icons.close_rounded).evaluate().isNotEmpty) {
+          if (find.byKey(PlayerStartupView.rowKey(1)).evaluate().isNotEmpty) {
             sawRows = true;
           }
         }
@@ -165,7 +163,7 @@ void main() {
     });
 
     testWidgets(
-      'skip abandons the source and advances the failover ring',
+      'selecting another row abandons the source and opens that one',
       variant: texturePlatform,
       (tester) async {
         await pumpPlayer(
@@ -188,13 +186,15 @@ void main() {
         final l10n = await AppLocalizations.delegate.load(const Locale('en'));
         expect(find.textContaining(l10n.sourceAttempt(1, 2)), findsOneWidget);
 
-        await tester.tap(find.text(l10n.playerSkipSource));
+        // No Skip any more: the list is the control, and a row is a choice.
+        expect(find.text(l10n.playerSkipSource), findsNothing);
+        await tester.tap(find.text('Beta · 720p'));
         await settle(tester);
 
         expect(
           find.textContaining(l10n.sourceAttempt(2, 2)),
           findsOneWidget,
-          reason: 'skip hands the source to the failover ring, which moves on',
+          reason: 'the row the viewer selected is the one being opened',
         );
         expect(
           find.byKey(openingOverlayKey),

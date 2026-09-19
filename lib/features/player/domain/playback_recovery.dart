@@ -7,6 +7,7 @@ library;
 import 'package:flutter/foundation.dart' show TargetPlatform;
 
 import '../../../core/providers/device_info_provider.dart';
+import 'stream_resolver.dart' show ProbeOutcome;
 
 /// What to do about a picture that has stopped moving.
 enum StallAction {
@@ -32,6 +33,15 @@ const Duration kStallNudgeAfter = Duration(seconds: 10);
 
 /// How long any source may make no progress at all before it is abandoned.
 const Duration kStallRecoverAfter = Duration(seconds: 25);
+
+/// How long a source may take, from the moment it starts opening, to show its
+/// first picture before it is given up on.
+///
+/// Counted by the attempt's own clock rather than by the stall watchdog: the
+/// watchdog stands down while the engine reports paused, stopped or ended, and
+/// before the screen reaches its playing stage, and a source stuck in any of
+/// those said "Opening…" for minutes.
+const Duration kFirstFrameDeadline = Duration(seconds: 30);
 
 /// A torrent's first frame waits on pieces arriving, not on a socket, and on a
 /// cold magnet that is measured in minutes. The ordinary deadline would
@@ -78,15 +88,45 @@ StallAction stallActionFor({
 /// [tried] is what stops the ring becoming a loop. It is a *walk's* memory,
 /// not the session's — a source that plays for an hour before the network
 /// drops has earned a fresh walk.
+///
+/// [unreachable] are the candidates the reachability check found dead. They
+/// are walked last rather than dropped: a slow host, or one that refuses the
+/// probe's HEAD and ranged GET, reads as dead and still streams. Before
+/// everything else, though, they would each cost the full stall deadline.
 int? nextFailoverIndex({
   required int from,
   required int total,
   required Set<int> tried,
+  Set<int> unreachable = const <int>{},
 }) {
   if (total <= 0) return null;
+  int? lastResort;
   for (var step = 1; step <= total; step++) {
     final candidate = (from + step) % total;
-    if (!tried.contains(candidate)) return candidate;
+    if (tried.contains(candidate)) continue;
+    if (!unreachable.contains(candidate)) return candidate;
+    lastResort ??= candidate;
+  }
+  return lastResort;
+}
+
+/// Where to go when the source at [except] turns out unreachable while it
+/// opens: the first candidate the check has vouched for that has not failed,
+/// or null when none has.
+///
+/// Back to a known-good source rather than on down the list: the next
+/// candidate is as unproven as the one just abandoned. Null means there is
+/// nowhere proven to go, and the caller should keep opening rather than
+/// abandon a source on the probe's word alone - it is wrong about slow hosts.
+int? firstReachableIndex({
+  required int total,
+  required Map<int, ProbeOutcome> probes,
+  required Set<int> failed,
+  required int except,
+}) {
+  for (var index = 0; index < total; index++) {
+    if (index == except || failed.contains(index)) continue;
+    if (probes[index] == ProbeOutcome.healthy) return index;
   }
   return null;
 }

@@ -1679,4 +1679,24 @@ class AppLocalizationsLv extends AppLocalizations {
 
   @override
   String get selectNetworkBuffer => 'Select network buffer';
+
+  @override
+  String playerGettingLinks(String plugin) {
+    return 'Getting links from $plugin…';
+  }
+
+  @override
+  String get playerSourceChecking => 'Checking…';
+
+  @override
+  String get playerSourceOpening => 'Opening…';
+
+  @override
+  String get playerSourceNotChecked => 'Not checked';
+
+  @override
+  String get playerReasonNoAnswer => 'no answer from the link';
+
+  @override
+  String get playerSourceUnplayable => 'Unplayable';
 }

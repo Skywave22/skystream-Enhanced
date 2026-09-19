@@ -65,6 +65,8 @@ class PanelRow extends StatefulWidget {
     this.selectedLabel,
     this.status,
     this.statusColor,
+    this.outcome,
+    this.outcomeColor,
     this.enabled = true,
     this.autofocus = false,
     this.trailing,
@@ -94,6 +96,11 @@ class PanelRow extends StatefulWidget {
   /// Live state that is not selection: a probe result, a download marker.
   final String? status;
   final Color? statusColor;
+
+  /// A second live fact, drawn after [status] and never folded into it - a
+  /// source that was reachable and then failed to play says both.
+  final String? outcome;
+  final Color? outcomeColor;
 
   final bool enabled;
 
@@ -196,6 +203,7 @@ class _PanelRowState extends State<PanelRow> {
                           ),
                         if (widget.badges.isNotEmpty ||
                             widget.status != null ||
+                            widget.outcome != null ||
                             (widget.selected && widget.selectedLabel != null))
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
@@ -216,6 +224,11 @@ class _PanelRowState extends State<PanelRow> {
                                   PanelBadge(
                                     text: widget.status!,
                                     color: widget.statusColor,
+                                  ),
+                                if (widget.outcome != null)
+                                  PanelBadge(
+                                    text: widget.outcome!,
+                                    color: widget.outcomeColor,
                                   ),
                               ],
                             ),

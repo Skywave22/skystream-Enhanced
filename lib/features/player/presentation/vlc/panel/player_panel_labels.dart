@@ -10,6 +10,33 @@ import 'package:vlc_player/vlc_player.dart';
 import '../../../../../core/domain/entity/multimedia_item.dart';
 import '../../../../../core/utils/stream_quality_sorter.dart';
 import '../../../../../l10n/generated/app_localizations.dart';
+import '../../../domain/source_row_status.dart';
+
+/// The word a source row shows for what the reachability check found. Shared
+/// by the startup screen's list and the Sources tab, which render it
+/// differently but must never name it differently.
+String sourceReachabilityLabel(
+  AppLocalizations l10n,
+  SourceReachability reachability,
+) => switch (reachability) {
+  SourceReachability.checking => l10n.playerSourceChecking,
+  SourceReachability.reachable => l10n.playerSourceReachable,
+  // "Unknown", not "unreachable": the check got no answer, which a slow host
+  // or one that refuses test requests gives too, and such a link can still
+  // play. The word claims no more than the check knows.
+  SourceReachability.unreachable => l10n.unknown,
+  SourceReachability.notChecked => l10n.playerSourceNotChecked,
+};
+
+/// The word a source row shows for how playing it went, or null for a source
+/// nobody has opened, which has nothing to say about it.
+String? sourcePlayStateLabel(AppLocalizations l10n, SourcePlayState state) =>
+    switch (state) {
+      SourcePlayState.untried => null,
+      SourcePlayState.opening => l10n.playerSourceOpening,
+      SourcePlayState.playing => l10n.playing,
+      SourcePlayState.failed => l10n.playerSourceUnplayable,
+    };
 
 /// What a source row can say about itself.
 ///

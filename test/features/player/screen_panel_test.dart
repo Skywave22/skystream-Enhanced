@@ -326,7 +326,12 @@ void main() {
       // losing probes keep running for seconds behind it.
       final held = Completer<void>();
       final client = MockClient((request) async {
-        if (request.url.path.contains('alpha')) return http.Response('', 200);
+        // Alpha, and the next episode's own two, answer at once.
+        for (final instant in const <String>['alpha', 'delta', 'epsilon']) {
+          if (request.url.path.contains(instant)) {
+            return http.Response('', 200);
+          }
+        }
         await held.future;
         // A HEAD that answers 4xx sends the probe on to a one-byte ranged
         // GET, and refusing that is how a dead candidate reads on the wire.
@@ -335,14 +340,28 @@ void main() {
       });
 
       await http.runWithClient(() async {
-        final downloads = await pumpShow(tester, episodeOne: probedStreams);
+        // The next episode's sources are real links, not bare paths: a path
+        // is a local file the probe cannot look at, so its row would say
+        // Unknown whatever a stray probe claimed - and prove nothing here.
+        final downloads = await pumpShow(
+          tester,
+          episodeOne: probedStreams,
+          episodeTwo: probedNextStreams,
+        );
         await sendFirstFrame(tester);
         final l10n = await english();
+        // The panel's own chips. The startup view behind it lists the same
+        // sources while the next episode opens, with its own wording for the
+        // row being opened.
+        Finder inPanel(String text) => find.descendant(
+          of: find.byType(PlayerSourcesTab),
+          matching: find.text(text),
+        );
 
         await openFromBar(tester, l10n.sources);
         expect(sourceRows(tester), <String>['Alpha', 'Beta', 'Gamma']);
         expect(
-          find.text(l10n.trying),
+          find.text(l10n.playerSourceChecking),
           findsNWidgets(2),
           reason: 'Beta and Gamma are still being probed, which is the point',
         );
@@ -358,7 +377,7 @@ void main() {
         downloads().gate.complete();
         await settle(tester);
         expect(sourceRows(tester), <String>['Delta', 'Epsilon']);
-        expect(find.text(l10n.playerSourceReachable), findsNWidgets(2));
+        expect(inPanel(l10n.playerSourceReachable), findsNWidgets(2));
 
         // Now the finished episode's probes answer. They are keyed by index
         // into a list that is not on screen any more.
@@ -366,15 +385,15 @@ void main() {
         await settle(tester);
 
         expect(
-          find.text(l10n.failed),
+          find.text(l10n.unknown),
           findsNothing,
           reason:
               'a probe belongs to the resolve that asked for it. Index 1 of '
               'the previous episode\'s candidates is not index 1 of this '
-              'one\'s, and painting it red says the new source is dead',
+              'one\'s, and marking it unreachable says the new source is dead',
         );
         expect(sourceRows(tester), <String>['Delta', 'Epsilon']);
-        expect(find.text(l10n.playerSourceReachable), findsNWidgets(2));
+        expect(inPanel(l10n.playerSourceReachable), findsNWidgets(2));
 
         await tester.pumpWidget(const SizedBox());
       }, () => client);
@@ -383,7 +402,7 @@ void main() {
 
   testWidgets(
     'the next episode\'s own candidates hold the Sources tab through its '
-    'probe, and a pick there is refused',
+    'probe, and a pick there plays that row',
     variant: texturePlatform,
     (tester) async {
       // The window that reaches both halves of the keep-previous rule: the
@@ -419,7 +438,14 @@ void main() {
               'stands from then on. Emptied here, the focused row would '
               'unmount and nothing in the panel would hold focus',
         );
-        expect(find.text(l10n.trying), findsNWidgets(2));
+        expect(
+          find.descendant(
+            of: find.byType(PlayerSourcesTab),
+            matching: find.text(l10n.playerSourceChecking),
+          ),
+          findsNWidgets(2),
+          reason: 'the panel, not the startup view behind it listing the same',
+        );
         expect(
           selectedRows(tester),
           isEmpty,
@@ -430,17 +456,17 @@ void main() {
         await tester.tap(find.widgetWithText(PanelRow, 'Epsilon'));
         await settle(tester);
 
+        // The list on screen is this resolve's own, so the row the viewer
+        // chose means what it says: the check ends on it rather than the
+        // press doing nothing until the probe decides for them.
         expect(
           engine.callsTo('setSource'),
-          hasLength(opened),
-          reason: 'there is nothing resolved to switch away from yet',
+          hasLength(opened + 1),
+          reason: 'a pick during the check ends it on that row',
         );
         expect(
-          find.text(l10n.loading),
-          findsOneWidget,
-          reason:
-              'the press closed the panel, so the screen behind it has to be '
-              'saying something about why nothing happened',
+          (engine.callsTo('setSource').last.arguments as Map)['uri'],
+          'https://cdn.test/epsilon.mkv',
         );
 
         // Let the resolve finish so no probe is left in flight.
@@ -528,6 +554,39 @@ void main() {
             'a hand-picked pack file may not be the episode the screen '
             'thinks is playing, so the search is scoped to the show rather '
             'than to an episode it cannot vouch for',
+      );
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  // A picture on screen is proof the check cannot beat: the source playing
+  // reads reachable even where the probe never looked, as with a local file.
+  testWidgets(
+    'the source on screen never says it was not checked',
+    variant: texturePlatform,
+    (tester) async {
+      await pumpPlayer(
+        tester,
+        preloadedStreams: const <StreamResult>[
+          StreamResult(url: '/sources/alpha.mkv', source: 'Alpha'),
+          StreamResult(url: '/sources/beta.mkv', source: 'Beta'),
+        ],
+      );
+      await sendFirstFrame(tester);
+      final l10n = await english();
+      await openFromBar(tester, l10n.sources);
+
+      Finder chipIn(String row, String text) => find.descendant(
+        of: find.ancestor(of: find.text(row), matching: find.byType(PanelRow)),
+        matching: find.text(text),
+      );
+      expect(chipIn('Alpha', l10n.playerSourceReachable), findsOneWidget);
+      expect(chipIn('Alpha', l10n.playerSourceNotChecked), findsNothing);
+      expect(
+        chipIn('Beta', l10n.playerSourceNotChecked),
+        findsOneWidget,
+        reason: 'a local file nobody has played is still not checked',
       );
 
       await tester.pumpWidget(const SizedBox());

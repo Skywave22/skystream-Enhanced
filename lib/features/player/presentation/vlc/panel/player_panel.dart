@@ -498,6 +498,8 @@ class _PlayerPanelState extends State<PlayerPanel> {
           currentIndex: data.currentSourceIndex,
           anchorIndex: _opened.currentSourceIndex,
           probes: data.probes,
+          failed: data.failedSources,
+          played: data.playedSources,
           qualityFilteredFallback: data.qualityFilteredFallback,
           autofocus: autofocus,
           // Close first, then pick: on a television the panel covers the

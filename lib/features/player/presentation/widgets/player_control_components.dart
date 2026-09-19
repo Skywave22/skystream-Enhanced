@@ -21,8 +21,11 @@ class PlayerTopBar extends StatelessWidget {
     this.backFocusNode,
   });
 
-  @override
-  Widget build(BuildContext context) {
+  /// The bar's padding inside the top safe area, which is also what places its
+  /// back button. [PlayerBackButtonSlot] reads the same numbers, so Back does
+  /// not move when the controls take over from a screen shown before the
+  /// video.
+  static EdgeInsets paddingOf(BuildContext context, {required bool isTv}) {
     final padding = MediaQuery.viewPaddingOf(context);
     final edge = isTv
         ? HotstarPlayerStyle.tvEdgeInset
@@ -33,6 +36,11 @@ class PlayerTopBar extends StatelessWidget {
     final double rightPadding = isTv
         ? edge
         : (padding.right > edge ? padding.right : edge);
+    return EdgeInsets.fromLTRB(leftPadding, 14, rightPadding, 24);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(gradient: HotstarPlayerStyle.topGradient),
       child: SafeArea(
@@ -40,16 +48,13 @@ class PlayerTopBar extends StatelessWidget {
         right: false,
         bottom: false,
         child: Padding(
-          padding: EdgeInsets.fromLTRB(leftPadding, 14, rightPadding, 24),
+          padding: paddingOf(context, isTv: isTv),
           child: Row(
             children: [
-              PlayerIconButton(
-                icon: Icons.arrow_back_rounded,
-                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+              PlayerBackButton(
                 onPressed: onBack,
                 isTv: isTv,
                 focusNode: backFocusNode,
-                iconSize: isTv ? 34 : 30,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -82,6 +87,81 @@ class PlayerTopBar extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The player's back button: the glyph, size and focus treatment
+/// [PlayerTopBar] gives it.
+class PlayerBackButton extends StatelessWidget {
+  final VoidCallback? onPressed;
+  final bool isTv;
+  final FocusNode? focusNode;
+
+  /// {@macro flutter.widgets.Focus.autofocus}
+  final bool autofocus;
+
+  const PlayerBackButton({
+    super.key,
+    required this.onPressed,
+    this.isTv = false,
+    this.focusNode,
+    this.autofocus = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PlayerIconButton(
+      icon: Icons.arrow_back_rounded,
+      tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+      onPressed: onPressed,
+      isTv: isTv,
+      focusNode: focusNode,
+      autofocus: autofocus,
+      iconSize: isTv ? 34 : 30,
+    );
+  }
+}
+
+/// [PlayerBackButton] on its own, where [PlayerTopBar] puts it.
+///
+/// For the screens that stand in for the video before there is one -
+/// resolving, opening and failed - so Back is in the same place before and
+/// after the first frame. Fills its parent but hit-tests only the button, so
+/// it can sit in a Stack above a layer that wants the rest of the surface.
+class PlayerBackButtonSlot extends StatelessWidget {
+  final VoidCallback? onPressed;
+  final bool isTv;
+
+  /// {@macro flutter.widgets.Focus.autofocus}
+  final bool autofocus;
+
+  const PlayerBackButtonSlot({
+    super.key,
+    required this.onPressed,
+    this.isTv = false,
+    this.autofocus = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      left: false,
+      right: false,
+      bottom: false,
+      child: Padding(
+        padding: PlayerTopBar.paddingOf(context, isTv: isTv),
+        // Start, not left: the bar is a Row, which puts Back on the right in
+        // a right-to-left locale.
+        child: Align(
+          alignment: AlignmentDirectional.topStart,
+          child: PlayerBackButton(
+            onPressed: onPressed,
+            isTv: isTv,
+            autofocus: autofocus,
           ),
         ),
       ),

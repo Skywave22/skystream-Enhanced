@@ -88,6 +88,8 @@ class PanelData {
     this.sources = const <StreamResult>[],
     this.currentSourceIndex = -1,
     this.probes = const <int, ProbeOutcome>{},
+    this.failedSources = const <int>{},
+    this.playedSources = const <int>{},
     this.qualityFilteredFallback = false,
     this.episodes = const <Episode>[],
     this.currentEpisode,
@@ -112,6 +114,15 @@ class PanelData {
   /// The health probe's findings, keyed the way [sources] is indexed. A copy
   /// the screen cannot mutate underneath the panel; see the library doc.
   final Map<int, ProbeOutcome> probes;
+
+  /// Sources opened this resolve that would not play, or stopped, keyed the
+  /// way [sources] is indexed. What playing a source found outranks what the
+  /// probe found, so a row here reads as failed whatever [probes] says.
+  final Set<int> failedSources;
+
+  /// Sources that have shown a picture this resolve, keyed the same way. A
+  /// picture is proof of reach no probe can beat, so these read reachable.
+  final Set<int> playedSources;
 
   /// Whether the quality filter matched nothing and was dropped.
   final bool qualityFilteredFallback;
@@ -143,6 +154,8 @@ class PanelData {
     List<StreamResult>? sources,
     int? currentSourceIndex,
     Map<int, ProbeOutcome>? probes,
+    Set<int>? failedSources,
+    Set<int>? playedSources,
     bool? qualityFilteredFallback,
     List<Episode>? episodes,
     Episode? currentEpisode,
@@ -157,6 +170,8 @@ class PanelData {
       sources: sources ?? this.sources,
       currentSourceIndex: currentSourceIndex ?? this.currentSourceIndex,
       probes: probes ?? this.probes,
+      failedSources: failedSources ?? this.failedSources,
+      playedSources: playedSources ?? this.playedSources,
       qualityFilteredFallback:
           qualityFilteredFallback ?? this.qualityFilteredFallback,
       episodes: episodes ?? this.episodes,
@@ -189,6 +204,8 @@ class PanelData {
         identical(sources, other.sources) &&
         currentSourceIndex == other.currentSourceIndex &&
         mapEquals(probes, other.probes) &&
+        setEquals(failedSources, other.failedSources) &&
+        setEquals(playedSources, other.playedSources) &&
         qualityFilteredFallback == other.qualityFilteredFallback &&
         listEquals(episodes, other.episodes) &&
         currentEpisode == other.currentEpisode &&
@@ -204,6 +221,8 @@ class PanelData {
     Object.hashAllUnordered(
       probes.entries.map((e) => Object.hash(e.key, e.value)),
     ),
+    Object.hashAllUnordered(failedSources),
+    Object.hashAllUnordered(playedSources),
     qualityFilteredFallback,
     Object.hashAll(episodes),
     currentEpisode,
@@ -231,7 +250,8 @@ class PanelData {
   @override
   String toString() =>
       'PanelData(sources: ${sources.length}, current: $currentSourceIndex, '
-      'probes: $probes, fallback: $qualityFilteredFallback, '
+      'probes: $probes, failed: $failedSources, played: $playedSources, '
+      'fallback: $qualityFilteredFallback, '
       'episodes: ${episodes.length}, currentEpisode: ${currentEpisode?.name}, '
       'files: ${files.length}, currentFile: $currentFileIndex, '
       'subtitleTarget: $subtitleTarget)';
