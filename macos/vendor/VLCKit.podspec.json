@@ -1,0 +1,79 @@
+{
+  "name": "VLCKit",
+  "version": "3.7.3",
+  "summary": "VLCKit is an Objective-C wrapper for libvlc's external interface on macOS.",
+  "homepage": "https://code.videolan.org/videolan/VLCKit",
+  "license": {
+    "type": "LGPL v2.1",
+    "file": "COPYING.txt"
+  },
+  "documentation_url": "https://wiki.videolan.org/VLCKit/",
+  "social_media_url": "https://twitter.com/videolan",
+  "platforms": {
+    "osx": "10.9"
+  },
+  "authors": {
+    "Pierre d'Herbemont": "pdherbemont@videolan.org",
+    "Felix Paul Kühne": "fkuehne@videolabs.io",
+    "Alexandre Janniaux": "ajanni@videolabs.io",
+    "Hank Anderson": "ataganak@gmail.com",
+    "Maxime Chapelet": "umxprime@videolabs.io",
+    "Carola Nitz": "nitz.carola@googlemail.com",
+    "Jean-Baptiste Kempf": "jb@videolan.org",
+    "Rafaël Carré": "funman@videolan.org",
+    "Faustino E. Osuna": "riquedafreak@videolan.org",
+    "Rémi Denis-Courmont": "remi@remlab.net",
+    "Faustino Osuna": "riquedafreak@videolan.org",
+    "Tanguy Krotoff": "tkrotoff@gmail.com",
+    "VideoLAN": "videolan@videolan.org",
+    "Derk-Jan Hartman": "hartman@videolan.org",
+    "Jean-Paul Saman": "jpsaman@videolan.org",
+    "Malte Tancred": "malte@frontbase.com",
+    "Mike Schrag": "mschrag@pobox.com",
+    "Sebastien Zwickert": "dilaroga@free.fr",
+    "Toralf Niebuhr": "gmthor85@aim.com",
+    "Emmanuel de Roux": "lostbread@free.fr",
+    "Daniel Mierswa": "impulze@impulze.org",
+    "Rune Botten": "rbotten@gmail.com",
+    "Konstantin Pavlov": "thresh@videolan.org",
+    "Pere Orga": "gotrunks@gmail.com",
+    "Philippe Coent": "philippe.coent@gmail.com",
+    "Andrey Utkin": "andrey.krieger.utkin@gmail.com",
+    "Brendon Justin": "brendonjustin@gmail.com",
+    "Sylver Bruneau": "sylver.bruneau@gmail.com",
+    "Gleb Pinigin": "gpinigin@gmail.com",
+    "Kuang Rufan": "master@a1983.com.cn",
+    "Paul Williamson": "squarefrog@gmail.com",
+    "David Fuhrmann": "david.fuhrmann@googlemail.com",
+    "Brion Vibber": "brion@pobox.com",
+    "Martin Storsjö": "martin@martin.st",
+    "Winston Weinert": "winston@ml1.net",
+    "Florent Pillet": "fpillet@gmail.com",
+    "Paulo Vitor Magacho da Silva": "pvmagacho@gmail.com",
+    "James Dumay": "james.w.dumay@gmail.com",
+    "Jörg Bleyel": "jbleyel@gmx.net",
+    "Aleksandr Matuzok": "sherilynhope@gmail.com",
+    "Pierre SAGASPE": "pierre.sagaspe@me.com",
+    "Shenggang Hu": "mrhhsg@gmail.com",
+    "Filipe Cabecinhas": "vlc@filcab.net",
+    "Jeremy Marchand": "kodlian@users.noreply.github.com",
+    "Andre Silva": "andre.silva@blip.pt",
+    "Stefan Schmidt-Bilkenroth": "ssb@mac.com",
+    "Benjamin Adolphi": "b.adolphi@gmail.com"
+  },
+  "source": {
+    "http": "https://github.com/akashdh11/skystream/releases/download/vlckit-3.7.3/VLCKit-3.7.3.tar.xz",
+    "sha256": "67dbd5149b703fdfb8f96017164c8754e8e4402b89083e54b635bb1ebcfca486"
+  },
+  "osx": {
+    "vendored_frameworks": "VLCKit.xcframework"
+  },
+  "frameworks": "Foundation",
+  "libraries": "iconv",
+  "requires_arc": false,
+  "pod_target_xcconfig": {
+    "CLANG_CXX_LANGUAGE_STANDARD": "c++14",
+    "CLANG_CXX_LIBRARY": "libc++"
+  },
+  "description": "VLCKit is an Objective-C wrapper for libvlc's external interface on macOS.\n\nVENDORED COPY -- do not edit by hand except to bump the version.\n\nIdentical to the upstream VLCKit 3.7.3 podspec except for `source`, which points at a SkyStream release asset instead of download.videolan.org. VideoLAN publishes these frameworks nowhere else: no mirror carries /pub/cocoapods/, there are no GitHub release assets, and the SPM manifest points at the same host. So when that host went down on 2026-09-20 it took the macOS and iOS builds with it, and a podspec `source` accepts exactly one URL -- there is no mirror list to fall back to the way windows/CMakeLists.txt has one.\n\nThe payload is the upstream framework: it was unpacked from the CocoaPods cache, which CocoaPods had itself filled only after verifying VideoLAN's published archive against\n  019afdae4e2e2d0f3ac325fac8f7ba0af25dca70b9d157df7d60db88e0be8e5d\n  (https://download.videolan.org/pub/cocoapods/prod/VLCKit-3.7.3-319ed2c0-79128878.tar.xz)\nThe repacked tarball is byte-identical on extraction, verified with diff -rq, so the sha256 below is this archive's rather than VideoLAN's. To re-anchor to the upstream digest, download the URL above once that host is reachable, upload it under the same release tag, and restore both fields from the upstream spec."
+}

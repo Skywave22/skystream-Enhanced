@@ -26,7 +26,12 @@ const Duration kDioConnectTimeout = Duration(seconds: 15);
 /// per request.
 const Duration kDohResolveGuard = Duration(seconds: 6);
 
-@riverpod
+// keepAlive, and honestly so: twelve keepAlive providers watch this, which
+// already pinned it for the process lifetime. Declared autoDispose it was a
+// lie the analyzer kept flagging, and the `ref.read` callers (nuvio_repository,
+// player_settings_provider) could in principle have rebuilt a fresh Dio --
+// and with it a cold connection pool -- between reads.
+@Riverpod(keepAlive: true)
 Dio dioClient(Ref ref) {
   final dio = Dio(
     BaseOptions(

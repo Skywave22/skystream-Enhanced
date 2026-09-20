@@ -8,7 +8,11 @@ const String _kExploreModeKey = 'explore_mode_type';
 
 enum ExploreModeType { movies, anime, stremio }
 
-@riverpod
+// App-wide user state that persists to SharedPreferences. Disposing it would
+// snap the mode back to `movies` and re-read prefs asynchronously; the
+// keepAlive `genres` provider watching it is the only reason that never
+// happened.
+@Riverpod(keepAlive: true)
 class ExploreMode extends _$ExploreMode {
   @override
   ExploreModeType build() {

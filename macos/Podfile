@@ -29,6 +29,22 @@ flutter_macos_podfile_setup
 target 'Runner' do
   use_frameworks!
 
+  # VLCKit comes from a SkyStream release asset, not download.videolan.org.
+  # That host is the only place VideoLAN publishes these frameworks -- no
+  # mirror carries /pub/cocoapods/, there are no upstream GitHub release
+  # assets, and the SPM manifest points back at the same host -- so when it
+  # went down on 2026-09-20 `pod install` died on `curl (7) Failed to connect`
+  # and took the macOS build with it. A podspec `source` accepts exactly one
+  # URL, so unlike packages/vlc_player/windows/CMakeLists.txt there is no
+  # mirror list to fall back to; the only way to stop depending on one host
+  # being up is to serve the archive from one we control.
+  #
+  # The vendored spec is upstream's with `source` swapped, and its sha256 is
+  # enforced by CocoaPods exactly as before. See the `description` field in
+  # vendor/VLCKit.podspec.json for provenance and how to re-anchor it to
+  # VideoLAN's own digest.
+  pod 'VLCKit', :podspec => 'vendor/VLCKit.podspec.json'
+
   flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths
