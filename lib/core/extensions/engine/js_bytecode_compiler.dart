@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_js/flutter_js.dart';
+import 'package:flutter_js_ng/flutter_js.dart';
 
 import '../../logger/app_logger.dart';
 

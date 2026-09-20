@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 2.7.6+1
 
 environment:
-  sdk: ^3.11.4
+  sdk: ^3.13.0
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -37,9 +37,9 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  flutter_riverpod: ^3.1.0
-  hooks_riverpod: ^3.1.0
-  riverpod_annotation: ^4.0.0
+  flutter_riverpod: ^3.4.3
+  hooks_riverpod: ^3.4.3
+  riverpod_annotation: ^4.0.7
   collection: ^1.18.0
   go_router: ^18.0.0
   dio: ^5.9.0
@@ -56,15 +56,20 @@ dependencies:
   screen_brightness: ^2.1.7
   wakelock_plus: ^1.4.0
   hive_flutter: ^1.1.0
-  flutter_js:
+  flutter_js_ng:
     path: packages/flutter_js_ng
+  # Held at 1.x. 2.0.0 swapped the library that derives the scheme, so
+  # DynamicColorBuilder now hands back a material_ui ColorScheme rather
+  # than Flutter's - main.dart:407,418 stop compiling, and AppTheme's
+  # createLightTheme/createDarkTheme would both need adapting. Worth doing
+  # with a side-by-side visual check of Material You pickup, not blind.
   dynamic_color: ^1.9.0
   window_manager: ^0.5.1
   device_info_plus: any
   crypto: ^3.0.7
   flutter_torrent_server:
     path: packages/flutter_torrent_server
-  file_picker: ^12.0.0-beta.7
+  file_picker: ^13.1.0
   archive: ^4.0.7
   permission_handler: ^13.0.0
   url_launcher: ^6.3.2
@@ -78,22 +83,30 @@ dependencies:
   # The player engine.
   vlc_player:
     path: packages/vlc_player
-  encrypt: ^5.0.3
   flutter_cache_manager: ^3.4.1
   path: ^1.9.1
   http: ^1.6.0
   connectivity_plus: ^7.1.1
   html_unescape: ^2.0.0
   html: ^0.15.6
-  # Held below 9.6.0: that release's android/build.gradle applies the Kotlin
-  # serialization compiler plugin at 2.3.20, and the Kotlin compiler rejects a
-  # compiler plugin built for a different version than its own. android/
-  # settings.gradle.kts pins org.jetbrains.kotlin.android at 2.2.20, so
-  # :background_downloader:compileDebugKotlin fails to resolve every symbol in
-  # the plugin's own sources. Raise the ceiling once KGP moves to 2.3.20.
+  # Held below 9.6.0, but no longer for the original reason. The old block
+  # blamed the Kotlin serialization compiler plugin that 9.6.x pins at 2.3.20,
+  # and the connectivity_plus ^6.1.3 requirement in 9.6.0; 9.6.1 widened that
+  # to >=6.1.3 <8.0.0, and forcing the serialization plugin to match the
+  # compiler is one line in android/settings.gradle.kts. Neither is the wall.
+  #
+  # 9.6.2's own Kotlin does not compile under Kotlin 2.4.20 (tried it: 49
+  # errors across 9 of its source files - "Only safe (?.) or non-null asserted
+  # calls are allowed on a nullable receiver of type 'String?'", argument type
+  # mismatches, unresolved overloads). It is written against an older compiler,
+  # and KGP cannot go back: 2.2.20 carries CVE-2026-53914 and is below the
+  # version Flutter errors on. Revisit when the package supports Kotlin 2.4.
   background_downloader: ">=9.5.8 <9.6.0"
   flutter_hooks: ^0.21.3+1
-  pointycastle: any
+  # Direct, and no longer capped: package:encrypt (last released 2023) was
+  # the only thing holding this at 3.x, and 4.0.0 drops the discontinued
+  # `js` package. AES lives in lib/core/extensions/engine/aes_decrypt.dart.
+  pointycastle: ^4.0.0
   talker: ^5.1.16
   talker_flutter: ^5.1.16
   visibility_detector: ^0.4.0+2
@@ -102,9 +115,37 @@ dependencies:
   # Falls back to encrypted Hive on Linux/Windows where libsecret is missing.
   flutter_secure_storage: ^11.0.0
 
+dependency_overrides:
+  # Keeps the upstream screen_brightness_windows out of the Windows build.
+  #
+  # That plugin drives DDC/CI (I²C over the display link) to read and write the
+  # monitor's own brightness: once from its constructor at registration, and
+  # again on every WM_DESTROY/WM_CLOSE, which — unlike its WM_SIZE and
+  # WM_ACTIVATEAPP paths — is NOT gated by `is_auto_reset_`, so
+  # `setAutoReset(false)` cannot switch it off. That close-time write is the
+  # "SkyStream resets my screen brightness on Windows" users reported. It also
+  # leaks a PHYSICAL_MONITOR handle per failed probe.
+  #
+  # Nothing is lost: the only caller of the brightness API returns early on
+  # desktop (vlc_player_controls.dart, `if (_isDesktop) return;`). Android, iOS
+  # and macOS keep the real implementation.
+  #
+  # See packages/screen_brightness_windows/README.md.
+  screen_brightness_windows:
+    path: packages/screen_brightness_windows
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+
+  # Runs integration_test/ against a real engine on a real device or desktop
+  # runner. `flutter test` alone cannot catch a native failure: it runs on
+  # flutter_tester, where no plugin is registered, so nothing a plugin does at
+  # startup is observable. Both of the worst bugs this project has shipped -
+  # screen_brightness driving DDC/CI at the monitor, and WebView2 being handed
+  # an unwritable user-data folder inside Program Files - were invisible to the
+  # unit suite for exactly that reason, and compiled cleanly in CI.
+  integration_test:
     sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to
@@ -113,9 +154,13 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
-  custom_lint: ^0.8.1
-  riverpod_lint: ^3.1.0
-  riverpod_generator: ^4.0.0
+  # No custom_lint: riverpod_lint 3.x is an analysis_server_plugin and never
+  # depended on it, so `dart run custom_lint` loaded zero plugins and every
+  # riverpod rule was silently off. Its analyzer ^8.0.0 ceiling was also the
+  # only sub-9 cap in the graph, pinning 17 packages (Riverpod included) below
+  # their current releases. analysis_options.yaml wires riverpod_lint directly.
+  riverpod_lint: ^3.1.9
+  riverpod_generator: ^4.0.9
   build_runner: ^2.4.9
   go_router_builder: ^4.2.1
 

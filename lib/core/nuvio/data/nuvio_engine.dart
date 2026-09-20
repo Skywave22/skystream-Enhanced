@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_js/flutter_js.dart';
+import 'package:flutter_js_ng/flutter_js.dart';
 
 import 'nuvio_crypto.dart';
 import 'nuvio_dom.dart';

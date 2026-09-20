@@ -8,7 +8,20 @@ set(PROJECT_NAME "vlc_player")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBVLC REQUIRED IMPORTED_TARGET libvlc)
+# Capped, unlike every other platform's libVLC: Windows downloads a pinned
+# 3.0.23 runtime and Apple gets 3.0.23 through VLCKit, but Linux takes whatever
+# the distro ships. Uncapped, that happily configures against libvlc 4.x, whose
+# C API the vendored libvlcpp headers in ../third_party do not match - and the
+# failure surfaces as a wall of template errors, not a version complaint.
+#
+# Upper bound only, deliberately. A >=3.0.20 floor was tried and reverted: no
+# native source here requires it (nothing under src/ or third_party/ changed),
+# and it silently costs users. Ubuntu 22.04 LTS ships libvlc 3.0.16, so a floor
+# breaks `flutter build linux` from source there, and it also forces the arm64
+# release runner off 22.04 - which raises the shipped binary's glibc floor from
+# 2.35 to 2.39 and strands arm64 users on 22.04 and Debian 12. Add a floor only
+# with the specific API that needs it named here.
+pkg_check_modules(LIBVLC REQUIRED IMPORTED_TARGET "libvlc<4.0.0")
 
 # This value is used when generating builds using this plugin, so it must
 # not be changed.

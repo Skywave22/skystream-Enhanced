@@ -1,0 +1,6 @@
+# Matches the other vendored packages: a library must not pin its consumers'
+# transitive versions, so the lockfile is not tracked.
+.dart_tool/
+.packages
+build/
+pubspec.lock

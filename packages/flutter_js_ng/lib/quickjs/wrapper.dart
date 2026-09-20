@@ -153,6 +153,8 @@ dynamic _jsToDart(Pointer<JSContext> ctx, Pointer<JSValue> val,
     case JSTag.INT:
       return jsToInt64(ctx, val);
     case JSTag.STRING:
+    // See the rope note in quickjs_runtime.dart: jsToCString flattens it.
+    case JSTag.STRING_ROPE:
       return jsToCString(ctx, val);
     case JSTag.OBJECT:
       final rt = jsGetRuntime(ctx);

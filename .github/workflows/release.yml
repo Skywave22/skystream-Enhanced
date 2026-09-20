@@ -32,6 +32,11 @@ on:
 permissions:
   contents: write
 
+env:
+  # Pinned for the same reason as ci.yml: an unpinned `stable` means the
+  # artifacts we ship are built by a newer SDK than the one CI gated on.
+  FLUTTER_VERSION: 3.47.4
+
 jobs:
   version:
     name: Get Version
@@ -39,7 +44,7 @@ jobs:
     outputs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Extract Version from pubspec.yaml
         id: get_version
         run: |
@@ -54,7 +59,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
@@ -75,11 +80,22 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
       
+      # Pin the toolchain rather than inherit whichever JDK the runner image
+      # defaults to this month - ci.yml pins 25, so the shipped build
+      # matches the merge gate.
+      - name: Set Up JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
       - name: Install Dependencies
         run: |
           flutter pub get
@@ -169,7 +185,7 @@ jobs:
     if: ${{ github.event.inputs.build_ios == 'true' }}
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Select Latest Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -177,6 +193,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           
       - name: Install Dependencies
         run: |
@@ -226,6 +243,11 @@ jobs:
     if: ${{ github.event.inputs.build_macos == 'true' }}
     runs-on: macos-latest
     strategy:
+      # One arch failing must never cancel the other. Without this, GitHub's
+      # default fail-fast: true cancels the in-flight sibling leg, so a broken
+      # arm64 build means the release ships NO artifact for this platform at
+      # all - strictly worse than shipping the one arch that works.
+      fail-fast: false
       matrix:
         arch: [arm64, x64]
         include:
@@ -236,7 +258,7 @@ jobs:
             torrserver_binary: TorrServer-darwin-amd64
             xcode_arch: x86_64
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Select Latest Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -244,6 +266,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           
       - name: Install Dependencies
         run: |
@@ -361,17 +384,41 @@ jobs:
     if: ${{ github.event.inputs.build_windows == 'true' }}
     runs-on: ${{ matrix.os }}
     strategy:
+      # One arch failing must never cancel the other. Without this, GitHub's
+      # default fail-fast: true cancels the in-flight sibling leg, so a broken
+      # arm64 build means the release ships NO artifact for this platform at
+      # all - strictly worse than shipping the one arch that works.
+      fail-fast: false
       matrix:
         include:
           - os: windows-2022
             arch: x64
             torrserver_binary: TorrServer-windows-amd64.exe
+          # arm64 on windows-11-arm is DISABLED, not forgotten. build_libs.sh
+          # has always produced TorrServer-windows-arm64.exe and the desktop
+          # plugin selects it by architecture at runtime, so that half is ready
+          # - but the app itself cannot link on ARM64 yet:
+          # packages/vlc_player/windows/CMakeLists.txt needs libVLC, and
+          # VideoLAN publishes no Windows ARM64 build at
+          # download.videolan.org/pub/videolan/vlc/<ver>/. The x86-64 runtime it
+          # downloads cannot be linked into an ARM64 DLL, so this leg fails at
+          # link time every run.
+          #
+          # Left commented rather than deleted: uncomment once an ARM64 libVLC
+          # exists and vlc_player's arch guard is taught to select it. Until
+          # then an always-red leg would make a release's pass/fail meaningless.
+          # (fail-fast: false above means it could no longer take the x64
+          # artifact down with it, but red-every-release is still noise.)
+          # - os: windows-11-arm
+          #   arch: arm64
+          #   torrserver_binary: TorrServer-windows-arm64.exe
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
       - name: Install Dependencies
         run: |
           flutter config --enable-windows-desktop
@@ -444,24 +491,37 @@ jobs:
     if: ${{ github.event.inputs.build_linux == 'true' }}
     runs-on: ${{ matrix.os }}
     strategy:
+      # One arch failing must never cancel the other. Without this, GitHub's
+      # default fail-fast: true cancels the in-flight sibling leg, so a broken
+      # arm64 build means the release ships NO artifact for this platform at
+      # all - strictly worse than shipping the one arch that works.
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             arch: x64
             torrserver_binary: TorrServer-linux-amd64
+          # 22.04, deliberately, not ubuntu-latest. The runner's glibc becomes
+          # the floor for the shipped .deb and tarball: 22.04 is glibc 2.35,
+          # 24.04 is 2.39. Building arm64 on 24.04 silently drops every arm64
+          # user on Ubuntu 22.04 LTS, Debian 12 and anything else below 2.39 -
+          # they can no longer run an artifact that worked last release.
+          # If this label is ever retired, bumping it is a user-facing decision
+          # about the minimum supported distro, not a maintenance detail.
           - os: ubuntu-22.04-arm
             arch: arm64
             torrserver_binary: TorrServer-linux-arm64
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         if: ${{ matrix.arch != 'arm64' }}
         with:
           channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
       - name: Setup Flutter (ARM64 Linux)
         if: ${{ matrix.arch == 'arm64' }}
         run: |
-          git clone https://github.com/flutter/flutter.git -b stable $RUNNER_TOOL_CACHE/flutter
+          git clone https://github.com/flutter/flutter.git -b ${{ env.FLUTTER_VERSION }} --depth 1 $RUNNER_TOOL_CACHE/flutter
           echo "$RUNNER_TOOL_CACHE/flutter/bin" >> $GITHUB_PATH
       - name: Install Linux Dependencies
         run: |
@@ -513,7 +573,7 @@ jobs:
         run: |
           VERSION="${{ needs.version.outputs.version }}"
           export PATH="$PATH:$HOME/.pub-cache/bin"
-          dart pub global activate fastforge
+          dart pub global activate fastforge 0.6.12
 
           # Build .deb (AppImage is currently disabled due to tool-level file collision bugs)
           fastforge package --platform linux --targets deb --flutter-build-args=dart-define-from-file=dart-defines.json

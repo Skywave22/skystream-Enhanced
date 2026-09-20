@@ -10,7 +10,7 @@ import device_info_plus
 import dynamic_color
 import file_picker_darwin
 import flutter_inappwebview_macos
-import flutter_js
+import flutter_js_ng
 import flutter_secure_storage_darwin
 import open_file_mac
 import package_info_plus

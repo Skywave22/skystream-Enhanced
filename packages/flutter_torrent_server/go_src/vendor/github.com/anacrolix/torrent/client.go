@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -72,6 +73,8 @@ type Client struct {
 	acceptLimiter   map[ipStr]int
 	dialRateLimiter *rate.Limiter
 	numHalfOpen     int
+	upnpMappings    []*upnpMapping
+	lpd             *lpdServer
 }
 
 type ipStr string
@@ -88,6 +91,54 @@ func (cl *Client) badPeerIPsLocked() []string {
 
 func (cl *Client) PeerID() PeerID {
 	return cl.peerID
+}
+
+// OnLPDAnnouncement implements lpdClient. It adds addr to any torrent matching
+// an announced infohash, and also to all other active torrents (LPD is the
+// only source of local IPs). Private torrents (BEP 27) are skipped on both
+// paths — they must not receive peers via local discovery.
+func (cl *Client) OnLPDAnnouncement(addr string, infohashes []string) {
+	announced := make(map[*Torrent]struct{}, len(infohashes))
+	for _, ih := range infohashes {
+		if t, ok := cl.Torrent(metainfo.NewHashFromHex(ih)); ok {
+			if t.isPrivate() {
+				continue
+			}
+			lpdPeer(t, addr)
+			announced[t] = struct{}{}
+		}
+	}
+
+	// Add discovered peers to all other torrents
+	cl.rLock()
+	var rest []*Torrent
+	for _, t := range cl.torrents {
+		if _, ok := announced[t]; !ok && !t.isPrivate() {
+			rest = append(rest, t)
+		}
+	}
+	cl.rUnlock()
+
+	for _, t := range rest {
+		lpdPeer(t, addr)
+	}
+}
+
+// TorrentInfohashesAndPort implements lpdClient. It returns a snapshot of
+// active torrent infohash hex strings and the listen port. Private torrents
+// (BEP 27) are excluded — they must not be announced via Local Peer
+// Discovery (BEP 14).
+func (cl *Client) TorrentInfohashesAndPort() (port int, infohashes []string) {
+	cl.rLock()
+	defer cl.rUnlock()
+	port = cl.LocalPort()
+	for _, t := range cl.torrents {
+		if t.isPrivate() {
+			continue
+		}
+		infohashes = append(infohashes, t.InfoHash().HexString())
+	}
+	return
 }
 
 func (cl *Client) LocalPort() (port int) {
@@ -240,6 +291,12 @@ func NewClient(cfg *ClientConfig) (cl *Client, err error) {
 		}
 	}
 
+	if cfg.LocalServiceDiscovery != nil {
+		cl.lpd = &lpdServer{}
+		cl.lpd.lpdStart(cl, *cfg.LocalServiceDiscovery)
+		cl.onClose = append(cl.onClose, cl.lpd.lpdStop)
+	}
+
 	return
 }
 
@@ -344,7 +401,7 @@ func (cl *Client) closeSockets() {
 }
 
 // Stops the client. All connections to peers are closed and all activity will
-// come to a halt.
+// come to a halt. Also clear uPnP port mappings.
 func (cl *Client) Close() {
 	cl.lock()
 	defer cl.unlock()
@@ -354,6 +411,7 @@ func (cl *Client) Close() {
 	for _, t := range cl.torrents {
 		t.close()
 	}
+	cl.clearPortMappings()
 	for _, f := range cl.onClose {
 		f()
 	}
@@ -701,7 +759,9 @@ func (cl *Client) outgoingConnection(t *Torrent, addr IpPort, ps peerSource) {
 	}
 	defer c.Close()
 	c.Discovery = ps
-	cl.runHandshookConn(c, t)
+	if err := cl.runHandshookConn(c, t); err != nil && cl.config.Debug {
+		cl.logger.Levelf(log.Error, "Outgoing connection error %s", err)
+	}
 }
 
 // The port number for incoming peer connections. 0 if the client isn't
@@ -839,10 +899,13 @@ func (cl *Client) runReceivedConn(c *connection) {
 	torrent.Add("received handshake for loaded torrent", 1)
 	cl.lock()
 	defer cl.unlock()
-	cl.runHandshookConn(c, t)
+
+	if err := cl.runHandshookConn(c, t); err != nil && cl.config.Debug {
+		cl.logger.Levelf(log.Error, "Received connection error %s", err)
+	}
 }
 
-func (cl *Client) runHandshookConn(c *connection, t *Torrent) {
+func (cl *Client) runHandshookConn(c *connection, t *Torrent) error {
 	c.setTorrent(t)
 	if c.PeerID == cl.peerID {
 		if c.outgoing {
@@ -855,7 +918,8 @@ func (cl *Client) runHandshookConn(c *connection, t *Torrent) {
 			// as a doppleganger. Instead, the initiator can record *us* as the
 			// doppleganger.
 		}
-		return
+		cl.logger.Levelf(log.Debug, "local and remote peer ids are the same")
+		return nil
 	}
 	c.conn.SetWriteDeadline(time.Time{})
 	c.r = deadlineReader{c.conn, c.r}
@@ -864,19 +928,16 @@ func (cl *Client) runHandshookConn(c *connection, t *Torrent) {
 		torrent.Add("completed handshake over ipv6", 1)
 	}
 	if err := t.addConnection(c); err != nil {
-		if cl.config.Debug {
-			cl.logger.Levelf(log.Error, "error %s", fmt.Errorf("adding connection: %w", err))
-		}
-		return
+		return fmt.Errorf("adding connection: %w", err)
 	}
 	defer t.dropConnection(c)
-	go c.writer(time.Minute)
+	go c.writer(time.Minute) // keepAliveTimeout 1m TODO: Make configurable / use the one from config
 	cl.sendInitialMessages(c, t)
-	err := c.mainReadLoop()
-	if err != nil && cl.config.Debug {
-		cl.logger.Levelf(log.Error, "error %s", fmt.Errorf("main read loop: %w", err))
-		return
+
+	if err := c.mainReadLoop(); err != nil {
+		return fmt.Errorf("main read loop: %w", err)
 	}
+	return nil
 }
 
 // See the order given in Transmission's tr_peerMsgsNew.
@@ -1034,6 +1095,10 @@ func (cl *Client) newTorrent(ih metainfo.Hash, specStorage storage.ClientImpl) (
 		},
 		duplicateRequestTimeout: 1 * time.Second,
 	}
+
+	t.pendingRequests = make(map[request]int)
+	t.lastRequested = make(map[request]*time.Timer)
+
 	// t.logger = cl.logger.Clone().AddValue(t)
 	t.logger = cl.logger.WithContextValue(t)
 	t.setChunkSize(defaultChunkSize)
@@ -1057,9 +1122,9 @@ func (cl *Client) AddTorrentInfoHash(infoHash metainfo.Hash) (t *Torrent, new bo
 // existing torrent returned with `new` set to `false`
 func (cl *Client) AddTorrentInfoHashWithStorage(infoHash metainfo.Hash, specStorage storage.ClientImpl) (t *Torrent, new bool) {
 	cl.lock()
-	defer cl.unlock()
 	t, ok := cl.torrents[infoHash]
 	if ok {
+		cl.unlock()
 		return
 	}
 	new = true
@@ -1075,6 +1140,22 @@ func (cl *Client) AddTorrentInfoHashWithStorage(infoHash metainfo.Hash, specStor
 	t.updateWantPeersEvent()
 	// Tickle Client.waitAccept, new torrent may want conns.
 	cl.event.Broadcast()
+
+	cl.unlock()
+
+	// BEP 27: private torrents must not receive or announce via Local Peer Discovery.
+	if cl.lpd != nil {
+		go func() {
+			// Wait until the torrent metadata becomes available
+			// This ensures t.isPrivate() can correctly read the privacy flag before initiating LPD
+			<-t.GotInfo()
+			if !t.isPrivate() {
+				cl.lpd.lpdPeers(t)
+				cl.lpd.lpdForce()
+			}
+		}()
+	}
+
 	return
 }
 
@@ -1336,7 +1417,33 @@ func (cl *Client) acceptLimitClearer() {
 		case <-cl.closed.LockedChan(cl.locker()):
 			return
 		case <-time.After(15 * time.Minute):
+			if cl.config.Debug {
+				cl.lock()
+				torrents := make([]*Torrent, 0, len(cl.torrents))
+				for _, t := range cl.torrents {
+					torrents = append(torrents, t)
+				}
+				cl.unlock()
+
+				for _, t := range torrents {
+					t.cl.lock()
+					// conns := make([]*connection, 0, len(t.conns))
+					// for c := range t.conns {
+					// 	conns = append(conns, c)
+					// }
+					// for _, c := range conns {
+					// 	c.deleteAllRequests()
+					// }
+					t.pendingRequestsMu.RLock()
+					pendingCount := len(t.pendingRequests)
+					t.pendingRequestsMu.RUnlock()
+					slog.Debug("acceptLimitClearer()", "infohash", t.infoHash.String(), "conns", len(t.conns), "halfOpen", len(t.halfOpen), "pendingRequests", pendingCount)
+					t.cl.unlock()
+				}
+			}
+
 			cl.lock()
+			// Simply reset the accept‑limit counters for all IPs.
 			cl.clearAcceptLimits()
 			cl.unlock()
 		}

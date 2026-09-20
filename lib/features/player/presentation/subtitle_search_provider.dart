@@ -133,6 +133,15 @@ class SubtitleSearch extends _$SubtitleSearch {
 
   /// How the current results were found. Assigned before every `state`
   /// write, so reading it next to a watched state is always consistent.
+  ///
+  /// riverpod_lint would have this go through `state`. That is the right
+  /// default, but it is not free here: the mode is metadata about the search
+  /// that produced the current results, not part of them, and folding it into
+  /// the state class would rebuild every watcher whenever only the mode
+  /// changed. The invariant above is what keeps the pair consistent.
+  ///
+  /// (riverpod_lint still reports this; its diagnostics come from an analyzer
+  /// plugin, which `// ignore:` comments do not filter.)
   SubtitleSearchMode lastMode = SubtitleSearchMode.byTitle;
 
   late List<SubtitleProvider> _providers;

@@ -1566,14 +1566,6 @@ void showDeveloperDialog(BuildContext context) {
                 letterSpacing: 0.5,
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Fullstack & Flutter Developer',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
             const SizedBox(height: 24),
             // Social Links
             Wrap(

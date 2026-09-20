@@ -1,41 +1,61 @@
+//go:build !disable_pprof_sync
+
 package sync
 
 import (
 	"runtime"
 	"sync"
 	"time"
+	"unique"
 )
 
 type Mutex struct {
-	mu      sync.Mutex
-	hold    *int        // Unique value for passing to pprof.
-	stack   [32]uintptr // The stack for the current holder.
-	start   time.Time   // When the lock was obtained.
-	entries int         // Number of entries returned from runtime.Callers.
+	hold profileKey // Unique value for passing to pprof.
+	// Values if lockTimes tracking is enabled.
+	*lockTimes
+	// Last for struct size reasons.
+	mu sync.Mutex
 }
 
-func (m *Mutex) Lock() {
+func (me *Mutex) Lock() {
+	if !contentionOn {
+		me.mu.Lock()
+		return
+	}
+	withBlocked(me.mu.Lock, me.mu.TryLock)
+	me.hold = addHolderProfile(0)
+	me.startLockTime()
+}
+
+func (me *Mutex) TryLock() bool {
+	if !me.mu.TryLock() {
+		return false
+	}
 	if contentionOn {
-		v := new(int)
-		lockBlockers.Add(v, 0)
-		m.mu.Lock()
-		lockBlockers.Remove(v)
-		m.hold = v
-		lockHolders.Add(v, 0)
-	} else {
-		m.mu.Lock()
+		me.hold = addHolderProfile(0)
+		me.startLockTime()
 	}
-	if lockTimesOn {
-		m.entries = runtime.Callers(2, m.stack[:])
-		m.start = time.Now()
-	}
+	return true
 }
 
-func (m *Mutex) Unlock() {
+func (me *Mutex) startLockTime() {
+	if !lockTimesOn {
+		return
+	}
+	// We're holding the lock here so it's safe to check.
+	if me.lockTimes == nil {
+		me.lockTimes = new(lockTimes)
+	}
+	var stack callerArray
+	me.entries = runtime.Callers(2, stack[:])
+	me.stack = unique.Make(stack)
+	me.start = time.Now()
+}
+
+func (me *Mutex) Unlock() {
 	if lockTimesOn {
-		d := time.Since(m.start)
-		var key [32]uintptr
-		copy(key[:], m.stack[:m.entries])
+		d := time.Since(me.start)
+		key := me.stack.Value()
 		lockStatsMu.Lock()
 		v, ok := lockStatsByStack[key]
 		if !ok {
@@ -45,8 +65,6 @@ func (m *Mutex) Unlock() {
 		lockStatsByStack[key] = v
 		lockStatsMu.Unlock()
 	}
-	if contentionOn {
-		lockHolders.Remove(m.hold)
-	}
-	m.mu.Unlock()
+	removeHolder(me.hold)
+	me.mu.Unlock()
 }

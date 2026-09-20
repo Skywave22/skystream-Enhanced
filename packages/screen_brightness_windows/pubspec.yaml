@@ -1,0 +1,25 @@
+name: screen_brightness_windows
+description: >
+  A deliberately empty stand-in for the upstream screen_brightness_windows,
+  wired in through dependency_overrides so the Windows build registers no
+  brightness plugin at all. See README.md for why.
+version: 2.1.2
+publish_to: 'none'
+
+environment:
+  sdk: ^3.11.4
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+# The plugin block exists so the Flutter tool's `default_package` lookup for
+# screen_brightness resolves cleanly (without it, every `pub get` on every
+# platform prints a warning). The registrar it points at is a no-op: it
+# constructs nothing, so there is no DDC/CI and no window-proc delegate.
+flutter:
+  plugin:
+    platforms:
+      windows:
+        pluginClass: ScreenBrightnessWindowsPluginCApi

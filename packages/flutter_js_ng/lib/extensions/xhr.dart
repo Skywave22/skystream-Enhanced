@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter_js/javascript_runtime.dart';
+import 'package:flutter_js_ng/javascript_runtime.dart';
 import 'package:http/http.dart' as http;
 
 /*

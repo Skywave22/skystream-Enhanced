@@ -45,7 +45,7 @@ func parseRuleString(s string) (_ Rule, ok bool, _ error) {
 	level := NotSet
 	var names []string
 	if ss[0] != "*" {
-		names = []string{ss[0]}
+		names = strings.Split(ss[0], "+")
 	}
 	if len(ss) > 1 {
 		var ok bool
@@ -53,7 +53,7 @@ func parseRuleString(s string) (_ Rule, ok bool, _ error) {
 		level, ok, err = levelFromString(ss[1])
 		if !ok {
 			// blah= means disable the name, but just blah means to always include it
-			level = disabled
+			level = Disabled
 		}
 		if err != nil {
 			return nil, false, fmt.Errorf("parsing level %q: %w", ss[1], err)

@@ -37,9 +37,11 @@ end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    target.build_configurations.each do |config|
-      config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '10.13'
-    end
+    # No MACOSX_DEPLOYMENT_TARGET force here. It used to pin every pod to
+    # 10.13, which was harmless only because every pod in the graph declared a
+    # platform below 12 and podhelper then deleted the setting - the moment one
+    # declares 12.0 or higher, forcing 10.13 breaks its build. The Runner is on
+    # 12.0 and flutter_additional_macos_build_settings aligns pods to it.
     flutter_additional_macos_build_settings(target)
   end
 end

@@ -1,18 +1,3 @@
-// Package sync is an extension of the stdlib "sync" package. It has extra
-// functionality that helps debug the use of synchronization primitives. The
-// package should be importable in place of "sync". The extra functionality
-// can be enabled by calling Enable() or passing a non-empty PPROF_SYNC
-// environment variable to the process.
-//
-// Several profiles are exposed on the default HTTP muxer (and to
-// "/debug/pprof" when "net/http/pprof" is imported by the process).
-// "lockHolders" lists the stack traces of goroutines that called Mutex.Lock
-// that haven't subsequently been Unlocked. "lockBlockers" contains goroutines
-// that are waiting to obtain locks. "/debug/lockTimes" or PrintLockTimes()
-// shows the longest time a lock is held for each stack trace.
-//
-// Note that currently RWMutex is treated like a Mutex when the package is
-// enabled.
 package sync
 
 import (
@@ -22,19 +7,14 @@ import (
 	"os"
 	"runtime/pprof"
 	"strings"
-	"sync"
 	"text/tabwriter"
 
-	"github.com/anacrolix/missinggo"
+	"github.com/anacrolix/missinggo/v2"
 )
 
 var (
-	// Protects initialization and enabling of the package.
-	enableMu sync.Mutex
-	// Whether shared locks must be handled as exclusive locks.
-	noSharedLocking = false
-	contentionOn    = false
-	lockTimesOn     = false
+	contentionOn = false
+	lockTimesOn  = false
 	// Current lock holders.
 	lockHolders *pprof.Profile
 	// Those blocked on acquiring a lock.
@@ -62,7 +42,6 @@ func Enable() {
 func EnableContention() {
 	lockHolders = pprof.NewProfile("lockHolders")
 	lockBlockers = pprof.NewProfile("lockBlockers")
-	noSharedLocking = true
 	contentionOn = true
 }
 
@@ -71,7 +50,6 @@ func EnableLockTimes() {
 	http.DefaultServeMux.HandleFunc("/debug/lockTimes", func(w http.ResponseWriter, r *http.Request) {
 		PrintLockTimes(w)
 	})
-	noSharedLocking = true
 	lockTimesOn = true
 }
 

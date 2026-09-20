@@ -87,13 +87,20 @@ class JSProp {
   static const C_W_E = (CONFIGURABLE | WRITABLE | ENUMERABLE);
 }
 
+/// Mirrors the JS_TAG_* enum in cxx/quickjs/quickjs.h.
+///
+/// These were Bellard's original QuickJS values (BIG_DECIMAL, BIG_FLOAT, and
+/// BIG_INT at -10), which quickjs-ng never used - so they were already wrong
+/// before the v0.17 sync. Two of the current values are easy to get wrong and
+/// fail silently rather than loudly: STRING_ROPE is a string that must be read
+/// like one, and FLOAT64 moved from 7 to 8 when SHORT_BIG_INT took 7. A stale
+/// table here does not crash; it quietly returns the wrong Dart type.
 class JSTag {
-  static const FIRST = -11; /* first negative tag */
-  static const BIG_DECIMAL = -11;
-  static const BIG_INT = -10;
-  static const BIG_FLOAT = -9;
+  static const FIRST = -9; /* first negative tag */
+  static const BIG_INT = -9;
   static const SYMBOL = -8;
   static const STRING = -7;
+  static const STRING_ROPE = -6; /* lazily concatenated string */
   static const MODULE = -3; /* used internally */
   static const FUNCTION_BYTECODE = -2; /* used internally */
   static const OBJECT = -1;
@@ -105,7 +112,8 @@ class JSTag {
   static const UNINITIALIZED = 4;
   static const CATCH_OFFSET = 5;
   static const EXCEPTION = 6;
-  static const FLOAT64 = 7;
+  static const SHORT_BIG_INT = 7;
+  static const FLOAT64 = 8;
 }
 
 abstract base class JSValue extends Opaque {}

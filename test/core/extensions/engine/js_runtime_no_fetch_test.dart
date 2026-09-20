@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// No JavaScript runtime in the engine may ask for the fetch polyfill.
 ///
 /// `getJavascriptRuntime()` defaults to `xhr: true`, and that calls
-/// `enableFetch()`, which reads `packages/flutter_js/assets/js/fetch.js`
+/// `enableFetch()`, which reads `packages/flutter_js_ng/assets/js/fetch.js`
 /// through `rootBundle` - so it needs `ServicesBinding.instance`. None of these
 /// runtimes can promise one: the worker builds its runtime inside a background
 /// isolate, and the bytecode compiler is reached from provider init, which has

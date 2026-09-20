@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anacrolix/dht/v2/krpc"
@@ -78,6 +79,7 @@ func setAnnounceParams(_url *url.URL, ar *AnnounceRequest, opts Announce) {
 	if ar.Event != None {
 		q.Set("event", ar.Event.String())
 	}
+
 	// http://stackoverflow.com/questions/17418004/why-does-tracker-server-not-understand-my-request-bittorrent-protocol
 	q.Set("compact", "1")
 	// According to https://wiki.vuze.com/w/Message_Stream_Encryption. TODO:
@@ -85,11 +87,22 @@ func setAnnounceParams(_url *url.URL, ar *AnnounceRequest, opts Announce) {
 	q.Set("supportcrypto", "1")
 	if opts.ClientIp4.IP != nil {
 		q.Set("ipv4", opts.ClientIp4.String())
+		q.Add("ip", opts.ClientIp4.String())
 	}
 	if opts.ClientIp6.IP != nil {
 		q.Set("ipv6", opts.ClientIp6.String())
+		q.Add("ip", opts.ClientIp6.String())
 	}
-	_url.RawQuery = q.Encode()
+	// We're operating purely on query-escaped strings, where + would have already been encoded to
+	// %20 and + has no other special meaning. See https://github.com/anacrolix/torrent/issues/534.
+	qstr := strings.ReplaceAll(q.Encode(), "+", "%20")
+
+	// Some private trackers require the original query param to be in the first position.
+	if _url.RawQuery != "" {
+		_url.RawQuery += "&" + qstr
+	} else {
+		_url.RawQuery = qstr
+	}
 }
 
 func announceHTTP(opt Announce, _url *url.URL) (ret AnnounceResponse, err error) {
@@ -113,6 +126,7 @@ func announceHTTP(opt Announce, _url *url.URL) (ret AnnounceResponse, err error)
 				InsecureSkipVerify: true,
 				ServerName:         opt.ServerName,
 			},
+			DisableKeepAlives: true,
 		},
 	}).Do(req)
 	if err != nil {

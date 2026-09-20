@@ -206,7 +206,7 @@ class VlcDecodingConfig {
   ///
   /// Honoured on Android and Darwin, inert on Windows and Linux. Those two
   /// render through the vmem callbacks, and `libvlc_video_set_callbacks` sets
-  /// `avcodec-hw = "none"` on the media player as it installs them (VLC 3.0.21
+  /// `avcodec-hw = "none"` on the media player as it installs them (VLC 3.0.23
   /// `lib/media_player.c`:1113). `var_Inherit` stops at the first object
   /// holding the variable (`src/misc/variables.c`:1177), and the media player
   /// sits below the instance in the decoder's chain, so the instance-level

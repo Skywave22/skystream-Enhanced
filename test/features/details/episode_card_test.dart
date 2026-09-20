@@ -170,8 +170,8 @@ Future<_Harness> _pumpCards(
       ),
       downloadedFilesProvider.overrideWith(_FakeDownloadedFiles.new),
       downloadLauncherProvider.overrideWith(_RecordingLauncher.new),
-      detailsControllerProvider.overrideWith(
-        () => _FakeDetailsController(
+      detailsControllerProvider.overrideWith2(
+        (_) => _FakeDetailsController(
           DetailsState(details: AsyncValue.data(item), item: item),
         ),
       ),

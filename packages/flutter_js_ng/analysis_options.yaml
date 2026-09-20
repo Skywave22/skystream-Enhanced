@@ -1,0 +1,20 @@
+# Without this file the analyzer walked up to the repo root and applied its
+# strict-casts / strict-inference / strict-raw-types settings to a vendored
+# upstream fork, producing 131 issues (72 of them errors) that never stopped it
+# compiling - which is why this package was excluded from the CI matrix.
+#
+# flutter_lints without the root's strict-* flags is the honest baseline for
+# vendored code: real problems surface, upstream's loose typing does not drown
+# them. Tighten it as the fork diverges from upstream and the code becomes ours.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+    - cxx/**

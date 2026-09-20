@@ -11,7 +11,9 @@ plugins {
 android {
     namespace = "dev.akash.skystream"
     compileSdkVersion(rootProject.extra["projectCompileSdk"] as String)
-    ndkVersion = flutter.ndkVersion
+    // See the projectNdk comment in the root build.gradle.kts for why this is
+    // pinned instead of following flutter.ndkVersion.
+    ndkVersion = rootProject.extra["projectNdk"] as String
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -86,6 +88,18 @@ android {
 
 flutter {
     source = "../.."
+}
+
+configurations.configureEach {
+    // background_downloader declares `androidx.test:monitor` as a plain
+    // `implementation` (its android/build.gradle:49), so a test-instrumentation
+    // library ends up in the release runtime classpath and ships in the APK.
+    // Nothing in its main sources references it - no androidx.test import, no
+    // InstrumentationRegistry - so it is dead weight, and it is exactly the
+    // reflection-heavy kind of artifact that AGP 9's strictFullModeForKeepRules
+    // will complain about. If a build ever fails resolving an androidx.test
+    // symbol, the package started using it and this exclude must go.
+    exclude(group = "androidx.test", module = "monitor")
 }
 
 dependencies {

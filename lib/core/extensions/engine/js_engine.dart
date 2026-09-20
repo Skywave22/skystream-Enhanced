@@ -463,7 +463,25 @@ class JsEngineService {
           return;
         }
         final key = parsed['key'] as String? ?? '';
-        final value = parsed['value'] as String?;
+        // Not `as String?`: the value comes from untrusted plugin JS, and
+        // setPreference('n', 42) threw 'int is not a subtype of String?' on the
+        // MAIN isolate's port listener - an uncaught async error from a plugin.
+        //
+        // jsonEncode for anything that is not already a scalar, because
+        // '$rawValue' on a Map or List writes Dart's toString() - `{a: 1}`,
+        // `[720p, 1080p]` - which is not JSON, is lossy, and nothing ever
+        // purges it: deletePlugin removes only the plugin directory, and the
+        // settings screen rewrites only declared keys. A quiet wrong value that
+        // survives reinstall is worse than the loud throw this replaced.
+        // Scalars stay byte-identical (42 -> "42"), and the num/bool arm keeps
+        // Infinity and NaN away from jsonEncode, which would throw on them.
+        final rawValue = parsed['value'];
+        final value = switch (rawValue) {
+          null => null,
+          final String s => s,
+          num() || bool() => '$rawValue',
+          _ => jsonEncode(rawValue),
+        };
         _storage
             .setExtensionData('${caller.storageNamespace}::$key', value)
             .ignore();
@@ -486,7 +504,25 @@ class JsEngineService {
           return;
         }
         final key = parsed['key'] as String? ?? '';
-        final value = parsed['value'] as String?;
+        // Not `as String?`: the value comes from untrusted plugin JS, and
+        // setPreference('n', 42) threw 'int is not a subtype of String?' on the
+        // MAIN isolate's port listener - an uncaught async error from a plugin.
+        //
+        // jsonEncode for anything that is not already a scalar, because
+        // '$rawValue' on a Map or List writes Dart's toString() - `{a: 1}`,
+        // `[720p, 1080p]` - which is not JSON, is lossy, and nothing ever
+        // purges it: deletePlugin removes only the plugin directory, and the
+        // settings screen rewrites only declared keys. A quiet wrong value that
+        // survives reinstall is worse than the loud throw this replaced.
+        // Scalars stay byte-identical (42 -> "42"), and the num/bool arm keeps
+        // Infinity and NaN away from jsonEncode, which would throw on them.
+        final rawValue = parsed['value'];
+        final value = switch (rawValue) {
+          null => null,
+          final String s => s,
+          num() || bool() => '$rawValue',
+          _ => jsonEncode(rawValue),
+        };
         _storage.setExtensionData('${caller.packageName}:$key', value).ignore();
 
       case 'solve_captcha':
@@ -646,7 +682,14 @@ class JsEngineService {
 
   Future<void> _injectCfCookies(String host) async {
     try {
-      final mgr = wv.CookieManager.instance();
+      // The solver's environment, not the default one. On Windows the two are
+      // different user-data folders, so reading through the default would come
+      // back empty and this would return at the guard below — cookie injection
+      // dying silently while the solve looked like it worked. Null everywhere
+      // else, which resolves the shared default and is correct there.
+      final mgr = wv.CookieManager.instance(
+        webViewEnvironment: await CloudflareBypass.instance.cookieEnvironment(),
+      );
       final webCookies = await mgr.getCookies(url: wv.WebUri('https://$host/'));
       if (webCookies.isEmpty) return;
       final uri = Uri.parse('https://$host/');

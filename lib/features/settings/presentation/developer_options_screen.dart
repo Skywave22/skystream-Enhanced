@@ -47,7 +47,8 @@ class _DeveloperOptionsScreenState
         child: FocusTraversalGroup(
           policy: ReadingOrderTraversalPolicy(),
           child: ListView(
-            padding: const EdgeInsets.all(8),
+            // Vertical only; SettingsGroup owns the horizontal inset.
+            padding: const EdgeInsets.symmetric(vertical: 8),
             children: [
             SettingsGroup(
               title: l10n.debugTools,

@@ -61,8 +61,8 @@ class PlayerSettingsScreen extends ConsumerWidget {
         child: FocusTraversalGroup(
           policy: ReadingOrderTraversalPolicy(),
           child: ListView(
+            // Vertical only; SettingsGroup owns the horizontal inset.
             padding: const EdgeInsets.symmetric(
-              horizontal: LayoutConstants.spacingMd,
               vertical: LayoutConstants.spacingSm,
             ).copyWith(bottom: 100),
             children: [
@@ -194,22 +194,26 @@ class PlayerSettingsScreen extends ConsumerWidget {
                       playerSettings.subtitleDefault,
                     ),
                   ),
-                  SettingsTile(
-                    icon: Icons.high_quality_rounded,
-                    title: l10n.hardwareDecoding,
-                    subtitle: playerSettings.hardwareDecoding
-                        ? '${l10n.enabled} (${l10n.recommended})'
-                        : l10n.disabled,
-                    trailing: Switch(
-                      value: playerSettings.hardwareDecoding,
-                      onChanged: (val) => ref
-                          .read(playerSettingsProvider.notifier)
-                          .setHardwareDecoding(val),
+                  if (_switchReachesDecoder(context))
+                    SettingsTile(
+                      icon: Icons.high_quality_rounded,
+                      title: l10n.hardwareDecoding,
+                      subtitle: playerSettings.hardwareDecoding
+                          ? '${l10n.enabled} (${l10n.recommended})'
+                          : l10n.disabled,
+                      trailing: Switch(
+                        value: playerSettings.hardwareDecoding,
+                        onChanged: (val) => ref
+                            .read(playerSettingsProvider.notifier)
+                            .setHardwareDecoding(val),
+                      ),
+                      onTap: () =>
+                          ref
+                              .read(playerSettingsProvider.notifier)
+                              .setHardwareDecoding(
+                                !playerSettings.hardwareDecoding,
+                              ),
                     ),
-                    onTap: () => ref
-                        .read(playerSettingsProvider.notifier)
-                        .setHardwareDecoding(!playerSettings.hardwareDecoding),
-                  ),
                   SettingsTile(
                     icon: Icons.volume_up_rounded,
                     title: 'Maximum volume',
@@ -309,6 +313,33 @@ class PlayerSettingsScreen extends ConsumerWidget {
     );
   }
 }
+
+/// Whether the hardware-decoding switch reaches a decoder on this platform.
+///
+/// Android only, and the reason is the same one [hardwareDecodeAvailable]
+/// encodes — this is its UI half, so the row is offered exactly where the
+/// switch decides something.
+///
+/// The preference goes out as an instance-level `--avcodec-hw`. Windows and
+/// Linux render through libVLC's vmem callbacks, and
+/// `libvlc_video_set_callbacks` sets `avcodec-hw = "none"` on the media player
+/// as it installs them; `var_Inherit` stops at the first object holding the
+/// variable, and the media player sits below the instance, so the option never
+/// arrives and both decode in software whichever way the switch is set. iOS
+/// and macOS decode on VideoToolbox, a standalone module in VLC 3 rather than
+/// an avcodec accelerator, so `avcodec-hw` has no authority over it and the
+/// hardware path is there either way.
+///
+/// Shown anyway, the row would report "Enabled" over a software decoder on
+/// Windows and Linux and "Disabled" over a hardware one on Darwin — the app
+/// stating something untrue about itself. Hiding it is not a feature withheld:
+/// there is no choice to make.
+///
+/// Read through [ThemeData.platform] rather than dart:io so a test can state
+/// which device it is pretending to be, matching `_supportsFullScreenMode` in
+/// settings_screen.dart.
+bool _switchReachesDecoder(BuildContext context) =>
+    Theme.of(context).platform == TargetPlatform.android;
 
 String _qualityFilterModeLabel(QualityFilterMode mode) {
   switch (mode) {

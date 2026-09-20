@@ -1,6 +1,6 @@
-import 'package:flutter_js/extensions/fetch.dart';
-import 'package:flutter_js/extensions/xhr.dart';
-import 'package:flutter_js/flutter_js.dart';
+import 'package:flutter_js_ng/extensions/fetch.dart';
+import 'package:flutter_js_ng/extensions/xhr.dart';
+import 'package:flutter_js_ng/flutter_js.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

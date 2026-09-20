@@ -1,7 +1,21 @@
 cmake_minimum_required(VERSION 3.10)
 
 
-set(PROJECT_NAME "flutter_js")
+# The CMake target must be named <pub package name>_plugin: Flutter's generated
+# linux/flutter/generated_plugins.cmake iterates FLUTTER_PLUGIN_LIST (which now
+# carries "flutter_js_ng", from this package's pubspec `name:`) and references
+# ${plugin}_plugin, including inside $<TARGET_FILE:...>. A generator expression
+# naming a target that does not exist is a fatal configure-time error, so a
+# mismatch here does not fail late - no Linux build configures at all.
+#
+# OUTPUT_NAME deliberately keeps the produced library called flutter_js_plugin.
+# The target name is internal to the build; the FILE name is a runtime contract,
+# dlopen'd by literal string from lib/quickjs/ffi.dart and quickjs_runtime.dart.
+# Pinning it means this fix changes only the build graph and leaves the shipped
+# runtime behaviour byte-identical. Rename it (and those Dart call sites) in one
+# go later if the inconsistency grates - but do it on a machine that can build
+# Linux, because nothing in the test suite would catch a dlopen name mismatch.
+set(PROJECT_NAME "flutter_js_ng")
 project(${PROJECT_NAME} LANGUAGES CXX C)
 
 set(PLUGIN_NAME "${PROJECT_NAME}_plugin")
@@ -11,18 +25,19 @@ set(CMAKE_CXX_COMPILER "g++")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -DANDROID_STL=c++_static -DDEBUGGER_SERVER_PORT=${DEBUGGER_SERVER_PORT}")
 
 set(QUICKJS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../cxx")
-add_definitions(-DCONFIG_VERSION="2024-01-01" -DQUICKJS -DCONFIG_BIGNUM -D_GNU_SOURCE)
+add_definitions(-DCONFIG_VERSION="2024-01-01" -DQUICKJS -D_GNU_SOURCE)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -funsigned-char -Wno-unused-but-set-variable")
 
 add_library(${PLUGIN_NAME} SHARED
   "flutter_js_plugin.cc"
-  "${QUICKJS_SRC_DIR}/quickjs/cutils.c"
+  "${QUICKJS_SRC_DIR}/quickjs/dtoa.c"
   "${QUICKJS_SRC_DIR}/quickjs/libregexp.c"
   "${QUICKJS_SRC_DIR}/quickjs/libunicode.c"
-  "${QUICKJS_SRC_DIR}/quickjs/libbf.c"
   "${QUICKJS_SRC_DIR}/quickjs/quickjs.c"
   "${QUICKJS_SRC_DIR}/libfastdev_quickjs_runtime.cpp"
 )
+
+set_target_properties(${PLUGIN_NAME} PROPERTIES OUTPUT_NAME "flutter_js_plugin")
 
 apply_standard_settings(${PLUGIN_NAME})
 target_compile_features(${PLUGIN_NAME} PUBLIC cxx_std_17)

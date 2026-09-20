@@ -87,7 +87,12 @@ kotlin {
 }
 
 dependencies {
+    // Held at 3.7.0 deliberately: it is the last libvlc-all whose bundled core
+    // is stable VLC 3.0.23. Every release above it (3.7.1 - 3.7.6, checked by
+    // reading the core version out of each AAR's arm64 libvlc.so) ships
+    // 3.0.24-beta1, so bumping would trade a stable core for a beta one and
+    // gain only VLC-Android wrapper fixes.
     implementation("org.videolan.android:libvlc-all:3.7.0")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
-    testImplementation("org.mockito:mockito-core:5.0.0")
+    testImplementation("org.mockito:mockito-core:5.23.0")
 }

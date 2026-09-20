@@ -126,7 +126,7 @@ Future<void> _pumpDetails(WidgetTester tester, {bool clampDensity = false}) asyn
       deviceProfileProvider.overrideWithValue(
         const AsyncValue.data(DeviceProfile()),
       ),
-      detailsControllerProvider.overrideWith(_FakeDetailsController.new),
+      detailsControllerProvider.overrideWith2((_) => _FakeDetailsController()),
       libraryProvider.overrideWith(_FakeLibrary.new),
     ],
   );

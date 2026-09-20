@@ -38,8 +38,11 @@ class SettingsScreen extends ConsumerWidget {
           child: FocusTraversalGroup(
             policy: ReadingOrderTraversalPolicy(),
             child: ListView(
+              // Vertical only. SettingsGroup already insets its title and its
+              // card by spacingMd, so a horizontal inset here would be paid
+              // for twice and the cards would sit further in than on the
+              // Accounts screen, which never added one.
               padding: const EdgeInsets.symmetric(
-                horizontal: LayoutConstants.spacingMd,
                 vertical: LayoutConstants.spacingSm,
               ).copyWith(bottom: 100),
               children: [

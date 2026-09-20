@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -91,7 +90,7 @@ func (d *Decoder) Decode(msg *Message) (err error) {
 			break
 		}
 		msg.ExtendedID = ExtensionNumber(b)
-		msg.ExtendedPayload, err = ioutil.ReadAll(r)
+		msg.ExtendedPayload, err = io.ReadAll(r)
 	case Port:
 		err = binary.Read(r, binary.BigEndian, &msg.Port)
 	default:

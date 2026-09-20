@@ -10,12 +10,12 @@ import 'dart:convert';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
-import 'package:flutter_js/flutter_js.dart';
+import 'package:flutter_js_ng/flutter_js.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
-import 'package:encrypt/encrypt.dart' as encrypt_lib;
 import 'package:pointycastle/export.dart';
 import 'package:crypto/crypto.dart' as crypto_lib;
+import 'aes_decrypt.dart';
 import '../utils/js_unpacker.dart';
 
 // ── Message type keys (short to minimise serialisation overhead) ─────────────
@@ -636,28 +636,11 @@ class JsWorkerRunner {
       final data = _toMap(args);
       final callbackId = data['id'] as String?;
       try {
-        String norm(String s) {
-          String c = s.replaceAll(RegExp(r'\s+'), '');
-          while (c.length % 4 != 0) {
-            c += '=';
-          }
-          return c;
-        }
-
-        final keyToken = encrypt_lib.Key.fromBase64(
-          norm(data['key'] as String),
-        );
-        final ivToken = encrypt_lib.IV.fromBase64(norm(data['iv'] as String));
-        final mode = (data['mode'] as String? ?? 'cbc').toLowerCase();
-        final aesMode = mode == 'gcm'
-            ? encrypt_lib.AESMode.gcm
-            : encrypt_lib.AESMode.cbc;
-        final encrypter = encrypt_lib.Encrypter(
-          encrypt_lib.AES(keyToken, mode: aesMode),
-        );
-        final decrypted = encrypter.decrypt64(
-          norm(data['data'] as String),
-          iv: ivToken,
+        final decrypted = aesDecryptBase64(
+          key: data['key'] as String,
+          iv: data['iv'] as String,
+          data: data['data'] as String,
+          mode: data['mode'] as String? ?? 'cbc',
         );
         if (callbackId != null) {
           _scheduleEval(
@@ -1304,6 +1287,16 @@ const _kEntitiesJs = r"""
     if (typeof res === 'string') res = JSON.parse(res);
     return res || {};
   };
-  globalThis.nativeMd5    = function(input) { return sendMessage('crypto_md5',    String(input)) || ''; };
-  globalThis.nativeSha256 = function(input) { return sendMessage('crypto_sha256', String(input)) || ''; };
+  // JSON.stringify, because both engine bindings JSON-decode the second
+  // argument unconditionally (quickjs_runtime2.dart and jscore_runtime.dart).
+  // Passing a bare string meant jsonDecode('hello') threw FormatException into
+  // the plugin on QuickJS and returned undefined on JavaScriptCore - and when
+  // the input happened to parse as JSON it was worse than either: the handler
+  // hashed Dart's Map.toString() output, so nativeMd5('{"a":1}') returned
+  // md5('{a: 1}'). A confident wrong hash, silently.
+  //
+  // No `|| ''` fallback: an empty-string hash is a wrong answer that a plugin
+  // will send to a server. Let it be undefined so the plugin can tell.
+  globalThis.nativeMd5    = function(input) { return sendMessage('crypto_md5',    JSON.stringify(String(input))); };
+  globalThis.nativeSha256 = function(input) { return sendMessage('crypto_sha256', JSON.stringify(String(input))); };
 """;

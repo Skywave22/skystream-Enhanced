@@ -2,7 +2,7 @@ group = "com.example.flutter_torrent_server"
 version = "1.0-SNAPSHOT"
 
 buildscript {
-    ext.kotlin_version = "2.2.20"
+    ext.kotlin_version = "2.4.20"
     repositories {
         google()
         mavenCentral()
@@ -53,7 +53,7 @@ android {
     dependencies {
         implementation "com.local:torrentserver:1.0"
         testImplementation("org.jetbrains.kotlin:kotlin-test")
-        testImplementation("org.mockito:mockito-core:5.0.0")
+        testImplementation("org.mockito:mockito-core:5.23.0")
     }
 
     testOptions {

@@ -674,7 +674,11 @@ extern "C"
 
     DLLEXPORT int32_t jsIsError(JSContext *ctx, JSValueConst *val)
     {
-        return JS_IsError(ctx, *val);
+        // quickjs-ng dropped the JSContext* from JS_IsError. The ctx parameter
+        // stays in this bridge function's own signature: Dart calls it through
+        // a fixed FFI typedef, and every other jsIs* takes a context.
+        (void)ctx;
+        return JS_IsError(*val);
     }
 
     DLLEXPORT JSValue *jsNewError(JSContext *ctx)

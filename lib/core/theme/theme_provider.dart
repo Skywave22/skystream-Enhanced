@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../storage/settings_repository.dart';
-import '../providers/device_info_provider.dart';
 
 part 'theme_provider.g.dart';
 
@@ -13,20 +12,14 @@ class AppThemeMode extends _$AppThemeMode {
   ThemeMode build() {
     _repository = ref.watch(settingsRepositoryProvider);
     final saved = _repository.getThemeMode();
-    if (saved == null) {
-      final profileAsync = ref.watch(deviceProfileProvider);
-      final profile = profileAsync.asData?.value;
-      // While the profile is still loading, render dark. Splash + cold-start
-      // surfaces should match the dark splash background; a system-themed
-      // light flash is the worse failure mode.
-      if (profile == null) {
-        return ThemeMode.dark;
-      }
-      if (profile.isTv) {
-        return ThemeMode.dark;
-      }
-      return ThemeMode.system;
-    }
+    // Dark is the app's default, not a per-device guess. This used to branch
+    // on [deviceProfileProvider] - dark while it was still resolving, dark on
+    // a television, system everywhere else - which meant the splash, which is
+    // dark, handed over to a white first frame on a light-themed phone, and
+    // the answer changed halfway through boot as the profile arrived.
+    // System is still one click away in Settings; it is just no longer what
+    // you get without asking.
+    if (saved == null) return ThemeMode.dark;
     return _getThemeMode(saved);
   }
 
@@ -39,11 +32,14 @@ class AppThemeMode extends _$AppThemeMode {
     switch (mode) {
       case 'light':
         return ThemeMode.light;
-      case 'dark':
-        return ThemeMode.dark;
       case 'system':
-      default:
         return ThemeMode.system;
+      // 'dark', and anything no release ever wrote. Storage outlives
+      // downgrades and hand-editing, so an unrecognised value is reachable; it
+      // says no more than an absent one does, and lands in the same place.
+      case 'dark':
+      default:
+        return ThemeMode.dark;
     }
   }
 }

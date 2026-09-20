@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  App-level privacy manifest (macOS). Apple aggregates this with the per-plugin ones
+  (vlc_player and flutter_torrent_server each ship their own); the app is
+  responsible for the required-reason APIs its own code and its non-manifest
+  dependencies reach.
+
+  Declared here:
+    UserDefaults (CA92.1)    - shared_preferences, a direct dependency, is
+                               NSUserDefaults on Apple platforms, and reads only
+                               data this app itself wrote.
+    File timestamp (C617.1)  - flutter_cache_manager and the download service
+                               inspect modification dates of files inside the
+                               app container to decide what is stale.
+
+  NOT declared, because it has not been verified either way: disk space
+  (E174.1) and system boot time (35F9.1). Before an App Store submission, grep
+  the Dart and plugin sources for statfs/volumeAvailableCapacity and for
+  systemUptime/mach_absolute_time, and add the categories that turn up. An
+  inaccurate manifest is itself grounds for rejection, in both directions.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

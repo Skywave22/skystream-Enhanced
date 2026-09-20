@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
+import 'package:skystream/core/storage/settings_repository.dart';
+import 'package:skystream/core/storage/storage_service.dart';
 import 'package:skystream/core/theme/theme_provider.dart';
 import 'package:skystream/features/player/presentation/player_platform_service.dart';
 import 'package:skystream/features/settings/presentation/app_version_provider.dart';
@@ -17,6 +20,26 @@ import 'package:skystream/l10n/generated/app_localizations.dart';
 
 const MethodChannel _windowChannel = MethodChannel('window_manager');
 
+/// A repository that keeps the choice in memory.
+///
+/// The widget tests below assert on the flag the player reads and on the
+/// rendered switch; persistence is the unit tests' claim, and they use a real
+/// Hive box because that is the point of them. A real box here would write to
+/// disk from inside `pumpAndSettle`'s fake-async zone, where the write's timer
+/// never fires - the pump then never settles and the test hangs until its
+/// ten-minute deadline rather than failing.
+class _InMemorySettings extends SettingsRepository {
+  _InMemorySettings(super.storageService);
+
+  bool? _fullScreen;
+
+  @override
+  Future<void> setFullScreenMode(bool enabled) async => _fullScreen = enabled;
+
+  @override
+  bool? getFullScreenMode() => _fullScreen;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -26,7 +49,14 @@ void main() {
   /// Every `setFullScreen` the window plugin was asked for, in order.
   late List<bool> windowCalls;
 
-  setUp(() {
+  /// The real thing over a real Hive box in a temp directory, so that
+  /// "remembered as off" and "never recorded" stay distinguishable - a fake
+  /// with a bool field would collapse them and the restore tests would pass
+  /// against a provider that never read storage at all.
+  late Directory dir;
+  late StorageService storage;
+
+  setUp(() async {
     windowCalls = [];
     messenger.setMockMethodCallHandler(_windowChannel, (call) async {
       if (call.method == 'setFullScreen') {
@@ -35,17 +65,34 @@ void main() {
       }
       return null;
     });
+
+    dir = Directory.systemTemp.createTempSync('full_screen_mode');
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (call) async => dir.path,
+    );
+    storage = StorageService();
+    await storage.init();
   });
 
-  tearDown(() {
+  tearDown(() async {
     messenger.setMockMethodCallHandler(_windowChannel, null);
     // Process-wide, so it has to be handed back or the next test inherits a
     // television.
     fullScreenModeActive.value = false;
+
+    await Hive.close();
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      null,
+    );
+    if (dir.existsSync()) dir.deleteSync(recursive: true);
   });
 
   ProviderContainer container() {
-    final c = ProviderContainer();
+    final c = ProviderContainer(
+      overrides: [storageServiceProvider.overrideWithValue(storage)],
+    );
     addTearDown(c.dispose);
     return c;
   }
@@ -80,45 +127,75 @@ void main() {
       expect(windowCalls, isEmpty);
     });
 
-    test('every spelling of the launch argument boots into it', () async {
-      for (final arg in kFullScreenModeLaunchArgs) {
-        fullScreenModeActive.value = false;
-        final c = container();
-        c.read(fullScreenModeProvider.notifier).initialize(['skystream', arg]);
-        expect(fullScreenModeActive.value, isTrue, reason: arg);
-        expect(c.read(fullScreenModeProvider), isTrue, reason: arg);
-      }
-    });
-
-    test('the retired --big-picture spellings are still honoured', () {
-      // Both retired spellings stay as aliases so an existing shortcut or
-      // launcher script keeps working. Named one by one rather than by
-      // iterating the set, so dropping an alias fails here instead of quietly
-      // shrinking what the loop above covers.
-      expect(
-        kFullScreenModeLaunchArgs,
-        containsAll(<String>['--big-picture', '--bigpicture']),
-        reason: 'an existing launcher must not break on the rename',
-      );
-      expect(
-        kFullScreenModeLaunchArgs,
-        containsAll(<String>['--full-screen', '--fullscreen']),
-        reason: 'the new spelling has to work too, or the alias is the name',
-      );
-
-      for (final arg in <String>['--big-picture', '--full-screen']) {
-        fullScreenModeActive.value = false;
-        final c = container();
-        c.read(fullScreenModeProvider.notifier).initialize(['skystream', arg]);
-        expect(fullScreenModeActive.value, isTrue, reason: arg);
-      }
-    });
-
     test('an ordinary launch stays windowed', () async {
       final c = container();
-      c.read(fullScreenModeProvider.notifier).initialize(['skystream']);
+      c.read(fullScreenModeProvider.notifier).initialize();
       expect(c.read(fullScreenModeProvider), isFalse);
       expect(windowCalls, isEmpty);
+    });
+
+    test('a session left in full screen comes back in full screen', () async {
+      await storage.setFullScreenMode(true);
+
+      final c = container();
+      c.read(fullScreenModeProvider.notifier).initialize();
+
+      expect(c.read(fullScreenModeProvider), isTrue);
+      expect(fullScreenModeActive.value, isTrue);
+      expect(windowCalls, [true]);
+    });
+
+    test('a session left windowed comes back windowed', () async {
+      await storage.setFullScreenMode(false);
+
+      final c = container();
+      c.read(fullScreenModeProvider.notifier).initialize();
+
+      expect(c.read(fullScreenModeProvider), isFalse);
+      expect(windowCalls, isEmpty);
+    });
+
+    test('a first ever launch stays windowed', () {
+      expect(storage.getFullScreenMode(), isNull, reason: 'nothing recorded');
+
+      final c = container();
+      c.read(fullScreenModeProvider.notifier).initialize();
+
+      expect(c.read(fullScreenModeProvider), isFalse);
+      expect(windowCalls, isEmpty);
+    });
+
+    test('the settings switch records both directions', () async {
+      final c = container();
+
+      await c.read(fullScreenModeProvider.notifier).setEnabled(true);
+      expect(storage.getFullScreenMode(), isTrue);
+
+      await c.read(fullScreenModeProvider.notifier).setEnabled(false);
+      expect(storage.getFullScreenMode(), isFalse);
+    });
+
+    test('restoring records nothing new', () async {
+      // Restoring is not a fresh choice. If it wrote back, every launch would
+      // rewrite the same value, and a restore that ran before the user ever
+      // touched the switch would turn "never chosen" into a recorded one.
+      await storage.setFullScreenMode(true);
+
+      final c = container();
+      c.read(fullScreenModeProvider.notifier).initialize();
+
+      expect(storage.getFullScreenMode(), isTrue);
+      expect(windowCalls, [true], reason: 'the window moves exactly once');
+    });
+
+    test('turning it off after a restored session is remembered', () async {
+      await storage.setFullScreenMode(true);
+
+      final c = container();
+      c.read(fullScreenModeProvider.notifier).initialize();
+      await c.read(fullScreenModeProvider.notifier).setEnabled(false);
+
+      expect(storage.getFullScreenMode(), isFalse);
     });
 
     test('it hands the player the ten-foot form factor', () async {
@@ -146,6 +223,9 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            settingsRepositoryProvider.overrideWithValue(
+              _InMemorySettings(storage),
+            ),
             appThemeModeProvider.overrideWithValue(ThemeMode.dark),
             generalSettingsProvider.overrideWithValue(const GeneralSettings()),
             appVersionProvider.overrideWith((ref) async => '1.0.0 +1'),
@@ -262,12 +342,9 @@ void main() {
     // than a naming convention, because the name is the sort of thing that
     // comes back in a doc comment nobody re-reads.
     //
-    // The one thing that may still say it is the launch-argument alias in
-    // full_screen_mode_provider.dart, which exists so an existing shortcut
-    // keeps working, and the doc comment that explains why.
-    final Set<String> allowed = <String>{
-      'lib/features/settings/presentation/full_screen_mode_provider.dart',
-    };
+    // Nothing is exempt any more. The launch-argument aliases were the last
+    // thing in lib/ that still spelled it, and they are gone with the flags.
+    const Set<String> allowed = <String>{};
     final RegExp steam = RegExp(r'big[\s_-]?picture', caseSensitive: false);
     final Directory lib = Directory('lib');
     expect(

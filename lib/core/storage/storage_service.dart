@@ -206,6 +206,21 @@ class StorageService {
     return _settingsBox.get('sidebar_expanded') as bool?;
   }
 
+  // --- Full screen mode ---
+
+  /// Whether the last session was left in full screen mode.
+  ///
+  /// Null means no session ever chose, which is not the same as `false`: a
+  /// first launch stays windowed either way, but only a recorded `false`
+  /// survives a launch that passed `--full-screen`.
+  Future<void> setFullScreenMode(bool enabled) async {
+    await _settingsBox.put('full_screen_mode', enabled);
+  }
+
+  bool? getFullScreenMode() {
+    return _settingsBox.get('full_screen_mode') as bool?;
+  }
+
   // --- App update prompt ---
 
   /// The release tag the user last dismissed the update dialog on. One

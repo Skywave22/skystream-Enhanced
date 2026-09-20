@@ -3,8 +3,9 @@
 # native plugin was first compiled during a manual release build.
 #
 # WHAT GATES A MERGE, AND WHY IT IS SPLIT THIS WAY
-#   Every pull request:  analyze, test, custom_lint, the two vendored Dart
-#     packages, the Go torrent server, and a debug build of Android and Linux.
+#   Every pull request:  analyze, test, the Riverpod Lint step (advisory - see
+#     below), the three vendored Dart packages, the Go torrent server, a debug
+#     build of Android and Linux, and the Linux integration smoke test.
 #     All of that is 1x-billed ubuntu and finishes inside ~20 minutes.
 #   Pull requests that touch anything a native toolchain compiles or links
 #     (packages/**, android/**, ios/**, macos/**, windows/**, linux/**,
@@ -41,7 +42,7 @@ env:
   # Pinned rather than floating on `stable`: the analyzer, the lint set and the
   # gen-l10n output all move with the SDK, so an unpinned runner would rewrite
   # the baseline under us and fail a PR that touched nothing.
-  FLUTTER_VERSION: 3.47.1
+  FLUTTER_VERSION: 3.47.4
 
 jobs:
   analyze-and-test:
@@ -49,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -57,7 +58,7 @@ jobs:
           cache: true
 
       - name: Cache Pub Dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pub-cache
           key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock', 'packages/*/pubspec.yaml') }}
@@ -137,15 +138,65 @@ jobs:
               sys.exit(1)
           PY
 
+      # Every vendored package here squats the name of a live pub.dev package,
+      # so if a `path:` line is ever dropped or mistyped, pub silently resolves
+      # the real one and it still compiles. No version constraint can catch it.
+      # This step is the only thing that would notice.
+      #
+      # Two different reasons to be in this list:
+      #   * A FORK at a higher version than upstream - this one was named
+      #     flutter_js at 0.9.0 against pub's 0.8.7 (a different engine, Bellard
+      #     QuickJS rather than QuickJS-NG), and vlc_player is 2.1.3 vs 2.1.2.
+      #   * A deliberate STUB, wired through `dependency_overrides`, whose whole
+      #     job is to keep an unwanted native plugin out of a platform build.
+      #     screen_brightness_windows is one: upstream drives DDC/CI at the
+      #     user's monitor from its registrar and writes brightness back on
+      #     WM_CLOSE, for a feature the desktop cannot reach. That stub is a
+      #     single deleted `dependency_overrides` line away from silently
+      #     restoring the real plugin - and nothing else in this workflow would
+      #     go red. See packages/screen_brightness_windows/README.md.
+      - name: Vendored Forks Resolve From Path
+        run: |
+          python3 - <<'PY'
+          import re, sys, pathlib
+
+          lock = pathlib.Path('pubspec.lock').read_text()
+          bad = []
+          for pkg in ('flutter_js_ng', 'vlc_player', 'flutter_torrent_server',
+                      'screen_brightness_windows'):
+              m = re.search(r'^  %s:\n(?:.*\n)*?    source: (\w+)' % pkg, lock, re.M)
+              if not m:
+                  bad.append(f'{pkg}: not in pubspec.lock at all')
+              elif m.group(1) != 'path':
+                  bad.append(f'{pkg}: resolved from "{m.group(1)}", not the vendored path')
+
+          for b in bad:
+              print(f'::error::{b}')
+          sys.exit(1 if bad else 0)
+          PY
+
       - name: Analyze
         run: flutter analyze
 
-      # `flutter analyze` does not load analyzer plugins, so the riverpod_lint
-      # rule set that analysis_options.yaml wires in as a `custom_lint` plugin
-      # only ever ran in an IDE. This is the command that actually executes it
-      # (all 15 riverpod_lint 3.1.0 rules are on by default); it takes seconds.
-      - name: Custom Lint
-        run: dart run custom_lint
+      # riverpod_lint is an analysis_server_plugin, declared under the top-level
+      # `plugins:` key in analysis_options.yaml. It needs its own step because
+      # `flutter analyze` above does NOT load analyzer plugins - only
+      # `dart analyze` does. Verified by planting a deliberate
+      # avoid_public_notifier_properties violation: flutter analyze stayed
+      # silent, dart analyze reported it.
+      #
+      # This replaces `dart run custom_lint`, which found zero plugins
+      # (riverpod_lint 3.x has no custom_lint dependency), so these rules had
+      # never actually run anywhere.
+      # Advisory for now, not a gate: switching the rules on surfaced 37
+      # findings (21 in lib/, 16 in test/) that have accumulated over the years
+      # these rules were silently off, and several look like false positives
+      # worth suppressing rather than "fixing" - missing_provider_scope fires on
+      # main.dart in an app that plainly has a ProviderScope. `flutter analyze`
+      # above is still the strict gate. Drop this flag once the backlog is
+      # triaged, so the rules ratchet instead of being ignored.
+      - name: Riverpod Lint
+        run: dart analyze --no-fatal-warnings
 
       # The extension-engine tests drive QuickJS over FFI, and under
       # FLUTTER_TEST the vendored fork resolves it per platform: macOS reads
@@ -168,9 +219,11 @@ jobs:
           cd packages/flutter_js_ng
           out="$RUNNER_TEMP/qjs"
           mkdir -p "$out"
-          defs='-DCONFIG_VERSION="2024-01-01" -DQUICKJS -DCONFIG_BIGNUM -D_GNU_SOURCE'
-          for f in cutils libregexp libunicode libbf quickjs; do
-            gcc -c -fPIC -O1 -funsigned-char -Wno-unused-but-set-variable \
+          # No CONFIG_BIGNUM and no cutils/libbf: quickjs-ng dropped libbf and
+          # made cutils header-only; dtoa.c took over the number formatting.
+          defs='-DCONFIG_VERSION="2024-01-01" -DQUICKJS -D_GNU_SOURCE'
+          for f in dtoa libregexp libunicode quickjs; do
+            gcc -c -fPIC -O1 -std=gnu17 -funsigned-char -Wno-unused-but-set-variable \
               $defs -Icxx/quickjs -o "$out/$f.o" "cxx/quickjs/$f.c"
           done
           g++ -c -fPIC -O1 -std=c++17 $defs -Icxx/quickjs -Icxx \
@@ -189,13 +242,13 @@ jobs:
   # is the only place either is analysed. Neither has generated code, so
   # neither needs a build_runner step.
   #
-  # packages/flutter_js_ng is deliberately NOT here, and that is a known gap:
-  # it ships no analysis_options.yaml of its own, so the analyzer walks up to
-  # the root file and applies strict-casts/strict-inference/strict-raw-types to
-  # a vendored upstream fork - 131 issues, 72 of them errors, none of which
-  # stop it compiling. Its one test file is an on-device FFI test that fails on
-  # a host machine (it asserts an int and gets a JSValue pointer back). Give it
-  # a two-line analysis_options.yaml of its own and it can join this matrix.
+  # flutter_js_ng now has its own analysis_options.yaml (flutter_lints, without
+  # the root's strict-* flags, which were what turned vendored upstream style
+  # into 72 errors). That leaves 100 infos, so its leg runs with
+  # --no-fatal-infos: the gate catches errors and warnings today, and the flag
+  # comes off as the backlog is worked down. Its one test is an on-device FFI
+  # test that cannot pass on a host machine - it asserts an int and gets a
+  # JSValue pointer back - so this leg analyses without running it.
   # Its native side is compiled by every leg of the build matrix below.
   packages:
     name: Package ${{ matrix.package }}
@@ -204,9 +257,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [vlc_player, flutter_torrent_server]
+        package: [vlc_player, flutter_torrent_server, flutter_js_ng]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -214,7 +267,7 @@ jobs:
           cache: true
 
       - name: Cache Pub Dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pub-cache
           key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock', 'packages/*/pubspec.yaml') }}
@@ -222,10 +275,17 @@ jobs:
 
       - name: Analyze & Test
         working-directory: packages/${{ matrix.package }}
+        env:
+          PACKAGE: ${{ matrix.package }}
         run: |
+          set -euo pipefail
           flutter pub get
-          flutter analyze
-          flutter test
+          if [ "$PACKAGE" = "flutter_js_ng" ]; then
+            flutter analyze --no-fatal-infos
+          else
+            flutter analyze
+            flutter test
+          fi
 
   # The Go source the TorrServer binaries and the Android .aar are built from.
   # Nothing else in this workflow compiles it, and `go test` is seconds.
@@ -237,7 +297,7 @@ jobs:
       run:
         working-directory: packages/flutter_torrent_server/go_src
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: packages/flutter_torrent_server/go_src/go.mod
@@ -263,7 +323,7 @@ jobs:
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # The diff needs the PR base commit, which a depth-1 checkout does
           # not have. blob:none keeps the trees `--name-only` walks without
@@ -280,11 +340,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          ANDROID='{"name":"Android","os":"ubuntu-latest","build":"flutter build apk --debug"}'
-          LINUX='{"name":"Linux","os":"ubuntu-latest","build":"flutter build linux --debug"}'
-          WINDOWS='{"name":"Windows","os":"windows-latest","build":"flutter build windows --debug"}'
-          MACOS='{"name":"macOS","os":"macos-latest","build":"flutter build macos --debug"}'
-          IOS='{"name":"iOS","os":"macos-latest","build":"flutter build ios --debug --no-codesign"}'
+          # `smoke` is the device id integration_test/ runs against on that
+          # platform, or "" where the runner has no device to run on (Android
+          # and iOS get their own job below, because an emulator or simulator
+          # has to be booted first). Building proves the toolchain compiles the
+          # tree; the smoke test is the only thing here that proves a plugin
+          # does not misbehave the moment it registers.
+          ANDROID='{"name":"Android","os":"ubuntu-latest","build":"flutter build apk --debug","smoke":""}'
+          LINUX='{"name":"Linux","os":"ubuntu-latest","build":"flutter build linux --debug","smoke":"linux"}'
+          # windows-2022, not windows-latest: the release and preview workflows
+          # both pin windows-2022 (MSVC 17). On windows-latest the gate would
+          # compile the vendored vlc_player C++ with Visual Studio 2026 / MSVC
+          # 18 - a toolset no shipped build ever uses, so a break in either
+          # direction goes unnoticed until release day.
+          WINDOWS='{"name":"Windows","os":"windows-2022","build":"flutter build windows --debug","smoke":"windows"}'
+          MACOS='{"name":"macOS","os":"macos-latest","build":"flutter build macos --debug","smoke":"macos"}'
+          IOS='{"name":"iOS","os":"macos-latest","build":"flutter build ios --debug --no-codesign","smoke":""}'
           CORE="[$ANDROID,$LINUX]"
           FULL="[$ANDROID,$LINUX,$WINDOWS,$MACOS,$IOS]"
 
@@ -327,7 +398,7 @@ jobs:
         # Git bash on the Windows runner, so every leg reads the same.
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -337,12 +408,18 @@ jobs:
       # android/app/build.gradle.kts pins source/targetCompatibility to 17.
       # Pin the toolchain too rather than inherit whichever JDK the runner
       # image happens to default to this month.
+      # 25, matching the JDK developers build with (Android Studio's bundled
+      # JBR). CI used to pin 17, so neither configuration tested the other: a
+      # Java-25-only Gradle or Kotlin failure was invisible to the merge gate,
+      # and a 17-only regression was invisible locally. The Gradle wrapper was
+      # already at 9.1.0 (the first release supporting Java 25), so only the
+      # JDK pin moves here.
       - name: Set Up JDK
         if: matrix.name == 'Android'
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
           cache: gradle
 
       - name: Select Latest Xcode
@@ -363,10 +440,11 @@ jobs:
           sudo apt-get update -o Acquire::Retries=5 -o Acquire::http::Timeout=30
           sudo apt-get install -y --no-install-recommends \
             clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev libvlc-dev libasound2-dev libsecret-1-dev
+            libgtk-3-dev liblzma-dev libvlc-dev libasound2-dev libsecret-1-dev \
+            xvfb
 
       - name: Cache Pub Dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # Two paths because the Windows runner does not use ~/.pub-cache.
           path: |
@@ -392,5 +470,134 @@ jobs:
         if: matrix.name == 'Android'
         run: rm -f packages/flutter_torrent_server/assets/torrserver/TorrServer-*
 
+      # The JavaScriptCore engine runs only on Apple, and the `flutter test`
+      # job above is ubuntu-latest, which takes the QuickJS path - so the
+      # @TestOn('mac-os') routing test has no machine to run on. A @TestOn
+      # mismatch is not even reported as a skip: the run just prints "All tests
+      # passed", which is how a process-killing SIGSEGV in the JSC bridge
+      # survived. This leg is the only place it can execute.
+      - name: JavaScriptCore Unit Tests
+        if: matrix.name == 'macOS'
+        run: flutter test test/core/extensions/engine/jsc_context_routing_test.dart
+
       - name: Build ${{ matrix.name }}
         run: ${{ matrix.build }}
+
+      # The only step in this workflow that RUNS the app. `flutter test` alone
+      # executes on flutter_tester, where no plugin is registered, so nothing a
+      # plugin does at registration is observable there - which is exactly how
+      # two shipped bugs got past a green gate: screen_brightness_windows
+      # driving DDC/CI at the user's monitor from its constructor, and WebView2
+      # being pointed at an unwritable user-data folder inside Program Files.
+      # Both compiled cleanly. See integration_test/app_smoke_test.dart.
+      #
+      # xvfb on Linux: the runner is headless and a desktop Flutter app needs
+      # an X server to open a window at all.
+      - name: Smoke Test ${{ matrix.name }}
+        if: matrix.smoke != ''
+        env:
+          DEVICE: ${{ matrix.smoke }}
+        run: |
+          if [ "$DEVICE" = 'linux' ]; then
+            xvfb-run -a flutter test --no-pub integration_test -d "$DEVICE"
+          else
+            flutter test --no-pub integration_test -d "$DEVICE"
+          fi
+
+  # Android and iOS cannot ride the build matrix above: neither runner has a
+  # device until one is booted, and the emulator action wraps the command it
+  # runs rather than being a plain step. They get their own job.
+  #
+  # Gated to non-pull_request events. An emulator cold boot is several minutes
+  # and macOS runners bill at 10x, which is the same trade the build matrix
+  # already makes by leaving Windows, macOS and iOS off Dart-only PRs.
+  smoke-mobile:
+    name: Smoke Test ${{ matrix.name }}
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Android
+            os: ubuntu-latest
+          - name: iOS
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Set Up JDK
+        if: matrix.name == 'Android'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Select Latest Xcode
+        if: runner.os == 'macOS'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache Pub Dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock', 'packages/*/pubspec.yaml') }}
+          restore-keys: ${{ runner.os }}-pub-
+
+      - name: Install Flutter Dependencies
+        run: |
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build --delete-conflicting-outputs
+
+      # Same strip the build matrix does: the five desktop TorrServer binaries
+      # are ~170 MB of assets an APK never carries.
+      - name: Strip Desktop TorrServer Binaries
+        if: matrix.name == 'Android'
+        run: rm -f packages/flutter_torrent_server/assets/torrserver/TorrServer-*
+
+      # KVM, or the emulator falls back to software rendering and times out.
+      - name: Enable KVM
+        if: matrix.name == 'Android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Smoke Test Android
+        if: matrix.name == 'Android'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          # Not the minSdk floor (build.gradle.kts inherits Flutter's), but a
+          # current API level with a google_apis image: the point of this leg is
+          # that the plugins register cleanly on a device people actually run.
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: flutter test --no-pub integration_test
+
+      - name: Boot iOS Simulator
+        if: matrix.name == 'iOS'
+        run: |
+          set -euo pipefail
+          UDID="$(xcrun simctl list devices available --json \
+            | python3 -c "import json,sys; ds=json.load(sys.stdin)['devices']; \
+                print(next(d['udid'] for k in ds for d in ds[k] if 'iPhone' in d['name']))")"
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Smoke Test iOS
+        if: matrix.name == 'iOS'
+        run: flutter test --no-pub integration_test -d "$SIM_UDID"

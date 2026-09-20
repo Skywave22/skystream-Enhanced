@@ -384,14 +384,38 @@ class JsBasedProvider extends SkyStreamProvider {
       // Fast path: load pre-compiled bytecode when available and fresh.
       if (qbc != null && !await JsBytecodeCompiler.isStale(_scriptPath, qbc)) {
         final bytes = await File(qbc).readAsBytes();
-        await _jsEngine.loadBytes(bytes, tag: _packageName);
-        // Nothing has run yet: the wrapper only published this plugin's
-        // installer. Hand it the capability token to install the plugin.
-        await _installBridgeToken();
-        if (kDebugMode) {
-          talker.debug("JsBasedProvider: Loaded bytecode for $_packageName");
+        try {
+          await _jsEngine.loadBytes(bytes, tag: _packageName);
+          // Nothing has run yet: the wrapper only published this plugin's
+          // installer. Hand it the capability token to install the plugin.
+          await _installBridgeToken();
+          if (kDebugMode) {
+            talker.debug("JsBasedProvider: Loaded bytecode for $_packageName");
+          }
+          return;
+        } on JsEvalCancelledException {
+          rethrow;
+        } catch (e) {
+          // The cache is keyed on the wrapper text and the script's mtime, not
+          // on the engine. QuickJS bytecode is version-stamped, so upgrading
+          // the engine makes every cached .qbc unreadable - "invalid version
+          // (19 expected=28)" - and before this fallback existed that killed
+          // the plugin outright instead of costing it one slow load.
+          //
+          // Deleting and falling through is self-healing for that and for a
+          // truncated or corrupt file, and it needs nobody to remember to bump
+          // a constant on the next engine upgrade.
+          talker.warning(
+            'JsBasedProvider: discarding unusable bytecode for '
+            '$_packageName, recompiling from source: $e',
+          );
+          try {
+            await File(qbc).delete();
+          } catch (_) {
+            // Losing the race with another provider deleting the same file is
+            // fine; so is a read-only directory. The text path still works.
+          }
         }
-        return;
       }
 
       // Slow path: text eval, then compile bytecode in the background.

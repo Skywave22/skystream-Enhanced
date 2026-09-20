@@ -9,13 +9,25 @@
 # packages, and plugin designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+# Top-level `plugins:`, not `analyzer: plugins:` - the latter is the legacy
+# plugin system the analyzer now warns about. riverpod_lint 3.x ships as an
+# analysis_server_plugin, so declared here its rules run under `dart analyze`
+# and in the IDE. NOT under `flutter analyze`, which does not load analyzer
+# plugins - see the "Riverpod Lint" step in .github/workflows/ci.yml, which
+# exists for exactly that reason. It was previously wired through custom_lint,
+# which never loaded it at all, so none of these rules had ever run.
+#
+# Pinned exactly, not floated: the analysis server resolves this in its own
+# plugin workspace, outside pubspec.lock, so a caret here means a future 3.x
+# release can silently change which rules run with no commit in this repo.
+plugins:
+  riverpod_lint: 3.1.9
+
 analyzer:
   language:
     strict-casts: true
     strict-inference: true
     strict-raw-types: true
-  plugins:
-    - custom_lint
   exclude:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
@@ -30,6 +42,14 @@ analyzer:
 
 linter:
   rules:
+    # Off, not skipped: analyzer 14 started applying this to private fields, and
+    # all 19 sites it flags here initialise a private field from a NAMED
+    # parameter - `SubDLProvider({String? apiKey}) : _apiKey = apiKey`. The
+    # suggested fix, `{this._apiKey}`, is legal Dart (verified on 3.13: the
+    # field is private but the external parameter name stays `apiKey`, so call
+    # sites are unchanged). Kept off for churn, not correctness - turning it on
+    # is a 19-site mechanical edit someone should make deliberately.
+    prefer_initializing_formals: false
     # Core Lints
     avoid_print: true
     prefer_const_constructors: true

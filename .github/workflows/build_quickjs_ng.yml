@@ -11,41 +11,81 @@ on:
   workflow_dispatch:
     inputs:
       quickjs_ng_version:
-        description: 'QuickJS-NG version tag (e.g., v0.9.0)'
+        description: 'QuickJS-NG version tag (e.g., v0.17.0)'
         required: true
-        default: 'v0.9.0'
+        # Keep this at the version currently vendored in cxx/quickjs. Left at
+        # an older tag, running this workflow with its defaults silently
+        # DOWNGRADES the engine - and v0.9.0 in particular carries
+        # CVE-2025-46687 / CVE-2025-46688.
+        default: 'v0.17.0'
 
 jobs:
   sync-source:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout SkyStream
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Clone QuickJS-NG
+        env:
+          # Through the environment, not interpolated into the command: a
+          # dispatch input lands in the shell verbatim otherwise.
+          QUICKJS_NG_VERSION: ${{ github.event.inputs.quickjs_ng_version }}
         run: |
-          git clone --depth 1 --branch ${{ github.event.inputs.quickjs_ng_version }} \
+          set -euo pipefail
+          case "$QUICKJS_NG_VERSION" in
+            v[0-9]*) ;;
+            *) echo "::error::Expected a version tag like v0.17.0, got '$QUICKJS_NG_VERSION'"; exit 1 ;;
+          esac
+          git clone --depth 1 --branch "$QUICKJS_NG_VERSION" \
             https://github.com/quickjs-ng/quickjs.git /tmp/quickjs-ng
 
       - name: Deploy sources to unified CXX directory
         run: |
+          set -euo pipefail
+
+          # Copy every root .c/.h except the entrypoints, rather than naming the
+          # files. A hardcoded list rots silently in both directions: the old one
+          # still named cutils.c and libbf.c/.h, which upstream deleted, and knew
+          # nothing of dtoa.c/.h or the builtin-*.h headers that v0.17 needs.
+          # Worse, its copy loop was `[ -f … ] && cp`, so a missing file was
+          # skipped without failing and the auto-commit below pushed a tree that
+          # does not compile.
+          #
+          # The excluded files are upstream's own binaries and harnesses; they
+          # have main() or pull in libc APIs no mobile build wants.
+          skip=(qjs.c qjsc.c run-test262.c fuzz.c api-test.c ctest.c \
+                unicode_gen.c lre-test.c qjs-wasi-reactor.c \
+                quickjs-libc.c quickjs-libc.h)
+
           rm -rf packages/flutter_js_ng/cxx/quickjs
           mkdir -p packages/flutter_js_ng/cxx/quickjs
-          
-          files=(quickjs.c quickjs.h cutils.c cutils.h \
-                 libregexp.c libregexp.h libunicode.c libunicode.h \
-                 libbf.c libbf.h \
-                 quickjs-atom.h quickjs-c-atomics.h quickjs-opcode.h libregexp-opcode.h \
-                 libunicode-table.h list.h)
-                 
-          for f in "${files[@]}"; do
-            [ -f "/tmp/quickjs-ng/$f" ] && cp "/tmp/quickjs-ng/$f" packages/flutter_js_ng/cxx/quickjs/
+
+          copied=0
+          for f in /tmp/quickjs-ng/*.c /tmp/quickjs-ng/*.h; do
+            base="$(basename "$f")"
+            for s in "${skip[@]}"; do
+              [ "$base" = "$s" ] && continue 2
+            done
+            cp "$f" packages/flutter_js_ng/cxx/quickjs/
+            copied=$((copied + 1))
           done
 
+          # quickjs.c is the engine; without it the sync produced nothing useful.
+          test -f packages/flutter_js_ng/cxx/quickjs/quickjs.c
+          echo "Copied $copied source files:"
+          ls packages/flutter_js_ng/cxx/quickjs/
+
+          # The three plugin CMakeLists and the CI test-bridge step each name the
+          # .c files they compile. A sync that adds or removes one needs those
+          # updated in the same change, so say so loudly rather than leaving a
+          # link error for whoever builds next.
+          echo "::warning::Source set changed - check the source lists in packages/flutter_js_ng/{android,windows,linux}/CMakeLists.txt and the QuickJS test-bridge step in ci.yml"
+
       - name: Commit and push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "[Auto] Sync unified QuickJS-NG source to ${{ github.event.inputs.quickjs_ng_version }}"
           file_pattern: "packages/flutter_js_ng/cxx/quickjs/**"

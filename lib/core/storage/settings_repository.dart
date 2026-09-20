@@ -29,6 +29,14 @@ class SettingsRepository {
     return _storageService.getSidebarExpanded();
   }
 
+  Future<void> setFullScreenMode(bool enabled) async {
+    await _storageService.setFullScreenMode(enabled);
+  }
+
+  bool? getFullScreenMode() {
+    return _storageService.getFullScreenMode();
+  }
+
   Future<void> setDefaultHomeScreen(String path) async {
     await _storageService.setDefaultHomeScreen(path);
   }

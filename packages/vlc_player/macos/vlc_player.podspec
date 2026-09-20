@@ -29,7 +29,7 @@ A macOS Flutter plugin for video playback using VideoLAN VLCKit.
   s.dependency 'FlutterMacOS'
   s.dependency 'VLCKit', '3.7.3'
 
-  s.platform = :osx, '10.15'
+  s.platform = :osx, '12.0'
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',

@@ -708,6 +708,51 @@ void main() {
             'passed as an argument',
       );
     });
+
+    // Upgrading QuickJS changes its bytecode format, and the .qbc cache is
+    // keyed on the wrapper text and the script's mtime - nothing that moves
+    // when the engine does. Every cached file is then unreadable, and before
+    // this fallback a plugin died on it: "CRITICAL - Eval failed ... invalid
+    // version (19 expected=28)", observed on a device after the v0.9.0 ->
+    // v0.17.0 sync. One slow load is the correct cost; a dead plugin is not.
+    test('a .qbc the engine cannot read falls back to source, and is deleted',
+        () async {
+      final port = ReceivePort();
+      final staleEngine = _StaleBytecodeEngine(repo, port.sendPort);
+      addTearDown(() {
+        staleEngine.dispose();
+        port.close();
+      });
+
+      final js = File('${dir.path}/stale.js')
+        ..writeAsStringSync('function getSettings() { return []; }');
+      final provider = JsBasedProvider(
+        staleEngine,
+        js.path,
+        packageName: 'com.a',
+        namespace: 'com_a__sub1',
+      );
+
+      // Fresh by mtime, unreadable by content - what an engine upgrade leaves.
+      final qbc = File(provider.bytecodePath!)
+        ..writeAsBytesSync(Uint8List.fromList(<int>[0, 1, 2, 3]));
+      await qbc.setLastModified(DateTime.now().add(const Duration(minutes: 1)));
+
+      await provider.waitForInit;
+
+      expect(
+        staleEngine.evals.map((e) => e.kind).toList(),
+        <String>['bytes', 'script', 'script'],
+        reason: 'the failed bytecode load must be followed by the text path '
+            'and then the token install, not abandoned',
+      );
+      expect(
+        qbc.existsSync(),
+        isFalse,
+        reason: 'the unusable cache must be removed so the next launch '
+            'recompiles instead of failing again',
+      );
+    });
   });
 
   // Every installed plugin evals into one QuickJS realm, so `sendMessage`,
@@ -998,6 +1043,18 @@ class _RecordingEngine extends JsEngineService {
   @override
   Future<void> loadBytes(Uint8List bytecode, {String? tag}) async {
     evals.add(_Eval('bytes', ''));
+  }
+}
+
+/// A [_RecordingEngine] whose bytecode load fails exactly as QuickJS does when
+/// the cached `.qbc` was written by a different engine version.
+class _StaleBytecodeEngine extends _RecordingEngine {
+  _StaleBytecodeEngine(super.repo, super.port);
+
+  @override
+  Future<void> loadBytes(Uint8List bytecode, {String? tag}) async {
+    evals.add(_Eval('bytes', ''));
+    throw Exception('JS Eval Error: SyntaxError: invalid version (19 expected=28)');
   }
 }
 

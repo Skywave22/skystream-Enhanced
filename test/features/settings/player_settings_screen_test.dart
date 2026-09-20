@@ -218,4 +218,80 @@ void main() {
 
     expect(find.text(l10n.subtitleDefault), findsOneWidget);
   });
+
+  /// Hardware decoding is the one row whose switch cannot reach a decoder
+  /// everywhere, so it is offered only where it decides something.
+  ///
+  /// The preference is emitted as an instance-level `--avcodec-hw`. On Windows
+  /// and Linux `libvlc_video_set_callbacks` sets `avcodec-hw = "none"` on the
+  /// media player as it installs the vmem callbacks, and `var_Inherit` stops
+  /// at the first object holding the variable — the media player sits below
+  /// the instance, so the option never arrives and both decode in software
+  /// whichever way the switch is set. On iOS and macOS the decoder is
+  /// VideoToolbox, a standalone module in VLC 3 rather than an avcodec
+  /// accelerator, so `avcodec-hw` has no authority over it and the hardware
+  /// path is there either way.
+  ///
+  /// A row that reports "Enabled" over software decode, or "Disabled" over a
+  /// hardware one, is worse than no row: it is the app stating something
+  /// untrue about itself. See [hardwareDecodeAvailable], which is what the
+  /// player actually consults.
+  group('the hardware decoding row', () {
+    testWidgets('is offered on Android, where the switch decides', (
+      WidgetTester tester,
+    ) async {
+      await pumpPlayerSettings(
+        tester,
+        platform: TargetPlatform.android,
+        profile: const DeviceProfile(),
+      );
+
+      expect(find.text(l10n.hardwareDecoding), findsOneWidget);
+    });
+
+    testWidgets('is offered on an Android television too', (
+      WidgetTester tester,
+    ) async {
+      // The gate is the decoder, not the form factor: a leanback box runs the
+      // same avcodec path a phone does.
+      await pumpPlayerSettings(
+        tester,
+        platform: TargetPlatform.android,
+        profile: const DeviceProfile(isTv: true),
+        size: const Size(1920, 1080),
+      );
+
+      expect(find.text(l10n.hardwareDecoding), findsOneWidget);
+    });
+
+    for (final platform in <TargetPlatform>[
+      TargetPlatform.iOS,
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
+    ]) {
+      testWidgets('is not offered on $platform, where it decides nothing', (
+        WidgetTester tester,
+      ) async {
+        await pumpPlayerSettings(
+          tester,
+          platform: platform,
+          profile: DeviceProfile(
+            isDesktopOS:
+                platform != TargetPlatform.iOS &&
+                platform != TargetPlatform.android,
+          ),
+          size: const Size(1280, 800),
+        );
+
+        expect(
+          find.text(l10n.hardwareDecoding),
+          findsNothing,
+          reason:
+              '$platform ignores the preference, so the row would be a switch '
+              'that reports a decoder the app is not using',
+        );
+      });
+    }
+  });
 }

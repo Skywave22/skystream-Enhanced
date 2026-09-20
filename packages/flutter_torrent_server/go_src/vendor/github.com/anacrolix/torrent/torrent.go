@@ -137,10 +137,13 @@ type Torrent struct {
 	connPieceInclinationPool sync.Pool
 
 	// Count of each request across active connections.
-	pendingRequests map[request]int
+	pendingRequests   map[request]int
+	pendingRequestsMu sync.RWMutex
+
 	// The last time we requested a chunk. Deleting the request from any
 	// connection will clear this value.
-	lastRequested map[request]*time.Timer
+	lastRequested   map[request]*time.Timer
+	lastRequestedMu sync.RWMutex
 }
 
 func (t *Torrent) tickleReaders() {
@@ -238,6 +241,7 @@ func (t *Torrent) addPeer(p Peer) {
 		return
 	}
 	if t.peers.Add(p) {
+		cl.event.Broadcast()
 		torrent.Add("peers replaced", 1)
 	}
 	t.openNewConns()
@@ -599,6 +603,18 @@ func (t *Torrent) haveInfo() bool {
 	return t.info != nil
 }
 
+// isPrivate reports whether the torrent's metainfo carries BEP 27's
+// `private=1` flag.
+// Local Peer Discovery (BEP 14). Returns false when info has not yet been
+// loaded (e.g. magnet that hasn't fetched metadata yet) — callers that need
+// to be conservative should also check haveInfo().
+func (t *Torrent) isPrivate() bool {
+	if t.info == nil {
+		return false
+	}
+	return t.info.Private != nil && *t.info.Private
+}
+
 // Returns a run-time generated MetaInfo that includes the info bytes and
 // announce-list as currently known to the client.
 func (t *Torrent) newMetaInfo() metainfo.MetaInfo {
@@ -744,6 +760,11 @@ func (t *Torrent) hashPiece(piece pieceIndex) (ret metainfo.Hash) {
 	if n == pl {
 		missinggo.CopyExact(&ret, hash.Sum(nil))
 		return
+	}
+	// A short read with no error still means the piece couldn't be fully read.
+	// Normalize it so we don't log a nil error as "unexpected".
+	if err == nil {
+		err = io.ErrUnexpectedEOF
 	}
 	if err != io.ErrUnexpectedEOF && !os.IsNotExist(err) {
 		t.logger.Printf("unexpected error hashing piece with %T: %s", t.storage.TorrentImpl, err)
@@ -1259,7 +1280,7 @@ func (t *Torrent) startScrapingTracker(_url string) {
 		// URLs with a leading '*' appear to be a uTorrent convention to
 		// disable trackers.
 		if _url[0] != '*' {
-			log.Str("error parsing tracker url").AddValues("url", _url).Log(t.logger)
+			log.Str("error parsing tracker url").AddValues("url", _url).LogLevel(log.Debug, t.logger)
 		}
 		return
 	}
@@ -1390,7 +1411,7 @@ func (t *Torrent) dhtAnnouncer(s DhtServer) {
 		cl.unlock()
 		err := t.announceToDht(s)
 		if err != nil {
-			t.logger.WithDefaultLevel(log.Warning).Printf("error announcing %q to DHT: %s", t, err)
+			t.logger.WithDefaultLevel(log.Debug).Printf("error announcing %q to DHT: %s", t, err)
 		}
 	}
 }

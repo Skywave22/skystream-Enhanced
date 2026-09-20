@@ -33,7 +33,7 @@ class JavascriptCoreRuntime extends JavascriptRuntime {
 
     context = JSContext(_globalContext);
 
-    _sendMessageDartFunc = _sendMessage;
+    _runtimesByContext[_globalContext.address] = this;
 
     final Pointer<Utf8> funcNameCString = 'sendMessage'.toNativeUtf8();
     final functionObject = jSObjectMakeFunctionWithCallback(
@@ -103,6 +103,18 @@ class JavascriptCoreRuntime extends JavascriptRuntime {
 
   @override
   void dispose() {
+    final address = _globalContext.address;
+    // identical(), not a bare remove: JSC recycles freed context addresses
+    // aggressively (measured: 400 create/dispose cycles reused just 32
+    // addresses), so `dispose -> create -> dispose the first one again` would
+    // otherwise evict the live runtime that inherited the address.
+    //
+    // This guards the MAP only. A literal double dispose() still segfaults two
+    // lines below, on jSGlobalContextRelease of a freed pointer - pre-existing,
+    // and what would actually fix it is a `bool _disposed` early return.
+    if (identical(_runtimesByContext[address], this)) {
+      _runtimesByContext.remove(address);
+    }
     jSGlobalContextRelease(_globalContext);
     jSContextGroupRelease(_contextGroup);
   }
@@ -141,11 +153,12 @@ class JavascriptCoreRuntime extends JavascriptRuntime {
       int argumentCount,
       Pointer<Pointer> arguments,
       Pointer<Pointer> exception) {
-    if (_sendMessageDartFunc != null) {
-      return _sendMessageDartFunc!(
-          ctx, function, thisObject, argumentCount, arguments, exception);
-    }
-    return nullptr;
+    final runtime = _runtimesByContext[ctx.address];
+    // No entry means the context was already disposed; JS sees undefined,
+    // which is what an unregistered channel has always produced.
+    if (runtime == null) return nullptr;
+    return runtime._sendMessage(
+        ctx, function, thisObject, argumentCount, arguments, exception);
   }
 
   String _getJsValue(Pointer jsValueRef) {
@@ -169,7 +182,25 @@ class JavascriptCoreRuntime extends JavascriptRuntime {
     return result;
   }
 
-  static jsObject.JSObjectCallAsFunctionCallbackDart? _sendMessageDartFunc;
+  /// Every live runtime in this isolate, keyed by its JSGlobalContextRef.
+  ///
+  /// This was a single static slot holding the most recently constructed
+  /// runtime's handler. Dart statics are per-isolate, so constructing a second
+  /// JavaScriptCore runtime in the same isolate silently rebound the first
+  /// one's bridge: messages from runtime A were delivered to runtime B's
+  /// handlers, and after B was disposed A's next message reached a released
+  /// context and took the process down with SIGSEGV. The Nuvio pool runs
+  /// several scrapers per isolate, so this was reachable on iOS and macOS with
+  /// two scrapers and a close-and-reopen.
+  ///
+  /// JSC hands the calling context to the trampoline, so route on that.
+  ///
+  /// This closes the JS->Dart direction only. The Dart->JS direction is still
+  /// open: javascript_runtime.dart's SetTimeout handler interpolates a
+  /// plugin-supplied index into a script and evaluates it on a Timer that
+  /// dispose() never cancels, so after enough runtimes the freed address is
+  /// reused and that script runs inside a different plugin's live realm.
+  static final Map<int, JavascriptCoreRuntime> _runtimesByContext = {};
 
   Pointer _sendMessage(
       Pointer ctx,

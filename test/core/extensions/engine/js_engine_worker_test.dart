@@ -197,6 +197,55 @@ void main() {
     });
   });
 
+  // ── Crypto polyfills (bridge payload encoding) ────────────────────────────
+  //
+  // nativeMd5 and nativeSha256 used to hand `sendMessage` a RAW string while
+  // both engine bindings jsonDecode the payload unconditionally. Two failure
+  // modes, neither visible to a compiler: ordinary text threw FormatException
+  // into the plugin on QuickJS and returned undefined on JavaScriptCore, and
+  // input that happened to parse as JSON was worse still — the handler hashed
+  // Dart's Map.toString(), so nativeMd5('{"a":1}') returned md5('{a: 1}').
+  //
+  // This file runs against QuickJS on CI's ubuntu leg and against
+  // JavaScriptCore on a developer Mac, so these cover both engines.
+  group('JsWorkerRunner crypto polyfills', () {
+    late _Harness h;
+
+    setUp(() => h = _Harness());
+    tearDown(() => h.dispose());
+
+    test('nativeMd5 hashes the string the plugin passed', () async {
+      await h.load(r"globalThis.p = { hash: function(s) { return nativeMd5(s); } };");
+      h.invoke(21, 'p.hash', args: <Object?>['hello']);
+      final Map<Object?, Object?> result = await h.awaitInvokeResult(21);
+      expect(result['result'], '5d41402abc4b2a76b9719d911017c592');
+    });
+
+    test('a JSON-shaped string hashes as itself, not as a parsed Map', () async {
+      // The regression case: this input parses as JSON, so the old code did
+      // reach the handler — and confidently hashed `{a: 1}` instead.
+      await h.load(r"globalThis.p = { hash: function(s) { return nativeMd5(s); } };");
+      h.invoke(22, 'p.hash', args: <Object?>[r'{"a":1}']);
+      final Map<Object?, Object?> result = await h.awaitInvokeResult(22);
+      expect(
+        result['result'],
+        'bb6cb5c68df4652941caf652a366f2d8',
+        reason: "md5 of the literal string; md5 of Dart's Map.toString() is a "
+            'different digest the plugin never asked for',
+      );
+    });
+
+    test('nativeSha256 hashes the string the plugin passed', () async {
+      await h.load(r"globalThis.p = { hash: function(s) { return nativeSha256(s); } };");
+      h.invoke(23, 'p.hash', args: <Object?>['hello']);
+      final Map<Object?, Object?> result = await h.awaitInvokeResult(23);
+      expect(
+        result['result'],
+        '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
+      );
+    });
+  });
+
   // ── Shared-realm lockdown (audit W12) ─────────────────────────────────────
   //
   // Every plugin evals into this one runtime, and a plugin's bridge calls hand

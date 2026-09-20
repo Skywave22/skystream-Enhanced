@@ -1,15 +1,23 @@
-name: flutter_js
+# flutter_js_ng, not flutter_js: pub.dev's flutter_js is a live, maintained
+# package running Bellard's QuickJS, and this fork ran QuickJS-NG at a
+# HIGHER version number - so a dropped `path:` line used to resolve the real
+# package and compile. The name now says which one this is.
+name: flutter_js_ng
 description: >
   A Javascript engine to use with flutter.
   Fork with QuickJS-NG for improved performance on Android/Windows/Linux.
   Uses JavaScriptCore on iOS/macOS (unchanged).
+# The fork's own version. It is not the QuickJS-NG version (see
+# UPGRADE_GUIDE.md for that) and not upstream flutter_js's.
 version: 0.9.0
 homepage: https://github.com/quickjs-ng/quickjs
 repository: https://github.com/quickjs-ng/quickjs
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
-  flutter: ">=3.0.0"
+  # Was ">=3.0.0" / ">=3.0.0", inherited verbatim from upstream flutter_js
+  # and pure fiction - the lockfile resolves against 3.10 and Flutter 3.18.
+  sdk: ^3.10.0
+  flutter: ">=3.18.0"
 dependencies:
   flutter:
     sdk: flutter
@@ -19,6 +27,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^6.0.0
 
 flutter:
   plugin:

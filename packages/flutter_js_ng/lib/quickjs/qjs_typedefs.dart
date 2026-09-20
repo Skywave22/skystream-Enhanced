@@ -1,6 +1,6 @@
 import 'dart:ffi';
 
-import 'package:flutter_js/quickjs/utf8_null_terminated.dart';
+import 'package:flutter_js_ng/quickjs/utf8_null_terminated.dart';
 
 final class JSContext extends Struct {
   @Uint8()
@@ -29,13 +29,15 @@ enum QuickJSTypeModule {
   JS_EVAL_TYPE_INDIRECT
 }
 
-const JS_TAG_FIRST = -11,
+// Mirrors the JS_TAG_* enum in cxx/quickjs/quickjs.h - see the note on JSTag
+// in ffi.dart. Kept in both spellings because both are used across this
+// package; they must move together.
+const JS_TAG_FIRST = -9,
     /* first negative tag */
-    JS_TAG_BIG_DECIMAL = -11,
-    JS_TAG_BIG_INT = -10,
-    JS_TAG_BIG_FLOAT = -9,
+    JS_TAG_BIG_INT = -9,
     JS_TAG_SYMBOL = -8,
     JS_TAG_STRING = -7,
+    JS_TAG_STRING_ROPE = -6,
     JS_TAG_OBJECT = -1,
     JS_TAG_INT = 0,
     JS_TAG_BOOL = 1,
@@ -44,7 +46,8 @@ const JS_TAG_FIRST = -11,
     JS_TAG_UNINITIALIZED = 4,
     JS_TAG_CATCH_OFFSET = 5,
     JS_TAG_EXCEPTION = 6,
-    JS_TAG_FLOAT64 = 7;
+    JS_TAG_SHORT_BIG_INT = 7,
+    JS_TAG_FLOAT64 = 8;
 
 // ignore: camel_case_types
 typedef JS_NewRuntimeDartBridge = Pointer<JSRuntime> Function();

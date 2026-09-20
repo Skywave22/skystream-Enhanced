@@ -1,4 +1,4 @@
-#include "include/flutter_js/flutter_js_plugin.h"
+#include "include/flutter_js_ng/flutter_js_plugin.h"
 
 #include <flutter_linux/flutter_linux.h>
 #include <gtk/gtk.h>

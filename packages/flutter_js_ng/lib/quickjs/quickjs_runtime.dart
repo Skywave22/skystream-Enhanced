@@ -3,8 +3,8 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
-import 'package:flutter_js/flutter_js.dart';
-import 'package:flutter_js/quickjs/utf8_null_terminated.dart';
+import 'package:flutter_js_ng/flutter_js.dart';
+import 'package:flutter_js_ng/quickjs/utf8_null_terminated.dart';
 
 import 'qjs_typedefs.dart';
 
@@ -185,6 +185,10 @@ class QuickJsRuntime extends JavascriptRuntime {
       case JS_TAG_INT:
         return int;
       case JS_TAG_STRING:
+      // A rope is a string that has not been flattened yet - JS_ToCString
+      // flattens it on read. Without this case a concatenated string reported
+      // itself as Null.
+      case JS_TAG_STRING_ROPE:
         return String;
       case JS_TAG_OBJECT:
         return Object;

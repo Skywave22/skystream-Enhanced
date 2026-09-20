@@ -11,8 +11,8 @@ import './extensions/handle_promises.dart';
 import './quickjs/quickjs_runtime2.dart';
 
 export './extensions/handle_promises.dart';
-//import 'package:flutter_js/quickjs-sync-server/quickjs_oasis_jsbridge.dart';
-//import 'package:flutter_js/quickjs/quickjs_runtime.dart';
+//import 'package:flutter_js_ng/quickjs-sync-server/quickjs_oasis_jsbridge.dart';
+//import 'package:flutter_js_ng/quickjs/quickjs_runtime.dart';
 
 export './quickjs/quickjs_runtime.dart';
 export './quickjs/quickjs_runtime2.dart';

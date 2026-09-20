@@ -65,7 +65,12 @@ tar cf - -C "$SRC_DIR" \
 
 echo "Building Android AAR..."
 # ./bindings is package torrServer -> torrServer.TorrServer.startTorrentServer
-( cd "$WORK" && gomobile bind -target=android -androidapi 21 -ldflags="-s -w" \
+#
+# max-page-size=16384 aligns libgojni.so's LOAD segments for 16 KB page-size
+# devices (Android 15+). The Go linker still defaults to 4 KB, and one
+# 4 KB-aligned library puts the whole app into page-size compatibility mode.
+( cd "$WORK" && gomobile bind -target=android -androidapi 21 \
+    -ldflags="-s -w -extldflags=-Wl,-z,max-page-size=16384" \
     -o "$ROOT/go_src/torrserver.aar" ./bindings )
 cp "$ROOT/go_src/torrserver.aar" \
    "$ROOT/android/repo/com/local/torrentserver/1.0/torrentserver-1.0.aar"

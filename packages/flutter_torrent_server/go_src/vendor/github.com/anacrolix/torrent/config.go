@@ -19,6 +19,12 @@ import (
 
 var DefaultHTTPUserAgent = "Go-Torrent/1.0"
 
+type LocalServiceDiscoveryConfig struct {
+	// Interface on which to multicast announce messages
+	Ifi string
+	Ip6 bool
+}
+
 // Probably not safe to modify this after it's given to a Client.
 type ClientConfig struct {
 	// Store torrent file data in this directory unless .DefaultStorage is
@@ -135,6 +141,10 @@ type ClientConfig struct {
 
 	// OnQuery hook func
 	DHTOnQuery func(query *krpc.Msg, source net.Addr) (propagate bool)
+
+	// Enable BEP-14 Local Service Discovery by setting this. A nil value
+	// leaves LPD disabled.
+	LocalServiceDiscovery *LocalServiceDiscoveryConfig
 }
 
 func (cfg *ClientConfig) SetListenAddr(addr string) *ClientConfig {

@@ -2,7 +2,7 @@ PODS:
   - flutter_inappwebview_macos (0.0.1):
     - FlutterMacOS
     - OrderedSet (~> 6.0.3)
-  - flutter_js (0.0.1):
+  - flutter_js_ng (0.0.1):
     - FlutterMacOS
   - FlutterMacOS (1.0.0)
   - OrderedSet (6.0.3)
@@ -13,7 +13,7 @@ PODS:
 
 DEPENDENCIES:
   - flutter_inappwebview_macos (from `Flutter/ephemeral/.symlinks/plugins/flutter_inappwebview_macos/macos`)
-  - flutter_js (from `Flutter/ephemeral/.symlinks/plugins/flutter_js/macos`)
+  - flutter_js_ng (from `Flutter/ephemeral/.symlinks/plugins/flutter_js_ng/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - vlc_player (from `Flutter/ephemeral/.symlinks/plugins/vlc_player/macos`)
 
@@ -25,8 +25,8 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   flutter_inappwebview_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/flutter_inappwebview_macos/macos
-  flutter_js:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_js/macos
+  flutter_js_ng:
+    :path: Flutter/ephemeral/.symlinks/plugins/flutter_js_ng/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
   vlc_player:
@@ -34,12 +34,12 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   flutter_inappwebview_macos: c2d68649f9f8f1831bfcd98d73fd6256366d9d1d
-  flutter_js: 79c3c70d33ba464c67d8eb88639a61aa718cd8b8
+  flutter_js_ng: 5bb0e85b3fcdc44b2639704b620c4b962b485cf5
   FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
   OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
-  vlc_player: 14fae248890211473aa021127ed492c216ed834e
+  vlc_player: b79b6214e417e8cebd047d6a1d6d340009e22fd7
   VLCKit: 4f2c462daaab6de88b93ab7609bdefbada557a4d
 
-PODFILE CHECKSUM: be2fcaf5274914f77cde8a35612a2c7c3a5b2752
+PODFILE CHECKSUM: 60cd590400c5c1c7966c953a2691fea5450c9413
 
 COCOAPODS: 1.17.0

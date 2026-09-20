@@ -10,20 +10,10 @@ import 'dart:async';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../core/storage/settings_repository.dart';
 import '../../player/presentation/player_platform_service.dart';
 
 part 'full_screen_mode_provider.g.dart';
-
-/// The launch arguments that boot straight into full screen mode.
-///
-/// The `--big-picture` forms are the feature's retired name, kept so that a
-/// shortcut written against the old spelling keeps working.
-const Set<String> kFullScreenModeLaunchArgs = <String>{
-  '--full-screen',
-  '--fullscreen',
-  '--big-picture',
-  '--bigpicture',
-};
 
 /// Whether the app is in full screen mode right now, and the toggle for it.
 ///
@@ -32,30 +22,47 @@ const Set<String> kFullScreenModeLaunchArgs = <String>{
 /// mirrors it through a listener, so the two can never disagree.
 @Riverpod(keepAlive: true)
 class FullScreenMode extends _$FullScreenMode {
+  late SettingsRepository _repository;
+
   @override
   bool build() {
+    _repository = ref.watch(settingsRepositoryProvider);
     void sync() => state = fullScreenModeActive.value;
     fullScreenModeActive.addListener(sync);
     ref.onDispose(() => fullScreenModeActive.removeListener(sync));
     return fullScreenModeActive.value;
   }
 
-  /// Honours [kFullScreenModeLaunchArgs] on the command line.
+  /// Restores the last session's choice.
   ///
-  /// Takes the argument list rather than reading it, because a compiled
-  /// desktop binary only ever hands its arguments to `main`.
-  void initialize(List<String> launchArgs) {
-    if (launchArgs.any(kFullScreenModeLaunchArgs.contains)) {
-      unawaited(setEnabled(true));
+  /// There used to be a `--full-screen` launch flag here as well. Only the
+  /// three desktop platforms can pass an argument at all, so it made the same
+  /// build behave differently depending on how it was started and gave the
+  /// desktop a way in that the phone and the television had no equivalent
+  /// for. The setting it used to force is remembered now, which is what the
+  /// flag was really being used for.
+  void initialize() {
+    if (_repository.getFullScreenMode() ?? false) {
+      unawaited(_apply(true));
     }
   }
 
-  /// Switches between full screen and windowed, window and layout together.
+  /// Switches between full screen and windowed, and remembers the choice.
+  ///
+  /// This is the Settings switch. [initialize] deliberately goes around it:
+  /// restoring a saved state is not a new choice, and writing it back on every
+  /// launch would keep rewriting the same value.
+  Future<void> setEnabled(bool enabled) async {
+    await _apply(enabled);
+    await _repository.setFullScreenMode(enabled);
+  }
+
+  /// Moves the window and the layout, recording nothing.
   ///
   /// The flag is set before the window is asked to move: the OS transition is
   /// animated on macOS and may be refused outright, and the layout must not
   /// wait on it.
-  Future<void> setEnabled(bool enabled) async {
+  Future<void> _apply(bool enabled) async {
     if (enabled == fullScreenModeActive.value) return;
     fullScreenModeActive.value = enabled;
     await PlayerPlatformService().setFullscreen(enabled);

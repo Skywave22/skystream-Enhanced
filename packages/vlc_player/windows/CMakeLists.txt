@@ -56,16 +56,39 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin)
 
+# x86-64 only, and the check has to be on the ARCHITECTURE, not the pointer
+# width. CMAKE_SIZEOF_VOID_P is 8 on ARM64 too, so the old pointer-width guard
+# passed on an ARM64 host and the build went on to download the win64 (x86-64)
+# VLC below and link its x64 sdk/lib/libvlc.lib into an ARM64 DLL - a confusing
+# linker failure, or a broken binary, instead of a clear "not supported".
+#
+# To lift this: VideoLAN publishes no Windows ARM64 VLC build at
+# download.videolan.org/pub/videolan/vlc/<ver>/, so an ARM64 libVLC has to
+# exist (or be built) before the archive/URL below can be selected by arch.
+if(DEFINED CMAKE_GENERATOR_PLATFORM AND CMAKE_GENERATOR_PLATFORM)
+  set(VLC_PLAYER_TARGET_ARCH "${CMAKE_GENERATOR_PLATFORM}")
+else()
+  set(VLC_PLAYER_TARGET_ARCH "${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+string(TOLOWER "${VLC_PLAYER_TARGET_ARCH}" VLC_PLAYER_TARGET_ARCH)
+
+if(NOT VLC_PLAYER_TARGET_ARCH MATCHES "^(x64|amd64|x86_64)$")
+  message(FATAL_ERROR
+    "vlc_player supports Windows x64 only; this build targets "
+    "'${VLC_PLAYER_TARGET_ARCH}'. No ARM64 libVLC is published upstream, so "
+    "the bundled x86-64 VLC runtime cannot be linked into an ARM64 binary.")
+endif()
+
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "vlc_player currently supports Windows x64 builds only.")
 endif()
 
-set(VLC_PLAYER_VLC_VERSION "3.0.21")
+set(VLC_PLAYER_VLC_VERSION "3.0.23")
 set(VLC_PLAYER_VLC_ARCHIVE "vlc-${VLC_PLAYER_VLC_VERSION}-win64.7z")
 set(VLC_PLAYER_VLC_URL
   "https://download.videolan.org/pub/videolan/vlc/${VLC_PLAYER_VLC_VERSION}/win64/${VLC_PLAYER_VLC_ARCHIVE}")
 set(VLC_PLAYER_VLC_SHA256
-  "9d2b24d6bc4196b3da8d181a3878678ba272e2a7690321f8826da76a69b2fb9c")
+  "eb4fd8a28291da73608c733786a09610fea865fbe94113bcb60b91c1ebb8404a")
 set(VLC_PLAYER_VLC_DOWNLOAD_DIR "${CMAKE_CURRENT_BINARY_DIR}/vlc")
 set(VLC_PLAYER_VLC_ARCHIVE_PATH
   "${VLC_PLAYER_VLC_DOWNLOAD_DIR}/${VLC_PLAYER_VLC_ARCHIVE}")

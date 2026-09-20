@@ -17,6 +17,17 @@ allprojects {
 // `android-37`, a package that no longer exists - locally or for CI to fetch.
 extra["projectCompileSdk"] = "android-37.0"
 extra["projectTargetSdk"] = 36
+// Pinned rather than inherited from `flutter.ndkVersion` (28.2.13676358).
+// GitHub removes NDK 28 from every runner image on 2026-10-01; r29 is what they
+// keep alongside r27. r29 also emits 16 KB-aligned LOAD segments by default,
+// which r27 does not - hence the explicit max-page-size linker flags this repo
+// carries for the libraries it compiles itself.
+//
+// It is set on every subproject below, not just :app, because AGP otherwise
+// gives each plugin its own default: before this pin, :app and :jni built
+// against r28 while 21 other subprojects - including :vlc_player, :flutter_js
+// and :flutter_torrent_server - built against r27.
+extra["projectNdk"] = "29.0.14206865"
 val projectJvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
 
 val newBuildDir: Directory =
@@ -46,6 +57,7 @@ subprojects {
                 // configured by the time this runs for it, and AGP refuses a
                 // second write of a platform hash once it has been read.
                 if (compileSdkVersion != wanted) compileSdkVersion(wanted)
+                ndkVersion = rootProject.extra["projectNdk"] as String
                 defaultConfig {
                     @Suppress("DEPRECATION")
                     targetSdkVersion(rootProject.extra["projectTargetSdk"] as Int)
