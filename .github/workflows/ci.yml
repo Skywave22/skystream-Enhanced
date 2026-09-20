@@ -42,7 +42,7 @@ env:
   # Pinned rather than floating on `stable`: the analyzer, the lint set and the
   # gen-l10n output all move with the SDK, so an unpinned runner would rewrite
   # the baseline under us and fail a PR that touched nothing.
-  FLUTTER_VERSION: 3.47.4
+  FLUTTER_VERSION: 3.47.5
 
 jobs:
   analyze-and-test:
@@ -421,11 +421,30 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+
+      # Skipped on arm64 Linux, which has no prebuilt SDK to download -- see
+      # the git clone below.
       - uses: subosito/flutter-action@v2
+        if: matrix.name != 'Linux-arm64'
         with:
           channel: 'stable'
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+
+      # Flutter ships no linux-arm64 SDK archive, so flutter-action cannot
+      # resolve one and fails the leg outright with "Unable to determine
+      # Flutter version for channel: stable version: <x> architecture: arm64".
+      # Cloning the tagged SDK and letting it bootstrap itself on first use is
+      # what release.yml already does for its own arm64 Linux leg; this
+      # mirrors it, because a gate that sets Flutter up differently from the
+      # release is not gating the release.
+      - name: Set Up Flutter (ARM64 Linux)
+        if: matrix.name == 'Linux-arm64'
+        run: |
+          set -euo pipefail
+          git clone https://github.com/flutter/flutter.git \
+            -b "$FLUTTER_VERSION" --depth 1 "$RUNNER_TOOL_CACHE/flutter"
+          echo "$RUNNER_TOOL_CACHE/flutter/bin" >> "$GITHUB_PATH"
 
       # android/app/build.gradle.kts pins source/targetCompatibility to 17.
       # Pin the toolchain too rather than inherit whichever JDK the runner
@@ -459,6 +478,12 @@ jobs:
       - name: Install Linux Dependencies
         if: startsWith(matrix.name, 'Linux')
         run: |
+          # ports.ubuntu.com, which the arm64 runner uses, resets plain-HTTP
+          # connections often enough to flake the job. release.yml rewrites it
+          # to HTTPS for exactly this reason; harmless on x64, which does not
+          # use that host at all.
+          sudo sed -i 's|http://ports.ubuntu.com|https://ports.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
           sudo apt-get update -o Acquire::Retries=5 -o Acquire::http::Timeout=30
           sudo apt-get install -y --no-install-recommends \
             clang cmake ninja-build pkg-config \

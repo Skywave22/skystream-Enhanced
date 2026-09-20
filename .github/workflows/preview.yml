@@ -40,7 +40,7 @@ permissions:
 env:
   # Pinned for the same reason as ci.yml: an unpinned `stable` means the
   # artifacts people test are built by a newer SDK than the one CI gated on.
-  FLUTTER_VERSION: 3.47.4
+  FLUTTER_VERSION: 3.47.5
 
 jobs:
   android:
