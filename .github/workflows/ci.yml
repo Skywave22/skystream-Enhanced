@@ -298,7 +298,7 @@ jobs:
         working-directory: packages/flutter_torrent_server/go_src
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: packages/flutter_torrent_server/go_src/go.mod
           cache-dependency-path: packages/flutter_torrent_server/go_src/go.sum
