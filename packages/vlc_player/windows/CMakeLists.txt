@@ -85,8 +85,20 @@ endif()
 
 set(VLC_PLAYER_VLC_VERSION "3.0.23")
 set(VLC_PLAYER_VLC_ARCHIVE "vlc-${VLC_PLAYER_VLC_VERSION}-win64.7z")
-set(VLC_PLAYER_VLC_URL
-  "https://download.videolan.org/pub/videolan/vlc/${VLC_PLAYER_VLC_VERSION}/win64/${VLC_PLAYER_VLC_ARCHIVE}")
+# Mirrors, tried in order. The canonical host is first; the others are here
+# because it went down on 2026-09-20 and took every Windows build with it,
+# with CMake reporting only `status: [28;"Timeout was reached"]`.
+# `get.videolan.org` is VideoLAN's own redirector and load-balances across the
+# mirror pool, so it also survives any single mirror disappearing.
+#
+# Falling back is only safe because EXPECTED_HASH is enforced on every attempt
+# below: a mirror serving anything but the exact archive fails the hash and the
+# loop moves on. Both alternates were verified to serve bytes matching the
+# pinned SHA256 on 2026-09-20.
+set(VLC_PLAYER_VLC_URLS
+  "https://download.videolan.org/pub/videolan/vlc/${VLC_PLAYER_VLC_VERSION}/win64/${VLC_PLAYER_VLC_ARCHIVE}"
+  "https://get.videolan.org/vlc/${VLC_PLAYER_VLC_VERSION}/win64/${VLC_PLAYER_VLC_ARCHIVE}"
+  "https://mirror.init7.net/videolan/vlc/${VLC_PLAYER_VLC_VERSION}/win64/${VLC_PLAYER_VLC_ARCHIVE}")
 set(VLC_PLAYER_VLC_SHA256
   "eb4fd8a28291da73608c733786a09610fea865fbe94113bcb60b91c1ebb8404a")
 set(VLC_PLAYER_VLC_DOWNLOAD_DIR "${CMAKE_CURRENT_BINARY_DIR}/vlc")
@@ -98,21 +110,54 @@ set(VLC_PLAYER_RUNTIME_DIR
 if(NOT EXISTS "${VLC_PLAYER_RUNTIME_DIR}/libvlc.dll" OR
    NOT EXISTS "${VLC_PLAYER_RUNTIME_DIR}/libvlccore.dll" OR
    NOT EXISTS "${VLC_PLAYER_RUNTIME_DIR}/plugins")
-  message(STATUS "Downloading VLC ${VLC_PLAYER_VLC_VERSION} Windows runtime")
   file(MAKE_DIRECTORY "${VLC_PLAYER_VLC_DOWNLOAD_DIR}")
-  file(DOWNLOAD
-    "${VLC_PLAYER_VLC_URL}"
-    "${VLC_PLAYER_VLC_ARCHIVE_PATH}"
-    EXPECTED_HASH "SHA256=${VLC_PLAYER_VLC_SHA256}"
-    SHOW_PROGRESS
-    STATUS vlc_player_download_status
-    TLS_VERIFY ON)
-  list(GET vlc_player_download_status 0 vlc_player_download_code)
-  list(GET vlc_player_download_status 1 vlc_player_download_message)
-  if(NOT vlc_player_download_code EQUAL 0)
+  set(vlc_player_downloaded FALSE)
+  set(vlc_player_download_errors "")
+  foreach(vlc_player_url IN LISTS VLC_PLAYER_VLC_URLS)
+    message(STATUS
+      "Downloading VLC ${VLC_PLAYER_VLC_VERSION} Windows runtime from "
+      "${vlc_player_url}")
+    # Deliberately NOT EXPECTED_HASH: that makes file(DOWNLOAD) raise a fatal
+    # error on a mismatch, which aborts the whole configure step and so can
+    # never reach the next mirror -- it defeats the point of this loop. The
+    # hash is still mandatory, just checked below where a failure is
+    # recoverable, so a mirror serving the wrong bytes is rejected exactly as
+    # before.
+    file(DOWNLOAD
+      "${vlc_player_url}"
+      "${VLC_PLAYER_VLC_ARCHIVE_PATH}"
+      SHOW_PROGRESS
+      STATUS vlc_player_download_status
+      # Without these, a stalled transfer holds the configure step until the
+      # CI runner's own job limit rather than failing over. The ceiling is
+      # generous: the archive is ~38 MB and a slow but working mirror must not
+      # be abandoned mid-transfer. Neither caps the TCP connect, so a
+      # black-holed host still costs the system timeout (~75 s) once.
+      INACTIVITY_TIMEOUT 30
+      TIMEOUT 600
+      TLS_VERIFY ON)
+    list(GET vlc_player_download_status 0 vlc_player_download_code)
+    list(GET vlc_player_download_status 1 vlc_player_download_message)
+    if(vlc_player_download_code EQUAL 0)
+      file(SHA256 "${VLC_PLAYER_VLC_ARCHIVE_PATH}" vlc_player_actual_sha256)
+      if(vlc_player_actual_sha256 STREQUAL VLC_PLAYER_VLC_SHA256)
+        set(vlc_player_downloaded TRUE)
+        break()
+      endif()
+      set(vlc_player_download_message
+        "SHA256 mismatch (expected ${VLC_PLAYER_VLC_SHA256}, got ${vlc_player_actual_sha256})")
+    endif()
+    # A timed-out or hash-mismatched attempt leaves a partial file behind, and
+    # the extractor below would otherwise be handed it once the last mirror
+    # failed too.
+    file(REMOVE "${VLC_PLAYER_VLC_ARCHIVE_PATH}")
+    string(APPEND vlc_player_download_errors
+      "\n  ${vlc_player_url}: ${vlc_player_download_message}")
+  endforeach()
+  if(NOT vlc_player_downloaded)
     message(FATAL_ERROR
-      "Failed to download VLC Windows runtime from ${VLC_PLAYER_VLC_URL}: "
-      "${vlc_player_download_message}")
+      "Failed to download the VLC ${VLC_PLAYER_VLC_VERSION} Windows runtime "
+      "from any known mirror:${vlc_player_download_errors}")
   endif()
 
   file(REMOVE_RECURSE "${VLC_PLAYER_RUNTIME_DIR}")

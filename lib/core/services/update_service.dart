@@ -15,7 +15,9 @@ import '../network/dio_client_provider.dart';
 
 part 'update_service.g.dart';
 
-@riverpod
+// Read by the keepAlive updateProvider, so it outlives every autoDispose
+// cycle anyway.
+@Riverpod(keepAlive: true)
 UpdateService updateService(Ref ref) {
   return UpdateService(ref.watch(dioClientProvider));
 }

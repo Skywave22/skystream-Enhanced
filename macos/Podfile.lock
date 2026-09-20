@@ -16,11 +16,11 @@ DEPENDENCIES:
   - flutter_js_ng (from `Flutter/ephemeral/.symlinks/plugins/flutter_js_ng/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - vlc_player (from `Flutter/ephemeral/.symlinks/plugins/vlc_player/macos`)
+  - VLCKit (from `vendor/VLCKit.podspec.json`)
 
 SPEC REPOS:
   trunk:
     - OrderedSet
-    - VLCKit
 
 EXTERNAL SOURCES:
   flutter_inappwebview_macos:
@@ -31,6 +31,8 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral
   vlc_player:
     :path: Flutter/ephemeral/.symlinks/plugins/vlc_player/macos
+  VLCKit:
+    :podspec: vendor/VLCKit.podspec.json
 
 SPEC CHECKSUMS:
   flutter_inappwebview_macos: c2d68649f9f8f1831bfcd98d73fd6256366d9d1d
@@ -38,8 +40,8 @@ SPEC CHECKSUMS:
   FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
   OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
   vlc_player: b79b6214e417e8cebd047d6a1d6d340009e22fd7
-  VLCKit: 4f2c462daaab6de88b93ab7609bdefbada557a4d
+  VLCKit: b1a17b7a7e443e3b60154bc045960669a651a479
 
-PODFILE CHECKSUM: 60cd590400c5c1c7966c953a2691fea5450c9413
+PODFILE CHECKSUM: c07906819982cb6132d65791a2f3233c1b6d3037
 
 COCOAPODS: 1.17.0

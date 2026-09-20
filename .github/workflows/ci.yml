@@ -453,6 +453,28 @@ jobs:
           key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock', 'packages/*/pubspec.yaml') }}
           restore-keys: ${{ runner.os }}-pub-
 
+      # MobileVLCKit (iOS) and VLCKit (macOS) are large binary frameworks that
+      # CocoaPods refetches on every pod install, and download.videolan.org is
+      # a single point of failure for both legs: it is the only place they are
+      # published. No mirror carries /pub/cocoapods/ (the pool replicates
+      # /pub/videolan/ only, so mirrors 404 on the pod tarballs), VLCKit has no
+      # GitHub release assets, and its SPM manifest points at the same host.
+      # So unlike the Windows runtime there is nothing to fail over to, and
+      # when that host went down on 2026-09-20 pod install died on
+      # `curl (7) Failed to connect` and took both legs with it. Until the
+      # tarballs are rehosted somewhere we control, a warm downloader cache is
+      # the only thing that carries these legs through an upstream outage.
+      # Keyed on the lockfiles, which pin the framework versions.
+      - name: Cache CocoaPods
+        if: runner.os == 'macOS'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods/repos
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock', 'macos/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-pods-
+
       # Desktop support is on by default in this SDK, but the release workflow
       # sets it explicitly and a config default is not something to depend on.
       - name: Enable Desktop Targets
@@ -552,6 +574,28 @@ jobs:
           path: ~/.pub-cache
           key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock', 'packages/*/pubspec.yaml') }}
           restore-keys: ${{ runner.os }}-pub-
+
+      # MobileVLCKit (iOS) and VLCKit (macOS) are large binary frameworks that
+      # CocoaPods refetches on every pod install, and download.videolan.org is
+      # a single point of failure for both legs: it is the only place they are
+      # published. No mirror carries /pub/cocoapods/ (the pool replicates
+      # /pub/videolan/ only, so mirrors 404 on the pod tarballs), VLCKit has no
+      # GitHub release assets, and its SPM manifest points at the same host.
+      # So unlike the Windows runtime there is nothing to fail over to, and
+      # when that host went down on 2026-09-20 pod install died on
+      # `curl (7) Failed to connect` and took both legs with it. Until the
+      # tarballs are rehosted somewhere we control, a warm downloader cache is
+      # the only thing that carries these legs through an upstream outage.
+      # Keyed on the lockfiles, which pin the framework versions.
+      - name: Cache CocoaPods
+        if: runner.os == 'macOS'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods/repos
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock', 'macos/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-pods-
 
       - name: Install Flutter Dependencies
         run: |

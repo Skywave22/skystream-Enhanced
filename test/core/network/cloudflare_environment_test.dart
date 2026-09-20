@@ -48,7 +48,16 @@ void main() {
 
   setUp(() {
     folders = [];
-    CloudflareBypass.debugResetPlatformProbe();
+    // Pinned, not reset to the default. The real probe is
+    // `kIsWeb || !Platform.isLinux`, so leaving it alone makes every test
+    // below that drives a solve depend on the OS the suite happens to run on:
+    // solveAndFetch declines at its `platformHasWebView` guard before it ever
+    // reaches the environment build, so `folders` comes back empty on a Linux
+    // CI runner and populated on a macOS laptop. The orchestration is what is
+    // under test here (see the library doc), not which platforms have a
+    // WebView -- that contract is covered by the `Linux` group in
+    // cloudflare_bypass_test.dart, which pins this probe false on purpose.
+    CloudflareBypass.platformHasWebView = () => true;
     CloudflareBypass.debugResetEnvironment();
     CloudflareBypass.spawnTimeout = const Duration(milliseconds: 200);
 
