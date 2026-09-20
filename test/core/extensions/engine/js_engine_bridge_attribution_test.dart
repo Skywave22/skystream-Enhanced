@@ -13,6 +13,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skystream/core/extensions/engine/js_bytecode_compiler.dart';
 import 'package:skystream/core/extensions/engine/js_engine.dart';
 import 'package:skystream/core/extensions/engine/js_engine_worker.dart';
 import 'package:skystream/core/extensions/providers/js_based_provider.dart';
@@ -594,6 +595,12 @@ void main() {
 
     tearDown(() async {
       live.dispose();
+      // Bytecode compilation is fired and forgotten by JsBasedProvider, so on
+      // a platform where it actually runs (Linux and Windows CI; not macOS,
+      // where JsBytecodeCompiler.supported is false) the write outlives the
+      // test and lands after the delete below, logging a PathNotFoundException
+      // for a .qbc nobody was waiting on.
+      await JsBytecodeCompiler.settle();
       if (dir.existsSync()) await dir.delete(recursive: true);
     });
 
@@ -774,6 +781,12 @@ void main() {
 
     tearDown(() async {
       live.dispose();
+      // Bytecode compilation is fired and forgotten by JsBasedProvider, so on
+      // a platform where it actually runs (Linux and Windows CI; not macOS,
+      // where JsBytecodeCompiler.supported is false) the write outlives the
+      // test and lands after the delete below, logging a PathNotFoundException
+      // for a .qbc nobody was waiting on.
+      await JsBytecodeCompiler.settle();
       if (dir.existsSync()) await dir.delete(recursive: true);
     });
 

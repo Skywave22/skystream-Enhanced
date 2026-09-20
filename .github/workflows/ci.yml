@@ -346,22 +346,44 @@ jobs:
           # has to be booted first). Building proves the toolchain compiles the
           # tree; the smoke test is the only thing here that proves a plugin
           # does not misbehave the moment it registers.
-          ANDROID='{"name":"Android","os":"ubuntu-latest","build":"flutter build apk --debug","smoke":""}'
-          LINUX='{"name":"Linux","os":"ubuntu-latest","build":"flutter build linux --debug","smoke":"linux"}'
+          #
+          # `torrserver` is the one binary from assets/torrserver/ this target
+          # actually uses; "" means it uses none. `out` is where the build
+          # lands, for the artifact upload. Both mirror release.yml so the gate
+          # exercises the artifact users install.
+          ANDROID='{"name":"Android","os":"ubuntu-latest","build":"flutter build apk --debug","smoke":"","torrserver":"","out":"build/app/outputs/flutter-apk"}'
+          LINUX='{"name":"Linux","os":"ubuntu-latest","build":"flutter build linux --debug","smoke":"linux","torrserver":"TorrServer-linux-amd64","out":"build/linux/x64/debug/bundle"}'
           # windows-2022, not windows-latest: the release and preview workflows
           # both pin windows-2022 (MSVC 17). On windows-latest the gate would
           # compile the vendored vlc_player C++ with Visual Studio 2026 / MSVC
           # 18 - a toolset no shipped build ever uses, so a break in either
           # direction goes unnoticed until release day.
-          WINDOWS='{"name":"Windows","os":"windows-2022","build":"flutter build windows --debug","smoke":"windows"}'
-          MACOS='{"name":"macOS","os":"macos-latest","build":"flutter build macos --debug","smoke":"macos"}'
-          IOS='{"name":"iOS","os":"macos-latest","build":"flutter build ios --debug --no-codesign","smoke":""}'
+          WINDOWS='{"name":"Windows","os":"windows-2022","build":"flutter build windows --debug","smoke":"windows","torrserver":"TorrServer-windows-amd64.exe","out":"build/windows/x64/runner/Debug"}'
+          MACOS='{"name":"macOS","os":"macos-latest","build":"flutter build macos --debug","smoke":"macos","torrserver":"TorrServer-darwin-arm64","out":"build/macos/Build/Products/Debug"}'
+          IOS='{"name":"iOS","os":"macos-latest","build":"flutter build ios --debug --no-codesign","smoke":"","torrserver":"","out":"build/ios/iphoneos"}'
+          # The second architecture release.yml ships for Linux and macOS.
+          # Without these the gate proves only that x64 Linux and arm64 macOS
+          # compile, and an arm64-only or x86_64-only break stays invisible
+          # until release day -- which is the one day it cannot be absorbed.
+          #
+          # Push and nightly only (see SHIPPED below): they double the two
+          # slowest legs, and a pull request already covers the primary
+          # architecture of every platform.
+          #
+          # macOS x64 cross-builds on the arm64 runner exactly the way
+          # release.yml does, rather than on an Intel runner, so the gate
+          # exercises the command that actually produces the shipped x64 app.
+          # It gets no smoke test: the resulting binary is x86_64 and the
+          # runner is arm64.
+          LINUX_ARM64='{"name":"Linux-arm64","os":"ubuntu-22.04-arm","build":"flutter build linux --debug","smoke":"linux","torrserver":"TorrServer-linux-arm64","out":"build/linux/arm64/debug/bundle"}'
+          MACOS_X64='{"name":"macOS-x64","os":"macos-latest","build":"flutter build macos --debug --config-only && cd macos && xcodebuild -workspace Runner.xcworkspace -configuration Debug -scheme Runner -derivedDataPath ../build/macos ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build","smoke":"","torrserver":"TorrServer-darwin-amd64","out":"build/macos/Build/Products/Debug"}'
           CORE="[$ANDROID,$LINUX]"
           FULL="[$ANDROID,$LINUX,$WINDOWS,$MACOS,$IOS]"
+          SHIPPED="[$ANDROID,$LINUX,$WINDOWS,$MACOS,$IOS,$LINUX_ARM64,$MACOS_X64]"
 
           if [ "$EVENT_NAME" != 'pull_request' ]; then
-            echo "Event is $EVENT_NAME: building every shipping platform."
-            echo "matrix=$FULL" >> "$GITHUB_OUTPUT"
+            echo "Event is $EVENT_NAME: building every shipping platform and arch."
+            echo "matrix=$SHIPPED" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -435,7 +457,7 @@ jobs:
       # falls through to an empty target when one is absent, so it needs no
       # apt package of its own.
       - name: Install Linux Dependencies
-        if: matrix.name == 'Linux'
+        if: startsWith(matrix.name, 'Linux')
         run: |
           sudo apt-get update -o Acquire::Retries=5 -o Acquire::http::Timeout=30
           sudo apt-get install -y --no-install-recommends \
@@ -486,11 +508,37 @@ jobs:
           flutter gen-l10n
           dart run build_runner build --delete-conflicting-outputs
 
-      # Mirrors the release workflow: the five desktop TorrServer binaries are
-      # ~170 MB of assets that an APK never carries.
-      - name: Strip Desktop TorrServer Binaries
-        if: matrix.name == 'Android'
-        run: rm -f packages/flutter_torrent_server/assets/torrserver/TorrServer-*
+      # Mirror what ships. assets/torrserver/ holds six prebuilt TorrServer
+      # binaries (~104 MB) and the package pubspec globs the whole directory,
+      # so every build embeds all six unless they are trimmed first.
+      #
+      # This used to run for Android only, which left the three desktop legs
+      # building something no user ever gets: release.yml and preview.yml keep
+      # exactly the one binary the target needs and delete the other five, so
+      # the desktop artifact the gate exercised was ~85 MB heavier than the
+      # shipped one and had five binaries beside it that are not there in
+      # production.
+      #
+      # An empty `torrserver` means the platform uses none at all, which is
+      # true of Android and iOS: packages/flutter_torrent_server/pubspec.yaml
+      # registers FlutterTorrentServerDesktop for linux, macos and windows
+      # only, and the two mobile platforms go through a native pluginClass
+      # that never reads these files.
+      - name: Trim TorrServer Binaries
+        env:
+          KEEP: ${{ matrix.torrserver }}
+        run: |
+          set -euo pipefail
+          cd packages/flutter_torrent_server/assets/torrserver
+          if [ -z "$KEEP" ]; then
+            rm -f TorrServer-*
+          else
+            # Loud, not silent: a renamed binary would otherwise delete every
+            # candidate and fail later as a confusing runtime error.
+            test -f "$KEEP" || { echo "::error::$KEEP not found in assets/torrserver/"; exit 1; }
+            find . -type f ! -name "$KEEP" -delete
+          fi
+          ls -l
 
       # The JavaScriptCore engine runs only on Apple, and the `flutter test`
       # job above is ubuntu-latest, which takes the QuickJS path - so the
@@ -504,6 +552,47 @@ jobs:
 
       - name: Build ${{ matrix.name }}
         run: ${{ matrix.build }}
+
+      # The gate built five platforms and threw every one away. Keeping them
+      # is what lets a maintainer open the thing that failed, and lets a
+      # reviewer try a pull request on an OS they have no toolchain for.
+      #
+      # Tarred rather than handed to upload-artifact as a directory: the macOS
+      # and iOS .app bundles and the Linux bundle contain symlinks (VLCKit's
+      # framework alone has six), and upload-artifact follows symlinks, which
+      # both inflates the upload and produces a bundle that no longer works
+      # when unpacked.
+      #
+      # These are debug builds and they are big -- the macOS one is ~1 GB on
+      # disk, ~384 MB compressed. Retention is deliberately short. To stop
+      # paying this on every pull request, add
+      #   if: github.event_name != 'pull_request'
+      # to both steps.
+      - name: Package ${{ matrix.name }} Build
+        env:
+          OUT: ${{ matrix.out }}
+        run: |
+          set -euo pipefail
+          # The desktop paths mirror release.yml with the mode segment swapped
+          # (release -> debug). If Flutter ever moves them, print where the
+          # build actually landed rather than leaving a bare "missing" error.
+          if [ ! -d "$OUT" ]; then
+            echo "::error::no build output at $OUT"
+            echo "build/ contains:"
+            find build -maxdepth 4 -type d 2>/dev/null | head -40
+            exit 1
+          fi
+          mkdir -p ci-artifacts
+          tar -czf "ci-artifacts/skystream-${{ matrix.name }}-debug.tar.gz" -C "$OUT" .
+          ls -lh ci-artifacts
+
+      - name: Upload ${{ matrix.name }} Build
+        uses: actions/upload-artifact@v7
+        with:
+          name: skystream-${{ matrix.name }}-debug
+          path: ci-artifacts/skystream-${{ matrix.name }}-debug.tar.gz
+          retention-days: 7
+          if-no-files-found: error
 
       # The only step in this workflow that RUNS the app. `flutter test` alone
       # executes on flutter_tester, where no plugin is registered, so nothing a
@@ -603,10 +692,12 @@ jobs:
           flutter gen-l10n
           dart run build_runner build --delete-conflicting-outputs
 
-      # Same strip the build matrix does: the five desktop TorrServer binaries
-      # are ~170 MB of assets an APK never carries.
-      - name: Strip Desktop TorrServer Binaries
-        if: matrix.name == 'Android'
+      # Same trim the build matrix does, with no `if:` because it applies to
+      # both legs of this job. It used to run for Android only, so the iOS
+      # smoke test booted an app carrying all six desktop binaries -- ~104 MB
+      # that FlutterTorrentServerDesktop is not even registered to read on
+      # iOS (see packages/flutter_torrent_server/pubspec.yaml).
+      - name: Trim TorrServer Binaries
         run: rm -f packages/flutter_torrent_server/assets/torrserver/TorrServer-*
 
       # KVM, or the emulator falls back to software rendering and times out.

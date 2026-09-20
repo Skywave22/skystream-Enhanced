@@ -52,9 +52,44 @@ class JsBytecodeCompiler {
   // Public API
   // ---------------------------------------------------------------------------
 
+  /// Compiles still running, so a test can await work it never started
+  /// directly.
+  ///
+  /// [JsBasedProvider] fires compile().ignore() deliberately -- bytecode is an
+  /// optimisation and nothing waits on it -- which leaves a detached write
+  /// that outlives whatever triggered it. A test that loads a plugin from a
+  /// temporary directory and deletes it in tearDown therefore raced the write
+  /// and logged `PathNotFoundException ... _v4.qbc` on the way past. Only on
+  /// Linux and Windows CI: [supported] is false on macOS, so the compile
+  /// returns before it can touch the filesystem and the race is invisible to
+  /// anyone developing on a Mac.
+  static final List<Future<void>> _inFlight = [];
+
+  /// Resolves once every in-flight [compile] has finished, successfully or
+  /// not. Await this before deleting a directory a compile may be writing to.
+  @visibleForTesting
+  static Future<void> settle() async {
+    // Looped, not a single Future.wait: awaiting one batch can let a compile
+    // queued behind it start.
+    while (_inFlight.isNotEmpty) {
+      await Future.wait<void>(List<Future<void>>.of(_inFlight));
+    }
+  }
+
   /// Compile [wrappedScript] and write the result to [qbcPath].
   /// Returns true on success, false if unsupported or on any error.
-  static Future<bool> compile(String wrappedScript, String qbcPath) async {
+  static Future<bool> compile(String wrappedScript, String qbcPath) {
+    final result = _compile(wrappedScript, qbcPath);
+    // Tracked as a never-failing future: _compile already converts every
+    // failure into `false`, and a throwing entry here would make settle()
+    // rethrow into whichever test happened to await it.
+    final tracked = result.then<void>((_) {}, onError: (_) {});
+    _inFlight.add(tracked);
+    unawaited(tracked.whenComplete(() => _inFlight.remove(tracked)));
+    return result;
+  }
+
+  static Future<bool> _compile(String wrappedScript, String qbcPath) async {
     if (!supported) return false;
 
     // Yield before the synchronous FFI work so concurrent compile() calls

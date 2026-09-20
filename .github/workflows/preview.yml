@@ -141,6 +141,18 @@ jobs:
           flutter gen-l10n
           dart run build_runner build --delete-conflicting-outputs
 
+      # Same strip the Android job does, and for the same reason: these six
+      # binaries are desktop builds of TorrServer (darwin/linux/windows) and
+      # iOS cannot execute any of them. iOS runs TorrServer from its own
+      # native ios/TorrServer.xcframework instead, and the plugin registers
+      # FlutterTorrentServerDesktop -- the only code that reads these files --
+      # for linux, macos and windows only
+      # (packages/flutter_torrent_server/pubspec.yaml). The package pubspec
+      # globs the whole assets/torrserver/ directory, so without this the IPA
+      # carried ~104 MB it could never use.
+      - name: Strip Desktop Binaries
+        run: rm -f packages/flutter_torrent_server/assets/torrserver/TorrServer-*
+
       - name: Generate dart-defines file
         shell: bash
         run: |

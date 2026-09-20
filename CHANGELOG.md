@@ -2,12 +2,6 @@
 
 ### ✨ *New Features & Enhancements*
 
-#### 🆕 Cross-Plugin "Stream" Tab
-- New **Stream** navigation destination next to Library (desktop/TV sidebar and mobile bottom bar), backed by TMDB (trending movies + popular TV shows).
-- Opening a movie or TV episode aggregates streaming links from **all installed plugins** into a single source picker. Titles are matched strictly by TMDB/IMDb ID, falling back to normalized title + media type + year — plugins that don't have the title contribute no links.
-- Aggregated links are passed into the player; the in-player **Sources** panel lists every link and supports switching across plugins.
-- Each source shows the originating plugin name as a small label.
-
 #### 🖼️ Icons
 - **The macOS app icon is now the rounded-square shape macOS expects**, instead of a plain square. macOS doesn't round app icons the way iOS does — the shape has to be part of the artwork — so SkyStream had been the one square icon in the Dock.
 - **The Windows icon now ships all eight sizes** (16 through 256) instead of only 256. Windows was downscaling a single large image on the fly, which is why it looked soft in the taskbar, title bar and Alt-Tab.
