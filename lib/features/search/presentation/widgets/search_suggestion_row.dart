@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../l10n/generated/app_localizations.dart';
+import '../../../../shared/focus/app_focus.dart';
 
 /// Whether the caret is currently in a text field.
 ///
@@ -172,8 +173,15 @@ class _SearchSuggestionRowState extends State<SearchSuggestionRow> {
     final hasTrailing =
         widget.trailingIcon != null && widget.onTrailingTap != null;
 
-    final isBodyHighlighted = _isBodyHovered || _bodyNode.hasFocus;
-    final isButtonHighlighted = _isButtonHovered || _buttonNode.hasFocus;
+    // Hover is a pointer state and always reads. Focus only reads when the
+    // app is being driven without a pointer - these rows are focused
+    // programmatically when the suggestion list opens, and on a phone that
+    // used to paint the first suggestion blue before the viewer had done
+    // anything to it.
+    final isBodyHighlighted =
+        _isBodyHovered || showFocusIndicator(context, _bodyNode.hasFocus);
+    final isButtonHighlighted =
+        _isButtonHovered || showFocusIndicator(context, _buttonNode.hasFocus);
 
     final highlightColor = isDark
         ? const Color(0xFF1F80E0)

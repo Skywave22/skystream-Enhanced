@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../shared/focus/app_focus.dart';
+
 class AnimeLogoPainter extends CustomPainter {
   final Color color;
 
@@ -171,7 +173,9 @@ class _HoverBorderGradientState extends State<HoverBorderGradient>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final isActive = _isHovered || _isFocused;
+    // Hover is a pointer state and always shows; focus only shows when the
+    // app is being driven without one.
+    final isActive = _isHovered || showFocusIndicator(context, _isFocused);
 
     return Focus(
       focusNode: _focusNode,
@@ -220,16 +224,10 @@ class _HoverBorderGradientState extends State<HoverBorderGradient>
                 padding: const EdgeInsets.all(1.5),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(100),
-                  boxShadow: isActive
-                      ? [
-                          BoxShadow(
-                            color: const Color(0xFF3275F8)
-                                .withValues(alpha: 0.4),
-                            blurRadius: 12,
-                            spreadRadius: 1,
-                          ),
-                        ]
-                      : [],
+                  // The sweeping gradient border above is the whole
+                  // affordance; the accent flood that used to sit behind it
+                  // spread a 12 dp blue halo under every chip on the row.
+                  boxShadow: AppFocus.shadows(focused: isActive) ?? const [],
                   gradient: SweepGradient(
                     center: Alignment.center,
                     transform: GradientRotation(angle),

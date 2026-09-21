@@ -45,6 +45,7 @@ import 'player_panel_row.dart';
 import 'player_panel_shell.dart';
 import 'player_sources_tab.dart';
 import 'player_tracks_tab.dart';
+import '../../../../../shared/focus/app_focus.dart';
 
 export 'player_panel_data.dart'
     show EpisodeProgress, EpisodeProgressLookup, PanelData;
@@ -728,8 +729,8 @@ class _PanelTabButtonState extends State<_PanelTabButton> {
                 // can land on.
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
-                  color: _focused
-                      ? HotstarPlayerStyle.focus
+                  color: showFocusIndicator(context, _focused)
+                      ? HotstarPlayerStyle.focusFill
                       : (_hovered
                             ? const Color(0xFF151A22)
                             : Colors.transparent),
@@ -830,8 +831,8 @@ class _PanelIconButtonState extends State<_PanelIconButton> {
                 padding: EdgeInsets.all(metrics.closeButtonPadding),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: _focused
-                      ? HotstarPlayerStyle.focus
+                  color: showFocusIndicator(context, _focused)
+                      ? HotstarPlayerStyle.focusFill
                       : Colors.transparent,
                 ),
                 child: Icon(

@@ -7,6 +7,7 @@ import '../../../core/utils/responsive_breakpoints.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import 'widgets/bookmarks_tab.dart';
 import 'widgets/downloads_tab.dart';
+import '../../../shared/focus/app_focus.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
   /// 0 = Downloads, 1 = Bookmarks. Settings opens the screen on a given tab
@@ -191,9 +192,10 @@ class _TabChipState extends State<_TabChip> {
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme;
-    final isTraditional =
-        FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
-    final showHighlight = _isFocused && isTraditional;
+    // Read through [FocusVisibility] rather than [FocusManager] directly: the
+    // highlight mode alone does not rebuild this widget when it changes, and
+    // it calls a mouse click keyboard navigation.
+    final showHighlight = showFocusIndicator(context, _isFocused);
     final scale = showHighlight ? 1.04 : 1.0;
 
     return Focus(
@@ -227,7 +229,7 @@ class _TabChipState extends State<_TabChip> {
                     ),
               borderRadius: BorderRadius.circular(LayoutConstants.radiusPill),
               border: showHighlight
-                  ? Border.all(color: theme.colorScheme.primary, width: 2)
+                  ? AppFocus.border(context, focused: true)
                   : (widget.selected
                         ? Border.all(
                             color: theme.colorScheme.primary.withValues(

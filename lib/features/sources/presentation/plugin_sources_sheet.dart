@@ -15,6 +15,7 @@ import '../../../l10n/generated/app_localizations.dart';
 import '../../details/presentation/playback_launcher.dart';
 import '../../settings/presentation/player_settings_provider.dart';
 import 'source_sheet_widgets.dart';
+import '../../../shared/focus/app_focus.dart';
 
 /// Why the source list came up empty, as far as the sheet can actually tell.
 ///
@@ -980,7 +981,7 @@ class _PluginSourcesSheetState extends ConsumerState<PluginSourcesSheet> {
                 setState(() => _showUnavailable = !_showUnavailable),
             child: const SizedBox.shrink(),
             builder: (context, state, _) {
-              final isFocused = state.focused;
+              final isFocused = showFocusIndicator(context, state.focused);
               return Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
@@ -1166,7 +1167,7 @@ class _DpadDialogButton extends StatelessWidget {
       onSelect: onPressed,
       child: const SizedBox.shrink(),
       builder: (context, state, _) {
-        final isFocused = state.focused;
+        final isFocused = showFocusIndicator(context, state.focused);
         return AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           decoration: BoxDecoration(
@@ -1305,7 +1306,7 @@ class _SourceRowState extends State<_SourceRow> {
       },
       child: const SizedBox.shrink(),
       builder: (context, state, _) {
-        final isFocused = state.focused;
+        final isFocused = showFocusIndicator(context, state.focused);
         return GlassRow(
           focused: isFocused,
           onTap: activate,

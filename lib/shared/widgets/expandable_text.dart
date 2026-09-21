@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../focus/app_focus.dart';
+
 class ExpandableText extends StatefulWidget {
   final String text;
   final int maxLines;
@@ -98,33 +100,27 @@ class _ExpandableTextState extends State<ExpandableText> {
                   behavior: HitTestBehavior.opaque,
                   onTap: _toggle,
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
+                    duration: AppFocus.duration,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
                       vertical: 3,
                     ),
                     decoration: BoxDecoration(
-                      color: _toggleFocused
-                          ? colorScheme.primary.withValues(alpha: 0.22)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: _toggleFocused
-                            ? colorScheme.primary
-                            : Colors.transparent,
-                        width: 2,
+                      // What was here - a 22 % accent fill, a 2 dp accent
+                      // border AND an 18 dp accent halo with 1.5 dp of spread
+                      // - put a blue lamp under the word "Read more" on every
+                      // details page, on every platform. One neutral ring.
+                      color: AppFocus.rowTint(
+                        context,
+                        focused: _toggleFocused,
                       ),
-                      boxShadow: _toggleFocused
-                          ? [
-                              BoxShadow(
-                                color: colorScheme.primary.withValues(
-                                  alpha: 0.55,
-                                ),
-                                blurRadius: 18,
-                                spreadRadius: 1.5,
-                              ),
-                            ]
-                          : null,
+                      borderRadius: BorderRadius.circular(6),
+                      border:
+                          AppFocus.border(context, focused: _toggleFocused) ??
+                          Border.all(
+                            color: Colors.transparent,
+                            width: AppFocus.ringWidth,
+                          ),
                     ),
                     child: Text(
                       _isExpanded ? 'Show less' : 'Read more',

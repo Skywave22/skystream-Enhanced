@@ -13,6 +13,7 @@ import '../../../shared/widgets/cards_wrapper.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/text_input_dialog.dart';
 import '../../../core/router/app_router.dart';
+import '../../../shared/focus/app_focus.dart';
 
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
@@ -30,16 +31,116 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
   late final TabController _tabController;
   bool _didEnsureInit = false;
 
+  /// Marks the two tabs' shared subtree, so [_restoreFocusAfterTabChange] can
+  /// tell a focus node inside the tab body from one in the app bar.
+  ///
+  /// A [FocusScope] would be the obvious way to draw that line and is the
+  /// wrong one: a scope is also the boundary directional traversal works
+  /// within, so wrapping the body in one would trap the remote inside it -
+  /// no way back up to the tabs or the Back button.
+  final GlobalKey _tabViewKey = GlobalKey(debugLabel: 'extensions-tab-body');
+
+  /// Whether the body has held focus at some point.
+  ///
+  /// The repair below is strictly a repair: it puts focus back where it was
+  /// taken from, and never takes it in the first place. Without this it would
+  /// also grab focus the moment the screen opened, because a freshly pushed
+  /// route has its scope holding primary focus and that looks exactly like
+  /// focus having been lost.
+  bool _bodyHasHadFocus = false;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    FocusManager.instance.addListener(_handleFocusChanged);
   }
 
   @override
   void dispose() {
+    FocusManager.instance.removeListener(_handleFocusChanged);
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Puts focus back in the body whenever this screen is left holding none.
+  ///
+  /// This is the fix for a dead end on a television. Each tab's empty state is
+  /// a single button, and one of them - Browse Repositories - switches to the
+  /// other tab. So the node holding focus is the node the switch destroys, and
+  /// nothing picks it up: focus falls back to the enclosing scope, a scope
+  /// answers no arrow keys, and the screen stops responding to the remote
+  /// altogether. A viewer who came here to install their first repository -
+  /// which is the only reason a fresh install sends them here - could not
+  /// reach Add Repository at all, and the app read as locked.
+  ///
+  /// Hung off [FocusManager] rather than off [TabController], which is where
+  /// this started: by the frame after the tab animation lands, the outgoing
+  /// page is still mounted and still holds focus, so there is nothing to
+  /// repair yet. It is dropped a moment later, with no tab event to go with
+  /// it. The loss itself is the only reliable signal.
+  void _handleFocusChanged() {
+    if (!mounted) return;
+
+    // A real control has it, so there is nothing to repair. A [FocusScopeNode]
+    // holding primary focus is what "nobody has it" looks like, and so is a
+    // node whose element has gone.
+    final primary = FocusManager.instance.primaryFocus;
+    if (primary != null &&
+        primary is! FocusScopeNode &&
+        primary.context?.mounted == true) {
+      final body = _tabViewKey.currentContext;
+      final inside = body != null && _isInside(primary, body);
+      debugPrint('SKYFOCUS have primary=${primary.debugLabel ?? primary.context?.widget.runtimeType} '
+          'body=${body != null} inside=$inside');
+      if (inside) _bodyHasHadFocus = true;
+      return;
+    }
+    debugPrint('SKYFOCUS lost primary=$primary hadFocus=$_bodyHasHadFocus');
+    if (!_bodyHasHadFocus) return;
+
+    // Not while a dialog is up: Add Repository is a route of its own, and
+    // focus moving through scopes on its way in and out is not this screen's
+    // business. Pulling focus down to the page underneath would take the
+    // remote out of the dialog the viewer is filling in.
+    final route = ModalRoute.of(context);
+    debugPrint('SKYFOCUS route isCurrent=${route?.isCurrent}');
+    if (route != null && !route.isCurrent) return;
+
+    // After the frame, so the tree this searches is the one now on screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final body = _tabViewKey.currentContext;
+      if (body == null) return;
+      final again = FocusManager.instance.primaryFocus;
+      if (again != null &&
+          again is! FocusScopeNode &&
+          again.context?.mounted == true) {
+        return;
+      }
+      final all = FocusScope.of(context).traversalDescendants.toList();
+      debugPrint('SKYFOCUS search total=${all.length} '
+          'inside=${all.where((n) => _isInside(n, body)).length}');
+      for (final node in all) {
+        if (_isInside(node, body)) {
+          node.requestFocus();
+          return;
+        }
+      }
+    });
+  }
+
+  /// Whether [node]'s element sits under [ancestor].
+  static bool _isInside(FocusNode node, BuildContext ancestor) {
+    final context = node.context;
+    if (context == null || !context.mounted) return false;
+    var found = false;
+    context.visitAncestorElements((element) {
+      if (element != ancestor) return true;
+      found = true;
+      return false;
+    });
+    return found;
   }
 
   @override
@@ -92,6 +193,7 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
     );
 
     final tabView = TabBarView(
+      key: _tabViewKey,
       controller: _tabController,
       children: [
         FocusTraversalGroup(
@@ -1109,13 +1211,13 @@ class _RowFocusNotification extends Notification {
 /// single row and tells the enclosing [_FocusableCard] to stay quiet while it
 /// does. Two departures from how [CardsWrapper] applies the same recipe:
 ///
-/// The ring and tint are painted behind the child, not in front of it as
-/// [CardsWrapper] does; a row's child is text on a transparent [Material], so
-/// a foreground tint would wash out the label it points at.
+/// The ring is painted behind the child, not in front of it as [CardsWrapper]
+/// does; a row's child is text on a transparent [Material], so a foreground
+/// layer would sit over the label it points at.
 ///
-/// An opaque fill sits between the glow and the row, because Flutter paints a
-/// [BoxShadow] across the whole shape rather than just its rim, and without
-/// something opaque in the middle the glow floods the row.
+/// An opaque fill sits between the shadow and the row, because Flutter paints
+/// a [BoxShadow] across the whole shape rather than just its rim, and without
+/// something opaque in the middle it floods the row.
 class _FocusableRow extends StatefulWidget {
   final Widget child;
 
@@ -1154,8 +1256,7 @@ class _FocusableRowState extends State<_FocusableRow> {
         margin: const EdgeInsets.all(CardFocusAffordance.ringWidth),
         decoration: CardFocusAffordance.glow(
           borderRadius: _radius,
-          accent: colorScheme.primary,
-          focused: _isFocused,
+          focused: showFocusIndicator(context, _isFocused),
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -1166,9 +1267,9 @@ class _FocusableRowState extends State<_FocusableRow> {
           ),
           child: Container(
             decoration: CardFocusAffordance.ring(
+              context,
               borderRadius: _radius,
-              accent: colorScheme.primary,
-              focused: _isFocused,
+              focused: showFocusIndicator(context, _isFocused),
             ),
             // The row's own ink surface. A ListTile paints its splashes on the
             // nearest Material ancestor, and ink is painted before that

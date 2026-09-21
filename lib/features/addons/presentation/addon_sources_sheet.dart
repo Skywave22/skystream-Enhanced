@@ -17,6 +17,7 @@ import '../../../core/services/download_service.dart';
 import '../../details/presentation/playback_launcher.dart';
 import '../../settings/presentation/player_settings_provider.dart';
 import '../../sources/presentation/source_sheet_widgets.dart';
+import '../../../shared/focus/app_focus.dart';
 
 /// Add-on sources sheet: play or download a title using **only** the links
 /// returned by installed add-ons.
@@ -812,7 +813,7 @@ class _SourceRowState extends State<_SourceRow> {
       },
       child: const SizedBox.shrink(),
       builder: (context, state, _) {
-        final isFocused = state.focused;
+        final isFocused = showFocusIndicator(context, state.focused);
         return GlassRow(
           focused: isFocused,
           accented: isBest,

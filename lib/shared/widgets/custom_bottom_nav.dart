@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
+import '../focus/app_focus.dart';
+
 class CustomBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final void Function(int) onTap;
@@ -170,20 +172,17 @@ class _NavTabCellState extends State<_NavTabCell> {
         child: Focus(
           onFocusChange: (focused) => setState(() => _isFocused = focused),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: _isFocused
-                ? BoxDecoration(
-                    borderRadius: BorderRadius.circular(26),
-                    border: Border.all(color: colorScheme.primary, width: 2.0),
-                    boxShadow: [
-                      BoxShadow(
-                        color: colorScheme.primary.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  )
-                : null,
+            duration: AppFocus.duration,
+            // A neutral ring, and none of it on a phone being tapped - which
+            // is the only place this bar exists, so the accent glow that used
+            // to be here was a television cue on a device with no remote.
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(26),
+              border: AppFocus.border(
+                context,
+                focused: showFocusIndicator(context, _isFocused),
+              ),
+            ),
             child: InkWell(
               borderRadius: BorderRadius.circular(26),
               focusColor: Colors.transparent,

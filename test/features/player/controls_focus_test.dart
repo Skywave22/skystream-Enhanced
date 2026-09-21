@@ -424,7 +424,14 @@ void main() {
       final panel = Completer<void>();
       await _pumpControls(tester, onOpenPanel: (_) => panel.future);
 
-      await tester.tap(find.byTooltip('Sources'));
+      // [_tapControl], not a bare `tap`: the screen-wide detector owns a
+      // double-tap, so this button's own recogniser does not win the arena
+      // until that one times out. `pumpAndSettle` used to stand in for the
+      // wait by accident - the play/pause button's label was mid-colour-fade
+      // from having just taken focus, and settling that fade ran the clock
+      // past the timeout. The moment that fade stopped happening the tap
+      // stopped landing, with nothing about this test to say why.
+      await _tapControl(tester, find.byTooltip('Sources'));
       await tester.pumpAndSettle();
       _expectHidden(tester, reason: 'out of sight behind the panel');
 

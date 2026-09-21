@@ -5,6 +5,8 @@ import 'package:skystream/features/explore/data/explore_mode_provider.dart';
 import 'package:skystream/features/explore/presentation/widgets/hover_border_gradient.dart';
 import 'package:skystream/shared/widgets/custom_widgets.dart';
 
+import '../../../../shared/focus/app_focus.dart';
+
 Future<void> showExploreModeSelectorDialog(
   BuildContext context,
   WidgetRef ref,
@@ -132,7 +134,8 @@ class _ModeOptionTileState extends State<_ModeOptionTile> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final active = widget.isSelected || _isFocused;
+    final showFocus = showFocusIndicator(context, _isFocused);
+    final active = widget.isSelected || showFocus;
 
     return Focus(
       autofocus: widget.autofocus,
@@ -148,22 +151,24 @@ class _ModeOptionTileState extends State<_ModeOptionTile> {
         return KeyEventResult.ignored;
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+        duration: AppFocus.duration,
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          color: _isFocused
-              ? cs.primary.withValues(alpha: 0.15)
+          // Selection keeps the accent; focus is neutral, so a row that is
+          // both still says which is which.
+          color: showFocus
+              ? AppFocus.rowTint(context, focused: true)
               : (widget.isSelected
                     ? cs.primary.withValues(alpha: 0.08)
                     : Colors.transparent),
           border: Border.all(
-            color: _isFocused
-                ? cs.primary
+            color: showFocus
+                ? AppFocus.ringColor(context)
                 : (widget.isSelected
                       ? cs.primary.withValues(alpha: 0.4)
                       : Colors.transparent),
-            width: _isFocused ? 2 : 1,
+            width: showFocus ? AppFocus.ringWidth : 1,
           ),
         ),
         child: Material(

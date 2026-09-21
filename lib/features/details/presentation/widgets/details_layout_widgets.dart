@@ -21,6 +21,7 @@ import '../download_launcher.dart';
 import 'download_progress_dialog.dart';
 import 'download_management_dialog.dart';
 import 'episode_card.dart';
+import '../../../../shared/focus/app_focus.dart';
 
 import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/core/utils/responsive_breakpoints.dart';
@@ -792,6 +793,7 @@ class _LanguageButtonState extends State<_LanguageButton> {
 
   @override
   Widget build(BuildContext context) {
+    final showFocus = showFocusIndicator(context, _isFocused);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -809,13 +811,13 @@ class _LanguageButtonState extends State<_LanguageButton> {
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: _isFocused
-                  ? Colors.white
+              color: showFocus
+                  ? AppFocus.ringColor(context)
                   : (widget.isSelected
                         ? Theme.of(context).colorScheme.primary
                               .withValues(alpha: 80 / 255)
                         : Colors.transparent),
-              width: _isFocused ? 2 : 1,
+              width: showFocus ? AppFocus.ringWidth : 1,
             ),
           ),
           child: Text(

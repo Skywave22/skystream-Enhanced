@@ -9,6 +9,7 @@ import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../widgets/hotstar_player_style.dart';
 import '../widgets/player_activation.dart';
 import '../widgets/player_control_components.dart';
+import '../../../../shared/focus/app_focus.dart';
 
 /// The "up next" card shown in the closing seconds of an episode.
 ///
@@ -848,9 +849,12 @@ class _CardButtonState extends State<_CardButton> {
 
   @override
   Widget build(BuildContext context) {
-    final ring = _focused && widget.isTv;
+    // The ring is for whoever is driving the player without a pointer, on
+    // every form factor - it used to be gated on `isTv`, which left a phone
+    // with a hardware keyboard and a desktop window with no focus cue at all.
+    final ring = showFocusIndicator(context, _focused);
     final Color border = ring
-        ? (widget.filled ? Colors.white : HotstarPlayerStyle.accent)
+        ? HotstarPlayerStyle.focusRing
         : (widget.filled ? Colors.transparent : HotstarPlayerStyle.divider);
 
     return Semantics(
@@ -880,21 +884,14 @@ class _CardButtonState extends State<_CardButton> {
                 // pair reads as two buttons of equal weight filling the card.
                 color: widget.filled
                     ? HotstarPlayerStyle.accent
-                    : (_focused
-                          ? HotstarPlayerStyle.accent.withValues(alpha: 0.16)
+                    : (ring
+                          ? HotstarPlayerStyle.focusFill
                           : HotstarPlayerStyle.panelElevated),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: border, width: ring ? 2 : 1),
-                boxShadow: ring
-                    ? [
-                        BoxShadow(
-                          color: HotstarPlayerStyle.accent.withValues(
-                            alpha: 0.3,
-                          ),
-                          blurRadius: 10,
-                        ),
-                      ]
-                    : null,
+                border: Border.all(
+                  color: border,
+                  width: ring ? HotstarPlayerStyle.focusRingWidth : 1,
+                ),
               ),
               child: Text(
                 widget.label,

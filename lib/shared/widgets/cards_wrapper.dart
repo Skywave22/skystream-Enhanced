@@ -1,83 +1,67 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../focus/app_focus.dart';
+
 /// The focus affordance shared by every card-like surface in the app.
 ///
-/// This is the same recipe the player already draws for its own TV controls
-/// (`player_control_components.dart`: accent ring + accent tint + soft accent
-/// glow), re-expressed against [ColorScheme] instead of the player's private
-/// style constants so it themes with the rest of the app.
+/// What Netflix and Prime Video do, because what they do works: the card grows
+/// a little, takes a **thin neutral border**, and gets a shadow under it. That
+/// is all.
 ///
-/// Three layers, because one of them alone is not legible on top of a bright
-/// poster on a television:
-///  * a **ring**, painted with [BorderSide.strokeAlignOutside] so it sits
-///    entirely OUTSIDE the card. An inside border eats
-///    `2 * width` from the artwork, so the card visibly shrinks the moment it
-///    gains focus;
-///  * a **tint**, painted in FRONT of the child so it survives a full-bleed
-///    poster (a background fill is invisible behind opaque artwork);
-///  * a **glow**, painted BEHIND the child so it only reads outside the card.
-///    Its blur is deliberately short-range: horizontal rails clip their
-///    viewport at 8 dp of vertical padding, so a wider halo would be cut off
-///    with a hard edge.
+/// What was here before was three accent-coloured layers at once - a 3 dp
+/// `colorScheme.primary` ring, an 18 % primary wash painted *over* the poster,
+/// and a primary glow behind it. Any one of them reads; all three at once
+/// recolour the artwork they are supposed to be pointing at, which is why no
+/// ten-foot interface of this kind uses an accent for focus. A neutral border
+/// separates from every poster, because a poster can be any colour but the
+/// gap between two cards is always the page.
+///
+/// Two layers, and both are kept in the tree in *both* states:
+///  * the **border and shadow**, painted with [BorderSide.strokeAlignOutside]
+///    so the stroke sits entirely outside the card. An inside border eats
+///    `2 * width` from the artwork and the card visibly shrinks as it gains
+///    focus;
+///  * nothing over the child at all. The wash is gone.
+///
+/// Returning a decoration rather than `null` in the unfocused state is
+/// deliberate: a null decoration makes [Container] drop its [DecoratedBox],
+/// which changes the shape of the element tree on every focus change and
+/// forces the whole card subtree - including the network image - to be
+/// re-inflated.
 class CardFocusAffordance {
   const CardFocusAffordance._();
 
   /// Ring thickness, in logical pixels. Painted outside the card, so it costs
   /// the artwork nothing.
-  static const double ringWidth = 3;
+  static const double ringWidth = AppFocus.ringWidth;
 
-  /// Alpha of the accent wash drawn over the child.
-  static const double tintOpacity = 0.18;
-
-  /// Alpha of the glow drawn behind the card.
-  static const double glowOpacity = 0.35;
-
-  /// Blur of the glow. Kept within the 8 dp of vertical padding the rails give
-  /// their viewports so the halo is never clipped mid-gradient.
-  static const double glowBlurRadius = 8;
-
-  /// Background layer (behind the child): the glow.
-  ///
-  /// Returns a decoration in both states rather than `null` when unfocused, on
-  /// purpose. A `null` decoration makes [Container] drop its `DecoratedBox`
-  /// altogether, which changes the shape of the element tree on every focus
-  /// change and forces the whole card subtree — including the network image —
-  /// to be re-inflated.
+  /// The layer behind the child: the shadow that lifts a focused card off the
+  /// page. Black, not accent - see this class's summary.
   static BoxDecoration glow({
     required BorderRadius borderRadius,
-    required Color accent,
     required bool focused,
   }) {
     return BoxDecoration(
       borderRadius: borderRadius,
-      boxShadow: focused
-          ? <BoxShadow>[
-              BoxShadow(
-                color: accent.withValues(alpha: glowOpacity),
-                blurRadius: glowBlurRadius,
-              ),
-            ]
-          : null,
+      boxShadow: AppFocus.shadows(focused: focused),
     );
   }
 
-  /// Foreground layer (in front of the child): the ring and the tint.
-  static BoxDecoration ring({
+  /// The layer in front of the child: the border, and only the border.
+  static BoxDecoration ring(
+    BuildContext context, {
     required BorderRadius borderRadius,
-    required Color accent,
     required bool focused,
   }) {
     return BoxDecoration(
       borderRadius: borderRadius,
-      color: focused ? accent.withValues(alpha: tintOpacity) : null,
-      border: focused
-          ? Border.all(
-              color: accent,
-              width: ringWidth,
-              strokeAlign: BorderSide.strokeAlignOutside,
-            )
-          : null,
+      border: AppFocus.border(
+        context,
+        focused: focused,
+        outside: true,
+        width: ringWidth,
+      ),
     );
   }
 }
@@ -114,6 +98,11 @@ class CardsWrapper extends StatefulWidget {
   @override
   State<CardsWrapper> createState() => _CardsWrapperState();
 }
+
+/// The scale a card that has never been focused or hovered is drawn at.
+/// See the [ScaleTransition] in [_CardsWrapperState.build].
+const AlwaysStoppedAnimation<double> _kNoScale =
+    AlwaysStoppedAnimation<double>(1.0);
 
 class _CardsWrapperState extends State<CardsWrapper>
     with SingleTickerProviderStateMixin {
@@ -179,11 +168,12 @@ class _CardsWrapperState extends State<CardsWrapper>
   }
 
   void _updateAnimation() {
-    // In D-pad/keyboard mode the ring+tint+glow is the focus indicator; skip
-    // scale to prevent edge items from overflowing the viewport.
-    final isDpad =
-        FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
-    final shouldScale = _isHovered || (_isFocused && !isDpad);
+    // Focus grows the card whatever moved focus there. The old version stood
+    // the scale down for D-pad specifically, which left the remote - the one
+    // input that cannot point at anything - with the weakest cue of the three
+    // on offer. A focused card is also scrolled to the middle of its rail
+    // below, so there is no edge for it to overflow.
+    final shouldScale = _isHovered || _isFocused;
     if (shouldScale) {
       _ensureController();
       _controller!.forward();
@@ -315,34 +305,37 @@ class _CardsWrapperState extends State<CardsWrapper>
           onLongPress: widget.onLongPress,
           child: Builder(
             builder: (context) {
-              // Only in D-pad/keyboard/pointer-focus mode: in touch mode
-              // Flutter suppresses focus highlights entirely.
-              final showFocus =
-                  _isFocused &&
-                  FocusManager.instance.highlightMode ==
-                      FocusHighlightMode.traditional;
+              // A border is for whoever is driving the app without a
+              // pointer; a finger that just tapped this card does not need
+              // one drawn around it afterwards.
+              final showFocus = showFocusIndicator(context, _isFocused);
               final borderRadius =
                   widget.borderRadius ?? BorderRadius.circular(12);
-              final accent = Theme.of(context).colorScheme.primary;
               // A plain Container, not an AnimatedContainer: the latter builds
               // an AnimationController in initState, and a rail holds hundreds
               // of cards that are never focused at all.
               final card = Container(
                 decoration: CardFocusAffordance.glow(
                   borderRadius: borderRadius,
-                  accent: accent,
                   focused: showFocus,
                 ),
                 foregroundDecoration: CardFocusAffordance.ring(
+                  context,
                   borderRadius: borderRadius,
-                  accent: accent,
                   focused: showFocus,
                 ),
                 child: widget.child,
               );
-              final animation = _scaleAnimation;
-              if (animation == null) return card;
-              return ScaleTransition(scale: animation, child: card);
+              // Always a [ScaleTransition], even before the controller
+              // exists. Returning the bare card until the first focus or
+              // hover changes the shape of the element tree the moment either
+              // arrives, and that re-inflates everything below it - including
+              // the network image the card is mostly made of. A stopped
+              // animation costs one Transform and no ticker.
+              return ScaleTransition(
+                scale: _scaleAnimation ?? _kNoScale,
+                child: card,
+              );
             },
           ),
         ),

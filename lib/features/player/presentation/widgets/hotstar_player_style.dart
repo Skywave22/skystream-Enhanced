@@ -28,6 +28,22 @@ class HotstarPlayerStyle {
   static const Color focus = Color(0x660A84FF);
   static const Color liveRed = Color(0xFFE53935);
 
+  /// The focus ring, everywhere in the player chrome.
+  ///
+  /// White, not [accent], and the same decision the rest of the app made in
+  /// `shared/focus/app_focus.dart`: the chrome sits over a picture that can be
+  /// any colour, and an accent ring competes with it while a white one reads
+  /// on anything. It also keeps the accent meaning one thing - this control is
+  /// *on* - rather than two.
+  static const Color focusRing = Color(0xFFFFFFFF);
+
+  /// Ring thickness. Matches the app's [AppFocus.ringWidth].
+  static const double focusRingWidth = 2;
+
+  /// The wash behind a focused control. Neutral for the same reason the ring
+  /// is, and low enough not to lift a control off a bright scene.
+  static const Color focusFill = Color(0x26FFFFFF);
+
   /// Marker on the scrubber for skip segments (intro / recap / outro). A warm
   /// amber so it reads clearly against the blue progress and grey track.
   static const Color skipSegment = Color(0xFFFFC107);
