@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skystream/shared/focus/app_focus.dart';
 import 'package:skystream/core/nuvio/data/nuvio_repository.dart';
 import 'package:skystream/core/nuvio/models/nuvio_models.dart';
 import 'package:skystream/features/nuvio/presentation/nuvio_plugins_view.dart';
@@ -113,6 +114,19 @@ Widget _app(NuvioState state) => ProviderScope(
 
 void main() {
   group('scraper row focus affordance', () {
+    // The affordance is input-aware: it is drawn for a remote or a keyboard and
+    // not for a finger, so a test that means to see it has to say which input
+    // it is standing in for. Without this the default on Android resolves to
+    // `touch` and every assertion below would be measuring nothing.
+    setUp(() {
+        FocusManager.instance.highlightStrategy =
+                FocusHighlightStrategy.alwaysTraditional;
+    });
+    tearDown(() {
+        FocusManager.instance.highlightStrategy = FocusHighlightStrategy.automatic;
+    });
+
+
     setUp(() {
       // A television-sized surface: every scraper row is laid out, so the
       // assertions are about what is drawn and not about what got built.
@@ -131,9 +145,9 @@ void main() {
         await tester.pumpWidget(_app(_twoScrapers()));
         await tester.pumpAndSettle();
 
-        final primary = Theme.of(
+        final scheme = Theme.of(
           tester.element(find.text('Scraper A')),
-        ).colorScheme.primary;
+        ).colorScheme;
 
         expect(_rowLayers(tester, find.text('Scraper A')).ring, isNull);
         expect(_rowLayers(tester, find.text('Scraper B')).ring, isNull);
@@ -155,24 +169,18 @@ void main() {
         final ring = focused.ring;
         expect(ring, isNotNull, reason: 'focused row drew no ring');
         final side = (ring!.border! as Border).top;
-        expect(side.color, primary);
+        expect(
+          side.color,
+          scheme.onSurface,
+          reason: 'a focus ring is neutral; the accent belongs to selection',
+        );
         expect(side.width, CardFocusAffordance.ringWidth);
         expect(side.strokeAlign, BorderSide.strokeAlignOutside);
-        expect(
-          ring.color,
-          primary.withValues(alpha: CardFocusAffordance.tintOpacity),
-        );
+        expect(ring.color, isNull);
 
         final glow = focused.glow;
-        expect(glow, isNotNull, reason: 'focused row drew no glow');
-        expect(
-          glow!.boxShadow!.single.blurRadius,
-          CardFocusAffordance.glowBlurRadius,
-        );
-        expect(
-          glow.boxShadow!.single.color,
-          primary.withValues(alpha: CardFocusAffordance.glowOpacity),
-        );
+        expect(glow, isNotNull, reason: 'focused row drew no lift');
+        expect(glow!.boxShadow!.single.color, AppFocus.shadows(focused: true)!.single.color);
 
         // The neighbour is untouched — this is the whole complaint: from three
         // metres you must be able to tell the fifth row from the fourth.

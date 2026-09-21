@@ -30,6 +30,7 @@ import '../../../domain/stream_resolver.dart';
 import 'player_panel_labels.dart';
 import 'player_panel_metrics.dart';
 import 'player_panel_row.dart';
+import '../../../../../shared/focus/app_focus.dart';
 
 /// The filter strip, so a test can tell a pill from the identical badge on the
 /// row below it — `1080p` is both, and only the ancestor says which.
@@ -352,9 +353,10 @@ class _QualityChipState extends State<_QualityChip> {
     final active = widget.selected;
     // Focus outranks selection: on a remote the pill the viewer is standing on
     // has to be findable whether or not it is the one already applied.
+    final showFocus = showFocusIndicator(context, _focused);
     final Color background = active
         ? HotstarPlayerStyle.accent
-        : (_focused || _hovered
+        : (showFocus || _hovered
               ? HotstarPlayerStyle.panelElevated
               : Colors.transparent);
     return Semantics(
@@ -394,12 +396,17 @@ class _QualityChipState extends State<_QualityChip> {
                 // for a badge on a row below it.
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: active
-                      ? HotstarPlayerStyle.accent
-                      : (_focused
+                  // Focus is white and selection is the accent, so a pill
+                  // that is both still says which is which - the old pair
+                  // painted the same colour for either.
+                  color: showFocus
+                      ? HotstarPlayerStyle.focusRing
+                      : (active
                             ? HotstarPlayerStyle.accent
                             : metrics.divider),
-                  width: _focused && !active ? 2 : 1,
+                  width: showFocus
+                      ? HotstarPlayerStyle.focusRingWidth
+                      : 1,
                 ),
               ),
               child: Center(

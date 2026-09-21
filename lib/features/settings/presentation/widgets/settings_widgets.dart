@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/utils/layout_constants.dart';
+import '../../../../shared/focus/app_focus.dart';
 
 class SettingsGroup extends StatelessWidget {
   final String title;
@@ -91,6 +92,7 @@ class _SettingsTileState extends State<SettingsTile> {
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
+    final showFocus = showFocusIndicator(context, _isFocused);
     return Column(
       children: [
         Focus(
@@ -120,16 +122,21 @@ class _SettingsTileState extends State<SettingsTile> {
             }
           },
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
+            duration: AppFocus.duration,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              color: _isFocused
-                  ? primary.withValues(alpha: 0.22)
-                  : Colors.transparent,
-              border: Border.all(
-                color: _isFocused ? primary : Colors.transparent,
-                width: 2,
-              ),
+              // A neutral wash and a neutral ring, and only for whoever is
+              // driving the app without a pointer. What was here was a 22 %
+              // accent fill and a 2 dp accent border that stayed on screen
+              // after a tap on a phone, where nothing about the interaction
+              // called for a focus indicator at all.
+              color: AppFocus.rowTint(context, focused: showFocus),
+              border:
+                  AppFocus.border(context, focused: showFocus) ??
+                  Border.all(
+                    color: Colors.transparent,
+                    width: AppFocus.ringWidth,
+                  ),
             ),
             child: Material(
               type: MaterialType.transparency,
@@ -188,7 +195,7 @@ class _SettingsTileState extends State<SettingsTile> {
                 trailing: widget.trailing != null
                     ? ExcludeFocus(
                         excluding: true,
-                        child: _isFocused
+                        child: showFocus
                             ? SwitchTheme(
                                 data: SwitchThemeData(
                                   thumbIcon:
@@ -223,7 +230,7 @@ class _SettingsTileState extends State<SettingsTile> {
             ),
           ),
         ),
-        if (!widget.isLast && !_isFocused)
+        if (!widget.isLast && !showFocus)
           Divider(
             height: 1,
             indent: 56,

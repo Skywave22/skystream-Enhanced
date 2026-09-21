@@ -359,7 +359,7 @@ class _StepButtonState extends State<_StepButton> {
           disabledColor: HotstarPlayerStyle.mutedText,
           style: IconButton.styleFrom(
             backgroundColor: _focused
-                ? HotstarPlayerStyle.accent.withValues(alpha: 0.22)
+                ? HotstarPlayerStyle.focusFill
                 : Colors.white.withValues(alpha: 0.06),
             fixedSize: Size(side, side),
             shape: RoundedRectangleBorder(
@@ -426,10 +426,13 @@ class _PresetChipState extends State<_PresetChip> {
                   : Colors.white.withValues(alpha: highlight ? 0.12 : 0.06),
               borderRadius: BorderRadius.circular(6),
               border: Border.all(
+                // The accent says "this is the speed you are on"; the ring
+                // says "this is the chip the remote is on". Two statements,
+                // two colours.
                 color: _focused
-                    ? HotstarPlayerStyle.accent
+                    ? HotstarPlayerStyle.focusRing
                     : Colors.transparent,
-                width: 1.5,
+                width: HotstarPlayerStyle.focusRingWidth,
               ),
             ),
             child: ExcludeSemantics(

@@ -2,6 +2,7 @@ import 'package:dpad/dpad.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/utils/layout_constants.dart';
+import '../../../../shared/focus/app_focus.dart';
 
 /// The chrome shared by the two source-discovery blocks on a details screen.
 ///
@@ -210,7 +211,7 @@ class SourceSectionAction extends StatelessWidget {
       onSelect: onTap,
       child: const SizedBox.shrink(),
       builder: (context, state, _) {
-        final isFocused = state.focused;
+        final isFocused = showFocusIndicator(context, state.focused);
         return AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           decoration: BoxDecoration(

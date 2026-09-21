@@ -20,6 +20,7 @@ import 'package:flutter/services.dart';
 import '../../../../../l10n/generated/app_localizations.dart';
 import '../../widgets/hotstar_player_style.dart';
 import 'player_panel_metrics.dart';
+import '../../../../../shared/focus/app_focus.dart';
 
 /// Surface behind the whole panel: obsidian glass, 75 % opaque, so the video
 /// reads through it.
@@ -65,8 +66,10 @@ BoxDecoration panelRowDecoration({
               : (selected ? _kRowSelected : Colors.transparent)),
     borderRadius: BorderRadius.circular(10),
     border: Border.all(
-      color: focused ? HotstarPlayerStyle.accent : Colors.transparent,
-      width: 2,
+      // White, like every other focus ring in the app and in the chrome. The
+      // accent stays the colour of *selection*, which a row can also be.
+      color: focused ? HotstarPlayerStyle.focusRing : Colors.transparent,
+      width: HotstarPlayerStyle.focusRingWidth,
     ),
   );
 }
@@ -181,7 +184,7 @@ class _PanelRowState extends State<PanelRow> {
                 vertical: metrics.rowVerticalPadding,
               ),
               decoration: panelRowDecoration(
-                focused: enabled && _focused,
+                focused: enabled && showFocusIndicator(context, _focused),
                 selected: widget.selected,
                 hovered: enabled && _hovered,
               ),
@@ -467,7 +470,7 @@ class _PanelStepperRowState extends State<PanelStepperRow> {
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
             decoration: panelRowDecoration(
-              focused: _focused,
+              focused: showFocusIndicator(context, _focused),
               selected: false,
               hovered: _hovered,
             ),

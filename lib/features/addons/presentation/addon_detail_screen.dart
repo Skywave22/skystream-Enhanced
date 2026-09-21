@@ -19,6 +19,7 @@ import '../../details/presentation/widgets/movie_trailers_carousel.dart';
 import 'addon_providers.dart';
 import 'addon_sources_sheet.dart';
 import 'widgets/stremio_sources_card.dart';
+import '../../../shared/focus/app_focus.dart';
 
 /// Detail page for an add-on catalog entry, styled to match the TMDB Details Screen.
 /// Metadata comes from a `meta` add-on, playback from `stream` add-ons.
@@ -1073,7 +1074,7 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
                   },
                   child: const SizedBox.shrink(),
                   builder: (context, state, _) {
-                    final isFocused = state.focused;
+                    final isFocused = showFocusIndicator(context, state.focused);
                     return Container(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(8),

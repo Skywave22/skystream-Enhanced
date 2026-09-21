@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skystream/shared/focus/app_focus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:skystream/features/extensions/screens/extensions_screen.dart';
 import 'package:skystream/features/extensions/providers/extensions_controller.dart';
@@ -170,8 +171,8 @@ void main() {
     // Matched on the recipe's own signature, not on position in the tree: an
     // AnimatedContainer builds a plain Container, so the section card itself
     // turns up in this walk and must not be mistaken for the row. Only the
-    // row strokes its border outside the box, and only the row's glow is
-    // CardFocusAffordance.glowOpacity (the card's is 0.25).
+    // row strokes its border outside the box, and the two shadows differ in
+    // spread (the card's is not zero).
     final border = decoration.border;
     if (border is Border &&
         border.top.strokeAlign == BorderSide.strokeAlignOutside) {
@@ -262,15 +263,27 @@ Widget _app(ExtensionsState state) => ProviderScope(
 );
 
 void _focusAffordanceTests() {
+  // The affordance is input-aware: it is drawn for a remote or a keyboard and
+  // not for a finger, so a test that means to see it has to say which input
+  // it is standing in for. Without this the default on Android resolves to
+  // `touch` and every assertion below would be measuring nothing.
+  setUp(() {
+    FocusManager.instance.highlightStrategy =
+        FocusHighlightStrategy.alwaysTraditional;
+  });
+  tearDown(() {
+    FocusManager.instance.highlightStrategy = FocusHighlightStrategy.automatic;
+  });
+
   testWidgets(
     'focusing one plugin row rings that row and leaves its neighbour plain',
     (WidgetTester tester) async {
       await tester.pumpWidget(_app(_twoInstalled()));
       await tester.pumpAndSettle();
 
-      final primary = Theme.of(
+      final scheme = Theme.of(
         tester.element(find.text('Plugin A')),
-      ).colorScheme.primary;
+      ).colorScheme;
 
       // Nothing focused yet: neither row draws anything.
       expect(_rowLayers(tester, find.text('Plugin A')).ring, isNull);
@@ -287,30 +300,28 @@ void _focusAffordanceTests() {
 
       final focused = _rowLayers(tester, find.text('Plugin B'));
 
-      // Ring: accent, the shared width, stroked outside so the row keeps its
+      // Ring: neutral, the shared width, stroked outside so the row keeps its
       // full content width.
       final ring = focused.ring;
       expect(ring, isNotNull, reason: 'focused row drew no ring');
       final side = (ring!.border! as Border).top;
-      expect(side.color, primary);
+      expect(
+        side.color,
+        scheme.onSurface,
+        reason: 'a focus ring is neutral; the accent belongs to selection',
+      );
       expect(side.width, CardFocusAffordance.ringWidth);
       expect(side.strokeAlign, BorderSide.strokeAlignOutside);
 
-      // Tint, on the same layer as the ring and therefore behind the label.
-      expect(
-        ring.color,
-        primary.withValues(alpha: CardFocusAffordance.tintOpacity),
-      );
+      // Nothing else on that layer: the accent wash that used to sit here
+      // recoloured the label the ring is pointing at.
+      expect(ring.color, isNull);
 
-      // Glow, on its own layer behind the row.
+      // The lift, on its own layer behind the row, and a plain shadow rather
+      // than an accent glow.
       final glow = focused.glow;
-      expect(glow, isNotNull, reason: 'focused row drew no glow');
-      expect(glow!.boxShadow!.single.blurRadius,
-          CardFocusAffordance.glowBlurRadius);
-      expect(
-        glow.boxShadow!.single.color,
-        primary.withValues(alpha: CardFocusAffordance.glowOpacity),
-      );
+      expect(glow, isNotNull, reason: 'focused row drew no lift');
+      expect(glow!.boxShadow!.single.color, AppFocus.shadows(focused: true)!.single.color);
 
       // The neighbour is untouched — this is the whole complaint: from three
       // metres you must be able to tell the fifth row from the fourth.

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../../../shared/widgets/custom_widgets.dart';
 import 'hotstar_player_style.dart';
 import 'player_activation.dart';
+import '../../../../shared/focus/app_focus.dart';
 
 /// Top zone: back button + title/subtitle. Paints its own top scrim.
 class PlayerTopBar extends StatelessWidget {
@@ -798,11 +799,15 @@ class _PlayerActionButtonState extends State<PlayerActionButton> {
     final double minHeight = widget.isTv ? 52 : 44;
     final double horizontalPad = widget.isTv ? 16 : 12;
 
-    final showBg = (widget.highlight || _focused || _pressed) && !_hovered;
-    final color = (widget.highlight || _hovered || _focused || _pressed)
+    // Focus only draws when the player is being driven without a pointer.
+    // These chips sit over the video on a phone too, where a tap that happens
+    // to leave focus behind should not leave a ring behind with it.
+    final showFocus = showFocusIndicator(context, _focused);
+    final showBg = (widget.highlight || showFocus || _pressed) && !_hovered;
+    final color = (widget.highlight || _hovered || showFocus || _pressed)
         ? HotstarPlayerStyle.accent
         : Colors.white;
-    final showTvFocusRing = widget.isTv && _focused;
+    final showFocusRing = showFocus;
 
     // [MergeSemantics], for the same reason [PlayerIconButton] carries one.
     // Without it the annotation above owns the name and the button flag while
@@ -852,18 +857,15 @@ class _PlayerActionButtonState extends State<PlayerActionButton> {
                         ? HotstarPlayerStyle.accent.withValues(alpha: 0.16)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(8),
-                    border: showTvFocusRing
-                        ? Border.all(color: HotstarPlayerStyle.accent, width: 2)
-                        : null,
-                    boxShadow: showTvFocusRing
-                        ? [
-                            BoxShadow(
-                              color: HotstarPlayerStyle.accent.withValues(
-                                alpha: 0.2,
-                              ),
-                              blurRadius: 8,
-                            ),
-                          ]
+                    // A white ring, and no glow behind it. The accent halo
+                    // that used to sit here was a second cue for the state
+                    // the ring already states, and over a bright scene it
+                    // read as a smear rather than as an outline.
+                    border: showFocusRing
+                        ? Border.all(
+                            color: HotstarPlayerStyle.focusRing,
+                            width: HotstarPlayerStyle.focusRingWidth,
+                          )
                         : null,
                   ),
                   child: Row(

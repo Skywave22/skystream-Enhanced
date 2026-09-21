@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../../l10n/generated/app_localizations.dart';
 import '../widgets/hotstar_player_style.dart';
 import '../widgets/player_activation.dart';
+import '../../../../shared/focus/app_focus.dart';
 
 /// A brief "you are being resumed from here — start over?" affordance.
 ///
@@ -265,7 +266,7 @@ class _StartOverPillState extends State<_StartOverPill> {
               constraints: const BoxConstraints(minHeight: 44),
               padding: const EdgeInsets.fromLTRB(14, 8, 18, 8),
               decoration: _pillDecoration(
-                focused: _focused,
+                focused: showFocusIndicator(context, _focused),
                 isTv: widget.isTv,
                 radius: 24,
               ),
@@ -354,7 +355,7 @@ class _DismissButtonState extends State<_DismissButton> {
                 width: 44,
                 height: 44,
                 decoration: _pillDecoration(
-                  focused: _focused,
+                  focused: showFocusIndicator(context, _focused),
                   isTv: widget.isTv,
                   radius: 22,
                 ),
@@ -379,24 +380,19 @@ BoxDecoration _pillDecoration({
   required bool isTv,
   required double radius,
 }) {
-  final ring = focused && isTv;
+  // `isTv` no longer gates the ring - a keyboard and a remote want the same
+  // cue, and the caller has already decided whether a cue belongs on screen.
   return BoxDecoration(
     color: focused
-        ? HotstarPlayerStyle.accent.withValues(alpha: 0.24)
+        ? HotstarPlayerStyle.focusFill
         : Colors.black.withValues(alpha: 0.62),
     borderRadius: BorderRadius.circular(radius),
     border: Border.all(
-      color: ring ? HotstarPlayerStyle.accent : HotstarPlayerStyle.divider,
-      width: ring ? 2 : 1,
+      color: focused
+          ? HotstarPlayerStyle.focusRing
+          : HotstarPlayerStyle.divider,
+      width: focused ? HotstarPlayerStyle.focusRingWidth : 1,
     ),
-    boxShadow: ring
-        ? [
-            BoxShadow(
-              color: HotstarPlayerStyle.accent.withValues(alpha: 0.3),
-              blurRadius: 10,
-            ),
-          ]
-        : null,
   );
 }
 

@@ -89,11 +89,19 @@ class TvLogicalScale extends StatelessWidget {
     final router = this.router;
     if (router != null && playerRouteIsOnTop(router)) return child;
 
+    // The factor the finished tree is *painted* at. A 960 dp panel laying out
+    // in 1280 dp draws at 0.75, which is the whole point: three quarters of
+    // the size means a third more of everything on screen.
     final scale = size.width / logicalWidth;
-    // Never scale *down*: a window already wider than the target has enough
-    // room, and shrinking it would make a large desktop display worse to
-    // satisfy a rule written for televisions.
-    if (scale <= 1) return child;
+
+    // Leave a screen that already has the room alone. A window wider than the
+    // target would have to be scaled *up* to reach it, which would magnify a
+    // large display to satisfy a rule written for televisions.
+    //
+    // This comparison was the wrong way round when this widget was written -
+    // it returned early for exactly the 960 dp panel it exists for, so on a
+    // real set the whole thing was a no-op and everything stayed oversized.
+    if (scale >= 1) return child;
 
     final logical = size / scale;
     return MediaQuery(

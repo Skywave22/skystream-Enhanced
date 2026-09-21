@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../../../core/network/link_probe_service.dart';
+import '../../../shared/focus/app_focus.dart';
 
 /// The sheets' accent is [ColorScheme.primary]: it is what the rest of the
 /// app is drawn with, and it follows dynamic colour. It used to be the
@@ -748,7 +749,7 @@ class _DpadSourceButtonState extends State<DpadSourceButton> {
       onDirection: widget.onDirection,
       child: const SizedBox.shrink(),
       builder: (context, state, _) {
-        final isFocused = state.focused;
+        final isFocused = showFocusIndicator(context, state.focused);
         final highlight = isFocused || _isHovered;
 
         final Color bgColor;

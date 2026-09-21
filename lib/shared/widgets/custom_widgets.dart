@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/utils/layout_constants.dart';
+import '../focus/app_focus.dart';
 
 /// A Slider widget that handles D-pad navigation properly on TV.
 /// Left/Right D-pad adjusts the value, Up/Down D-pad navigates to other focusable elements.
@@ -156,35 +157,40 @@ class _CustomSliderState extends State<CustomSlider> {
 
         return KeyEventResult.ignored;
       },
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          border: _isFocused
-              ? Border.all(
-                  color: Theme.of(context).colorScheme.primary,
-                  width: 2,
-                )
-              : Border.all(color: Colors.transparent, width: 2),
-        ),
-        padding: const EdgeInsets.symmetric(
-          horizontal: LayoutConstants.spacingXs,
-          vertical: 4,
-        ),
-        child: ExcludeFocus(
-          child: Slider(
-            value: widget.value.clamp(widget.min, widget.max),
-            min: widget.min,
-            max: widget.max,
-            divisions: widget.divisions,
-            onChanged: widget.onChanged,
-            onChangeStart: widget.onChangeStart,
-            onChangeEnd: widget.onChangeEnd,
-            activeColor:
-                widget.activeColor ??
-                (_isFocused ? Theme.of(context).colorScheme.primary : null),
-            inactiveColor: widget.inactiveColor,
-          ),
-        ),
+      child: Builder(
+        builder: (context) {
+          // The ring is for whoever is driving this with a remote or a
+          // keyboard. A finger dragging the thumb focuses the slider too, and
+          // a border appearing under the thumb mid-drag is noise.
+          final show = showFocusIndicator(context, _isFocused);
+          return Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              // A transparent border of the same width in the other state, so
+              // the track does not shift sideways as focus arrives.
+              border:
+                  AppFocus.border(context, focused: show) ??
+                  Border.all(color: Colors.transparent, width: AppFocus.ringWidth),
+            ),
+            padding: const EdgeInsets.symmetric(
+              horizontal: LayoutConstants.spacingXs,
+              vertical: 4,
+            ),
+            child: ExcludeFocus(
+              child: Slider(
+                value: widget.value.clamp(widget.min, widget.max),
+                min: widget.min,
+                max: widget.max,
+                divisions: widget.divisions,
+                onChanged: widget.onChanged,
+                onChangeStart: widget.onChangeStart,
+                onChangeEnd: widget.onChangeEnd,
+                activeColor: widget.activeColor,
+                inactiveColor: widget.inactiveColor,
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -336,9 +342,6 @@ class _CustomButtonState extends State<CustomButton> {
   late FocusNode _focusNode;
   bool _isFocused = false;
   late final VoidCallback _focusListener;
-  // Tracks whether focus was last driven by keyboard/D-pad (traditional) vs a
-  // touch tap, so the focus ring only appears for directional navigation.
-  FocusHighlightMode _highlightMode = FocusManager.instance.highlightMode;
 
   @override
   void initState() {
@@ -348,11 +351,6 @@ class _CustomButtonState extends State<CustomButton> {
       if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
     };
     _focusNode.addListener(_focusListener);
-    FocusManager.instance.addHighlightModeListener(_onHighlightModeChange);
-  }
-
-  void _onHighlightModeChange(FocusHighlightMode mode) {
-    if (mounted) setState(() => _highlightMode = mode);
   }
 
   @override
@@ -361,7 +359,6 @@ class _CustomButtonState extends State<CustomButton> {
     // which case it outlives this state and would otherwise hold a reference
     // to a disposed closure target.
     _focusNode.removeListener(_focusListener);
-    FocusManager.instance.removeHighlightModeListener(_onHighlightModeChange);
     if (widget.focusNode == null) {
       _focusNode.dispose();
     }
@@ -370,114 +367,65 @@ class _CustomButtonState extends State<CustomButton> {
 
   @override
   Widget build(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    // Show the focus ring only when navigating by keyboard/remote — never for a
-    // touch tap that incidentally moves focus to the button.
-    final showHighlight =
-        widget.showFocusHighlight &&
-        _isFocused &&
-        _highlightMode != FocusHighlightMode.touch;
+    final colorScheme = Theme.of(context).colorScheme;
+    // One ring, and only for whoever is driving the app without a pointer.
+    // What used to be here was an accent border, an accent fill *and* a 24 dp
+    // accent glow with 2 dp of spread - three cues for one state, and the one
+    // the details page wore the moment it opened, on every platform.
+    final show = showFocusIndicator(context, _isFocused);
+    final side = AppFocus.side(context, focused: show);
 
-    Widget core;
     if (widget.isPrimary) {
-      core = FilledButton(
+      return FilledButton(
         focusNode: _focusNode,
         autofocus: widget.autofocus,
         onPressed: widget.onPressed,
         style: FilledButton.styleFrom(
-          backgroundColor: showHighlight
-              // On focus, brighten the primary fill so it pops against the dark
-              // background and the white outline contrasts clearly.
-              ? Color.lerp(primaryColor, Colors.white, 0.18)
-              : (widget.backgroundColor ?? primaryColor),
-          foregroundColor: Theme.of(context).colorScheme.onPrimary,
-          disabledBackgroundColor: Theme.of(
-            context,
-          ).colorScheme.onSurface.withValues(alpha: 0.12),
-          disabledForegroundColor: Theme.of(
-            context,
-          ).colorScheme.onSurface.withValues(alpha: 0.38),
-          // No inner side on focus — the outer accent ring (below) is the
-          // focus indicator. Mixing both produced double rings.
-          side: BorderSide.none,
+          backgroundColor: widget.backgroundColor ?? colorScheme.primary,
+          foregroundColor: colorScheme.onPrimary,
+          disabledBackgroundColor: colorScheme.onSurface.withValues(
+            alpha: 0.12,
+          ),
+          disabledForegroundColor: colorScheme.onSurface.withValues(
+            alpha: 0.38,
+          ),
+          // Outside the pill: a near-white line inside an accent fill is
+          // technically present and unreadable from a sofa, and on the page's
+          // own background the same line reads at ten feet.
+          side: widget.showFocusHighlight ? side : BorderSide.none,
           shadowColor: Colors.transparent,
           shape: widget.shape,
           overlayColor: Colors.transparent,
-        ),
-        child: widget.child,
-      );
-    } else {
-      core = TextButton(
-        focusNode: _focusNode,
-        autofocus: widget.autofocus,
-        onPressed: widget.onPressed,
-        style: TextButton.styleFrom(
-          backgroundColor: showHighlight
-              // Fill the button on focus so a "grey" outlined button no longer
-              // looks identical to its non-focused state.
-              ? primaryColor.withValues(alpha: 0.28)
-              : null,
-          foregroundColor: _isFocused
-              ? Theme.of(context).colorScheme.onSurface
-              : Theme.of(context).colorScheme.onSurfaceVariant,
-          disabledForegroundColor: Theme.of(
-            context,
-          ).colorScheme.onSurface.withValues(alpha: 0.38),
-          side: widget.isOutlined
-              ? BorderSide(color: Theme.of(context).colorScheme.outline)
-              : BorderSide.none,
-          shape: widget.shape,
-          overlayColor: Colors.transparent,
-          shadowColor: Colors.transparent,
         ),
         child: widget.child,
       );
     }
 
-    // Outer focus ring — accent border + subtle glow.
-    // Geometry mirrors the inner button's shape so the ring traces the
-    // button correctly for circles, pills, and rounded rectangles.
-    final shape = widget.shape;
-    final BoxShape outerShape;
-    final BorderRadius? outerBorderRadius;
-    if (shape is CircleBorder) {
-      outerShape = BoxShape.circle;
-      outerBorderRadius = null;
-    } else if (shape is StadiumBorder) {
-      outerShape = BoxShape.rectangle;
-      outerBorderRadius = BorderRadius.circular(999);
-    } else if (shape is RoundedRectangleBorder) {
-      outerShape = BoxShape.rectangle;
-      final inner = shape.borderRadius;
-      outerBorderRadius = inner is BorderRadius
-          ? inner
-          : BorderRadius.circular(12);
-    } else {
-      // No explicit shape → Material 3 buttons default to a pill (StadiumBorder),
-      // so trace a fully-rounded ring rather than a squarish 12px corner.
-      outerShape = BoxShape.rectangle;
-      outerBorderRadius = BorderRadius.circular(999);
-    }
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      decoration: BoxDecoration(
-        shape: outerShape,
-        borderRadius: outerBorderRadius,
-        // Accent ring + glow (the keyboard/D-pad focus cue).
-        border: showHighlight
-            ? Border.all(color: primaryColor, width: 2)
+    return TextButton(
+      focusNode: _focusNode,
+      autofocus: widget.autofocus,
+      onPressed: widget.onPressed,
+      style: TextButton.styleFrom(
+        // A flat button has no fill to put a ring against, so focus also
+        // lifts the label to the full foreground colour and lays a neutral
+        // wash behind it - the same wash every other focused row gets.
+        backgroundColor: show
+            ? AppFocus.rowTint(context, focused: true)
             : null,
-        boxShadow: showHighlight
-            ? [
-                BoxShadow(
-                  color: primaryColor.withValues(alpha: 0.6),
-                  blurRadius: 24,
-                  spreadRadius: 2,
-                ),
-              ]
-            : null,
+        foregroundColor: show
+            ? colorScheme.onSurface
+            : colorScheme.onSurfaceVariant,
+        disabledForegroundColor: colorScheme.onSurface.withValues(alpha: 0.38),
+        side: widget.showFocusHighlight && show
+            ? side
+            : (widget.isOutlined
+                  ? BorderSide(color: colorScheme.outline)
+                  : BorderSide.none),
+        shape: widget.shape,
+        overlayColor: Colors.transparent,
+        shadowColor: Colors.transparent,
       ),
-      child: core,
+      child: widget.child,
     );
   }
 }
@@ -538,8 +486,6 @@ class _CustomSwitchState extends State<CustomSwitch> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final enabled = widget.onChanged != null;
 
     return Focus(
@@ -557,30 +503,36 @@ class _CustomSwitchState extends State<CustomSwitch> {
         }
         return KeyEventResult.ignored;
       },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: _isFocused
-              ? Border.all(color: cs.primary, width: 2)
-              : Border.all(color: Colors.transparent, width: 2),
-        ),
-        child: ExcludeFocus(
-          child: Switch(
-            value: widget.value,
-            onChanged: widget.onChanged,
-            thumbIcon: WidgetStateProperty.resolveWith((states) {
-              if (_isFocused) {
-                return Icon(
-                  widget.value ? Icons.check_rounded : Icons.close_rounded,
-                  size: 14,
-                );
-              }
-              return null;
-            }),
-          ),
-        ),
+      child: Builder(
+        builder: (context) {
+          final show = showFocusIndicator(context, _isFocused);
+          return AnimatedContainer(
+            duration: AppFocus.duration,
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              // Same width in both states so the switch does not jump.
+              border:
+                  AppFocus.border(context, focused: show) ??
+                  Border.all(color: Colors.transparent, width: AppFocus.ringWidth),
+            ),
+            child: ExcludeFocus(
+              child: Switch(
+                value: widget.value,
+                onChanged: widget.onChanged,
+                thumbIcon: WidgetStateProperty.resolveWith((states) {
+                  if (show) {
+                    return Icon(
+                      widget.value ? Icons.check_rounded : Icons.close_rounded,
+                      size: 14,
+                    );
+                  }
+                  return null;
+                }),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

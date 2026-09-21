@@ -21,6 +21,7 @@ import '../downloaded_file_provider.dart';
 import 'download_progress_dialog.dart';
 import 'download_management_dialog.dart';
 import '../../../../l10n/generated/app_localizations.dart';
+import '../../../../shared/focus/app_focus.dart';
 
 class EpisodeCard extends HookConsumerWidget {
   final Episode episode;
@@ -186,6 +187,7 @@ class EpisodeCard extends HookConsumerWidget {
 
     final selectKeyDown = useRef(false);
     final longPressTriggered = useRef(false);
+    final showFocus = showFocusIndicator(context, isFocused.value);
 
     return Focus(
       // Passive observer for the card as a whole. `hasFocus` stays true while
@@ -232,23 +234,28 @@ class EpisodeCard extends HookConsumerWidget {
           duration: const Duration(milliseconds: 150),
           width: width,
           decoration: BoxDecoration(
+            // Selection is a *state* of the episode and stays the accent;
+            // focus is where the remote happens to be pointing and is
+            // neutral, so the two are still told apart when both are true.
             color: isSelected
                 ? primary.withValues(alpha: 0.24)
-                : isFocused.value
-                ? primary.withValues(alpha: 0.18)
+                : showFocus
+                ? AppFocus.rowTint(context, focused: true)
                 : isWatched
                 ? watchedCardColor
                 : normalCardColor,
             borderRadius: BorderRadius.circular(12.0),
             border: Border.all(
-              color: isSelected || isFocused.value
+              color: showFocus
+                  ? AppFocus.ringColor(context)
+                  : isSelected
                   ? primary
                   : Theme.of(context).dividerColor.withValues(
                       alpha: Theme.of(context).brightness == Brightness.dark
                           ? 0.1
                           : 0.5,
                     ),
-              width: isSelected || isFocused.value ? 2 : 1,
+              width: isSelected || showFocus ? AppFocus.ringWidth : 1,
             ),
           ),
           clipBehavior: Clip.antiAlias,
@@ -661,7 +668,6 @@ class _EpisodeCardActionState extends State<_EpisodeCardAction> {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
     return Focus(
       canRequestFocus: false,
       skipTraversal: true,
@@ -680,18 +686,25 @@ class _EpisodeCardActionState extends State<_EpisodeCardAction> {
         }
         return KeyEventResult.ignored;
       },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          color: _focused ? primary.withValues(alpha: 0.22) : null,
-          border: Border.all(
-            color: _focused ? primary : Colors.transparent,
-            width: 2,
-          ),
-        ),
-        child: widget.child,
+      child: Builder(
+        builder: (context) {
+          final show = showFocusIndicator(context, _focused);
+          return AnimatedContainer(
+            duration: AppFocus.duration,
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: AppFocus.rowTint(context, focused: show),
+              border:
+                  AppFocus.border(context, focused: show) ??
+                  Border.all(
+                    color: Colors.transparent,
+                    width: AppFocus.ringWidth,
+                  ),
+            ),
+            child: widget.child,
+          );
+        },
       ),
     );
   }

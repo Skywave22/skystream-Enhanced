@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
 import 'package:skystream/core/utils/layout_constants.dart';
 
+import '../focus/app_focus.dart';
+
 /// Global provider to track whether the D-pad/keyboard navigation mode is active.
 /// This prevents cursor hover magnification from fighting with focus magnification,
 /// especially during focus resets or Alt+Tab.
@@ -333,6 +335,7 @@ class _SidebarDockItemState extends ConsumerState<_SidebarDockItem> {
         ? const Color(0xFFFFFFFF)
         : const Color(0xFF374151);
 
+    final showFocus = showFocusIndicator(context, _isFocused);
     final showTooltip = _isHovered || (_isFocused && widget.isDpadMode);
 
     return Focus(
@@ -391,12 +394,23 @@ class _SidebarDockItemState extends ConsumerState<_SidebarDockItem> {
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final size = constraints.maxHeight;
-                        return Container(
+                        return AnimatedContainer(
+                          duration: AppFocus.duration,
                           width: size,
                           height: size,
                           decoration: BoxDecoration(
                             color: itemBgColor,
                             shape: BoxShape.circle,
+                            // The dock used to answer focus with a tooltip and
+                            // nothing else, so on a television the rail showed
+                            // a label floating beside five identical circles
+                            // and never said which one the remote was on.
+                            border: AppFocus.border(
+                              context,
+                              focused: showFocus,
+                              outside: true,
+                            ),
+                            boxShadow: AppFocus.shadows(focused: showFocus),
                           ),
                           child: GestureDetector(
                             onTap: () {

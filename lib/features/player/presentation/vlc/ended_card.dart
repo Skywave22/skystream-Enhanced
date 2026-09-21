@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../../l10n/generated/app_localizations.dart';
 import '../widgets/hotstar_player_style.dart';
 import '../widgets/player_activation.dart';
+import '../../../../shared/focus/app_focus.dart';
 
 /// What the media stopping means, once the screen has consulted the episode
 /// list.
@@ -279,9 +280,12 @@ class _EndedButtonState extends State<_EndedButton> {
 
   @override
   Widget build(BuildContext context) {
-    final ring = _focused && widget.isTv;
+    // The ring is for whoever is driving the player without a pointer, on
+    // every form factor - it used to be gated on `isTv`, which left a phone
+    // with a hardware keyboard and a desktop window with no focus cue at all.
+    final ring = showFocusIndicator(context, _focused);
     final Color border = ring
-        ? (widget.filled ? Colors.white : HotstarPlayerStyle.accent)
+        ? HotstarPlayerStyle.focusRing
         : (widget.filled ? Colors.transparent : HotstarPlayerStyle.divider);
     // The ten-foot ramp the panel's row labels use.
     final double fontSize = widget.isTv ? 17 : 14;
@@ -310,21 +314,14 @@ class _EndedButtonState extends State<_EndedButton> {
               decoration: BoxDecoration(
                 color: widget.filled
                     ? HotstarPlayerStyle.accent
-                    : (_focused
-                          ? HotstarPlayerStyle.accent.withValues(alpha: 0.16)
+                    : (ring
+                          ? HotstarPlayerStyle.focusFill
                           : Colors.transparent),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: border, width: ring ? 2 : 1),
-                boxShadow: ring
-                    ? [
-                        BoxShadow(
-                          color: HotstarPlayerStyle.accent.withValues(
-                            alpha: 0.3,
-                          ),
-                          blurRadius: 10,
-                        ),
-                      ]
-                    : null,
+                border: Border.all(
+                  color: border,
+                  width: ring ? HotstarPlayerStyle.focusRingWidth : 1,
+                ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,

@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
+import '../../shared/focus/app_focus.dart';
+
 class AppTheme {
   /// The bundled application type family.
   ///
@@ -62,6 +64,52 @@ class AppTheme {
       actionTextColor: colorScheme.primary,
     );
   }
+
+  /// Every Material control's focus indicator, in one place.
+  ///
+  /// Before this existed, a [FilledButton] in this app had no focus state that
+  /// could be seen at all: Material 3 answers focus with an overlay of about
+  /// a tenth of the foreground colour, which on an accent-filled pill is
+  /// invisible on a phone and simply not there from a sofa. On a television
+  /// that is not a cosmetic problem - a fresh install sends the viewer to
+  /// Extensions -> Repositories -> Add Repository, and with nothing on screen
+  /// telling them which button the remote is pointing at, the app reads as
+  /// locked. This is the fix for that, and because it is a theme every button,
+  /// tab and list row in the app gets it without being touched.
+  ///
+  /// Material only resolves [WidgetState.focused] for a node that actually
+  /// holds focus, and neither an [InkWell] tap nor a mouse click moves focus,
+  /// so nothing here can fire for a touch. The custom affordances that are not
+  /// Material controls go through [FocusVisibility] instead - see
+  /// `shared/focus/app_focus.dart`.
+  static FilledButtonThemeData _filledButtonTheme(ColorScheme cs) =>
+      FilledButtonThemeData(style: ButtonStyle(side: AppFocus.buttonSide(cs)));
+
+  static ElevatedButtonThemeData _elevatedButtonTheme(ColorScheme cs) =>
+      ElevatedButtonThemeData(style: ButtonStyle(side: AppFocus.buttonSide(cs)));
+
+  static TextButtonThemeData _textButtonTheme(ColorScheme cs) =>
+      TextButtonThemeData(style: ButtonStyle(side: AppFocus.buttonSide(cs)));
+
+  /// An outlined button already wears a border, so its resolver has to hand
+  /// back that border in every state but focused.
+  static OutlinedButtonThemeData _outlinedButtonTheme(ColorScheme cs) =>
+      OutlinedButtonThemeData(
+        style: ButtonStyle(
+          side: AppFocus.buttonSide(
+            cs,
+            unfocused: BorderSide(color: cs.outline),
+          ),
+        ),
+      );
+
+  static IconButtonThemeData _iconButtonTheme(ColorScheme cs) =>
+      IconButtonThemeData(style: ButtonStyle(side: AppFocus.buttonSide(cs)));
+
+  /// Tabs and segmented buttons are ink responses rather than shaped buttons,
+  /// so they take the wash instead of the ring.
+  static TabBarThemeData _tabBarTheme(ColorScheme cs) =>
+      TabBarThemeData(overlayColor: AppFocus.overlay(cs));
 
   static ThemeData createDarkTheme(ColorScheme? dynamicScheme) {
     _registerFontLicence();
@@ -237,6 +285,18 @@ class AppTheme {
         space: 1,
         color: Color(0xFF22222E),
       ),
+
+      // One focus indicator for every Material control. See
+      // [_filledButtonTheme] for why this is a theme and not a widget.
+      filledButtonTheme: _filledButtonTheme(colorScheme),
+      elevatedButtonTheme: _elevatedButtonTheme(colorScheme),
+      textButtonTheme: _textButtonTheme(colorScheme),
+      outlinedButtonTheme: _outlinedButtonTheme(colorScheme),
+      iconButtonTheme: _iconButtonTheme(colorScheme),
+      tabBarTheme: _tabBarTheme(colorScheme),
+      // Every bare [InkWell] and [ListTile] in the app reads this one, so a
+      // row that is not a button still shows where the remote is.
+      focusColor: colorScheme.onSurface.withValues(alpha: 0.16),
 
       // Switch Theme
       switchTheme: SwitchThemeData(
@@ -472,6 +532,18 @@ class AppTheme {
         space: 1,
         color: colorScheme.outlineVariant,
       ),
+
+      // The same focus indicator as the dark theme; the ring colour comes
+      // from the scheme, so it is near-black here and near-white there.
+      filledButtonTheme: _filledButtonTheme(colorScheme),
+      elevatedButtonTheme: _elevatedButtonTheme(colorScheme),
+      textButtonTheme: _textButtonTheme(colorScheme),
+      outlinedButtonTheme: _outlinedButtonTheme(colorScheme),
+      iconButtonTheme: _iconButtonTheme(colorScheme),
+      tabBarTheme: _tabBarTheme(colorScheme),
+      // Every bare [InkWell] and [ListTile] in the app reads this one, so a
+      // row that is not a button still shows where the remote is.
+      focusColor: colorScheme.onSurface.withValues(alpha: 0.16),
     );
   }
 }

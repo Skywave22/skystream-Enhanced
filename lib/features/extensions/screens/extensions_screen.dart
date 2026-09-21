@@ -13,6 +13,7 @@ import '../../../shared/widgets/cards_wrapper.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/text_input_dialog.dart';
 import '../../../core/router/app_router.dart';
+import '../../../shared/focus/app_focus.dart';
 
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
@@ -30,16 +31,89 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
   late final TabController _tabController;
   bool _didEnsureInit = false;
 
+  /// Marks the two tabs' shared subtree, so [_handleTabSettled] can tell a
+  /// focus node inside the tab body from one in the app bar.
+  ///
+  /// A [FocusScope] would be the obvious way to draw that line and is the
+  /// wrong one: a scope is also the boundary directional traversal works
+  /// within, so wrapping the body in one would trap the remote inside it -
+  /// no way back up to the tabs or the Back button.
+  final GlobalKey _tabViewKey = GlobalKey(debugLabel: 'extensions-tab-body');
+
+  /// Set when something inside a tab switches tabs, so the focus that switch
+  /// is about to destroy can be put back. See [_showRepositoriesTab].
+  bool _wantsBodyFocus = false;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_handleTabSettled);
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_handleTabSettled);
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Shows the Repositories tab, and takes focus with it.
+  ///
+  /// The focus half is the point, and it is the fix for a dead end on a
+  /// television. When the Installed tab is empty its only control is the
+  /// button that calls this, so the node holding focus is the node switching
+  /// tabs destroys - and Flutter drops primary focus when that happens
+  /// without telling anybody. [FocusManager.primaryFocus] simply becomes
+  /// null, no listener fires, and its `handleKeyMessage` returns early for
+  /// every key that arrives afterwards. The screen stops answering the remote
+  /// completely: no arrow key has anything left to move *from*.
+  ///
+  /// A viewer who came here to install their first repository - which is the
+  /// only reason a fresh install sends them here - could not reach Add
+  /// Repository at all, and the app read as locked.
+  void _showRepositoriesTab() {
+    _wantsBodyFocus = true;
+    _tabController.animateTo(1);
+  }
+
+  /// Puts focus in the new tab once the old one has finished sliding away.
+  void _handleTabSettled() {
+    // The controller notifies twice per change: once as the slide starts and
+    // once as it lands. Only the second is any use - during the first the
+    // incoming page has not been laid out.
+    if (_tabController.indexIsChanging || !_wantsBodyFocus) return;
+    _wantsBodyFocus = false;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final body = _tabViewKey.currentContext;
+      if (body == null) return;
+
+      // Skip the node being left behind. Both pages are still in the tree at
+      // this point - the outgoing one is disposed a beat later - so a plain
+      // "first focusable in the body" would land straight back on the button
+      // that is about to vanish, and lose focus all over again.
+      final leaving = FocusManager.instance.primaryFocus;
+      for (final node in FocusScope.of(context).traversalDescendants) {
+        if (node == leaving || !_isInside(node, body)) continue;
+        node.requestFocus();
+        return;
+      }
+    });
+  }
+
+  /// Whether [node]'s element sits under [ancestor].
+  static bool _isInside(FocusNode node, BuildContext ancestor) {
+    final context = node.context;
+    if (context == null || !context.mounted) return false;
+    var found = false;
+    context.visitAncestorElements((element) {
+      if (element != ancestor) return true;
+      found = true;
+      return false;
+    });
+    return found;
   }
 
   @override
@@ -92,6 +166,7 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
     );
 
     final tabView = TabBarView(
+      key: _tabViewKey,
       controller: _tabController,
       children: [
         FocusTraversalGroup(
@@ -238,9 +313,7 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
                   FilledButton.icon(
                     icon: const Icon(Icons.explore_outlined),
                     label: Text(l10n.browseRepositories),
-                    onPressed: () {
-                      _tabController.animateTo(1);
-                    },
+                    onPressed: _showRepositoriesTab,
                   ),
                 ],
               ),
@@ -1109,13 +1182,13 @@ class _RowFocusNotification extends Notification {
 /// single row and tells the enclosing [_FocusableCard] to stay quiet while it
 /// does. Two departures from how [CardsWrapper] applies the same recipe:
 ///
-/// The ring and tint are painted behind the child, not in front of it as
-/// [CardsWrapper] does; a row's child is text on a transparent [Material], so
-/// a foreground tint would wash out the label it points at.
+/// The ring is painted behind the child, not in front of it as [CardsWrapper]
+/// does; a row's child is text on a transparent [Material], so a foreground
+/// layer would sit over the label it points at.
 ///
-/// An opaque fill sits between the glow and the row, because Flutter paints a
-/// [BoxShadow] across the whole shape rather than just its rim, and without
-/// something opaque in the middle the glow floods the row.
+/// An opaque fill sits between the shadow and the row, because Flutter paints
+/// a [BoxShadow] across the whole shape rather than just its rim, and without
+/// something opaque in the middle it floods the row.
 class _FocusableRow extends StatefulWidget {
   final Widget child;
 
@@ -1154,8 +1227,7 @@ class _FocusableRowState extends State<_FocusableRow> {
         margin: const EdgeInsets.all(CardFocusAffordance.ringWidth),
         decoration: CardFocusAffordance.glow(
           borderRadius: _radius,
-          accent: colorScheme.primary,
-          focused: _isFocused,
+          focused: showFocusIndicator(context, _isFocused),
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -1166,9 +1238,9 @@ class _FocusableRowState extends State<_FocusableRow> {
           ),
           child: Container(
             decoration: CardFocusAffordance.ring(
+              context,
               borderRadius: _radius,
-              accent: colorScheme.primary,
-              focused: _isFocused,
+              focused: showFocusIndicator(context, _isFocused),
             ),
             // The row's own ink surface. A ListTile paints its splashes on the
             // nearest Material ancestor, and ink is painted before that

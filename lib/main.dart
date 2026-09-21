@@ -38,6 +38,7 @@ import 'core/network/cloudflare_bypass.dart';
 import 'core/config/tmdb_config.dart';
 import 'core/providers/bootstrap_provider.dart' show quietDesktopBrightness;
 import 'core/providers/device_info_provider.dart';
+import 'shared/focus/app_focus.dart';
 import 'shared/widgets/loading_indicator.dart';
 import 'shared/widgets/tv_logical_scale.dart';
 import 'core/widgets/m3_toast_overlay.dart';
@@ -487,7 +488,13 @@ class _MyAppState extends ConsumerState<MyApp> {
             // router to know it, so they sit together here - inside
             // `MaterialApp.router`'s builder, i.e. around the Navigator that
             // builds the player route.
-            return UpdatePromptHost(child: M3ToastOverlay(child: result));
+            result = UpdatePromptHost(child: M3ToastOverlay(child: result));
+
+            // Outermost, so every focus indicator in the app - the browsing
+            // UI, the player chrome, dialogs and the toast host alike - reads
+            // one answer to "is anyone driving this with a remote or a
+            // keyboard right now". See `shared/focus/app_focus.dart`.
+            return FocusVisibilityScope(child: result);
           },
         );
 

@@ -14,6 +14,7 @@ import '../../../shared/widgets/custom_widgets.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/text_input_dialog.dart';
 import 'nuvio_scraper_settings_dialog.dart';
+import '../../../shared/focus/app_focus.dart';
 
 /// Manage Nuvio-format plugin repositories.
 class NuvioPluginsView extends ConsumerStatefulWidget {
@@ -905,6 +906,7 @@ class _TvIconButtonState extends State<_TvIconButton> {
     final cs = Theme.of(context).colorScheme;
     final primary = cs.primary;
     final enabled = widget.onPressed != null;
+    final showFocus = showFocusIndicator(context, _isFocused);
 
     return Focus(
       canRequestFocus: enabled,
@@ -923,27 +925,17 @@ class _TvIconButtonState extends State<_TvIconButton> {
       child: Tooltip(
         message: widget.tooltip,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: AppFocus.duration,
           width: 38,
           height: 38,
           margin: const EdgeInsets.symmetric(horizontal: 2),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: _isFocused
-                ? (widget.color ?? primary).withValues(alpha: 0.2)
-                : Colors.transparent,
-            border: _isFocused
-                ? Border.all(color: widget.color ?? primary, width: 2)
-                : null,
-            boxShadow: _isFocused
-                ? [
-                    BoxShadow(
-                      color: (widget.color ?? primary).withValues(alpha: 0.5),
-                      blurRadius: 12,
-                      spreadRadius: 1,
-                    ),
-                  ]
-                : null,
+            // One neutral ring, and only when a focus indicator belongs on
+            // screen. The accent fill, accent border and 12 dp accent halo
+            // this replaces were three cues for one state.
+            color: AppFocus.rowTint(context, focused: showFocus),
+            border: AppFocus.border(context, focused: showFocus),
           ),
           child: Material(
             color: Colors.transparent,
@@ -956,7 +948,7 @@ class _TvIconButtonState extends State<_TvIconButton> {
                     Icon(
                       widget.icon,
                       size: 20,
-                      color: _isFocused
+                      color: showFocus
                           ? (widget.color ?? primary)
                           : (widget.color ?? cs.onSurfaceVariant),
                     ),
@@ -1050,13 +1042,13 @@ class _RowFocusNotification extends Notification {
 /// single row and tells the enclosing [_FocusableCard] to stay quiet while it
 /// does. Two departures from how [CardsWrapper] applies the same recipe:
 ///
-/// The ring and tint are painted behind the child, not in front of it as
-/// [CardsWrapper] does; a row's child is text on a transparent [Material], so
-/// a foreground tint would wash out the label it points at.
+/// The ring is painted behind the child, not in front of it as [CardsWrapper]
+/// does; a row's child is text on a transparent [Material], so a foreground
+/// layer would sit over the label it points at.
 ///
-/// An opaque fill sits between the glow and the row, because Flutter paints a
-/// [BoxShadow] across the whole shape rather than just its rim, and without
-/// something opaque in the middle the glow floods the row.
+/// An opaque fill sits between the shadow and the row, because Flutter paints
+/// a [BoxShadow] across the whole shape rather than just its rim, and without
+/// something opaque in the middle it floods the row.
 class _FocusableRow extends StatefulWidget {
   final Widget child;
 
@@ -1095,8 +1087,7 @@ class _FocusableRowState extends State<_FocusableRow> {
         margin: const EdgeInsets.all(CardFocusAffordance.ringWidth),
         decoration: CardFocusAffordance.glow(
           borderRadius: _radius,
-          accent: colorScheme.primary,
-          focused: _isFocused,
+          focused: showFocusIndicator(context, _isFocused),
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -1107,9 +1098,9 @@ class _FocusableRowState extends State<_FocusableRow> {
           ),
           child: Container(
             decoration: CardFocusAffordance.ring(
+              context,
               borderRadius: _radius,
-              accent: colorScheme.primary,
-              focused: _isFocused,
+              focused: showFocusIndicator(context, _isFocused),
             ),
             // The row's own ink surface. A ListTile paints its splashes on the
             // nearest Material ancestor, and ink is painted before that
