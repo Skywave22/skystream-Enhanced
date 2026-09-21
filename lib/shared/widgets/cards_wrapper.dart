@@ -168,12 +168,22 @@ class _CardsWrapperState extends State<CardsWrapper>
   }
 
   void _updateAnimation() {
-    // Focus grows the card whatever moved focus there. The old version stood
-    // the scale down for D-pad specifically, which left the remote - the one
-    // input that cannot point at anything - with the weakest cue of the three
-    // on offer. A focused card is also scrolled to the middle of its rail
-    // below, so there is no edge for it to overflow.
-    final shouldScale = _isHovered || _isFocused;
+    // Hover grows the card; directional focus does not.
+    //
+    // Not an oversight, and it was tried the other way round: Netflix and
+    // Prime both scale a focused card, so the scale was extended to the remote
+    // as part of matching them. On a real television it puts the poster over
+    // its own caption - a rail lays the label directly under the artwork with
+    // no room reserved for growth - so the card the viewer is reading is the
+    // one whose title they cannot. The border and the shadow are the cue here,
+    // and a white border on a poster reads from a sofa perfectly well.
+    //
+    // [FocusManager.highlightMode] is trustworthy for this now: it is driven
+    // from the same signal as every other focus affordance in the app. See
+    // `shared/focus/app_focus.dart`.
+    final isDirectional =
+        FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+    final shouldScale = _isHovered || (_isFocused && !isDirectional);
     if (shouldScale) {
       _ensureController();
       _controller!.forward();

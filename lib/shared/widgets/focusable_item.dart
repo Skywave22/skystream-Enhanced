@@ -46,11 +46,12 @@ class _FocusableItemState extends State<FocusableItem>
   }
 
   void _updateState() {
-    // Focus grows the item whatever moved focus there - see [CardsWrapper],
-    // which this mirrors. The focus highlight is already input-aware here:
-    // [FocusableActionDetector.onShowFocusHighlight] only fires when a focus
-    // indicator belongs on screen.
-    final shouldScale = _isHovered || _isFocused;
+    // Hover grows the item; directional focus does not - see [CardsWrapper],
+    // which this mirrors and which explains what growing it looked like on a
+    // television.
+    final isDirectional =
+        FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+    final shouldScale = _isHovered || (_isFocused && !isDirectional);
     if (shouldScale) {
       _ctrl.forward();
     } else {

@@ -89,9 +89,7 @@ void main() {
       expect(unfocused, _cardSize);
     });
 
-    testWidgets('and grows the card, the way a ten-foot rail does', (
-      tester,
-    ) async {
+    testWidgets('and does not grow it either, under a remote', (tester) async {
       final node = FocusNode();
       addTearDown(node.dispose);
 
@@ -105,13 +103,12 @@ void main() {
       node.requestFocus();
       await tester.pumpAndSettle();
 
-      // The scale used to be suppressed for a D-pad specifically, which left
-      // the one input that cannot point at anything with the weakest cue on
-      // offer. A focused card is scrolled to the middle of its rail, so there
-      // is no edge for it to overflow.
-      final Rect focused = tester.getRect(find.byKey(_childKey));
-      expect(focused.width, greaterThan(unfocused.width));
-      expect(focused.center, offsetMoreOrLessEquals(unfocused.center));
+      // Netflix and Prime both scale a focused card, and this was written to
+      // match them until it was seen on a television: a rail puts the title
+      // directly under the artwork with no room reserved for growth, so the
+      // card the viewer is reading is the one whose title they cannot. The
+      // border and the shadow carry it instead.
+      expect(tester.getRect(find.byKey(_childKey)), unfocused);
     });
 
     testWidgets('the focus ring is painted entirely outside the card', (

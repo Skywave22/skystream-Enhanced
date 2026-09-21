@@ -68,9 +68,20 @@ void main() {
 
     // First sample is the datum - a rate needs two readings, so the band
     // stays empty here however inviting the numbers look.
+    //
+    // Two ticks, not one: the sampler asks on one and the answer lands on the
+    // next, so a single pump delivers whatever the engine held *before* this.
+    // The datum has to be a real reading - an unavailable sample carries
+    // zeros rather than counters, and taking a baseline from those would put
+    // a stream's whole cumulative total into the first rate.
     stats(read: 11000000, demux: 10000000);
-    await tester.pump(const Duration(seconds: 1));
-    await settle(tester);
+    for (var i = 0; i < 2; i++) {
+      // The position has to move for a health sample to be taken at all - a
+      // frozen clock is the stall watchdog's business, not this one's.
+      await tick(60100 + i * 100);
+      await tester.pump(const Duration(seconds: 1));
+      await settle(tester);
+    }
     expect(bandRatio(tester), 0, reason: 'one reading is not a rate');
 
     // Second sample: 1 MB/s consumed, 5 MB fetched ahead - five seconds. One
@@ -101,12 +112,23 @@ void main() {
 
     await tick(60000);
     await settle(tester);
+    // Two ticks for the datum, for the round trip described below.
     stats(read: 11000000, demux: 10000000);
-    await tester.pump(const Duration(seconds: 1));
-    await tick(61000);
+    for (var i = 0; i < 2; i++) {
+      await tick(60100 + i * 100);
+      await tester.pump(const Duration(seconds: 1));
+      await settle(tester);
+    }
+    // Tick until the reading lands. The sampler asks on one tick and the
+    // answer arrives on the next, and how many ticks that works out at is the
+    // harness's business rather than this test's - what is being tested is
+    // what happens to a band that HAS a width once the estimate goes.
     stats(read: 16000000, demux: 11000000);
-    await tester.pump(const Duration(seconds: 1));
-    await settle(tester);
+    for (var i = 0; i < 4 && bandRatio(tester) == 0; i++) {
+      await tick(61000 + i * 100);
+      await tester.pump(const Duration(seconds: 1));
+      await settle(tester);
+    }
     expect(bandRatio(tester), greaterThan(0));
 
     // The demuxer stops consuming: stalled, or the counters were reset by a

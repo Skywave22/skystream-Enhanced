@@ -15,6 +15,8 @@ import 'package:skystream/features/player/presentation/vlc/player_slider_dialog.
 import 'package:skystream/features/player/presentation/vlc/panel/player_panel.dart'
     show PlayerPanelTab;
 import 'package:skystream/features/player/presentation/vlc/vlc_player_controls.dart';
+import 'package:skystream/core/models/torrent_status.dart';
+import 'package:skystream/features/player/presentation/components/torrent_info_widget.dart';
 import 'package:skystream/features/skip/data/skip_service.dart'
     show SkipSegment, SkipType;
 import 'package:skystream/features/player/presentation/vlc/transient_overlay.dart'
@@ -208,6 +210,7 @@ Future<VlcPlayerController> _pumpControls(
   bool desktopProfile = false,
   List<SkipSegment> skipSegments = const <SkipSegment>[],
   VoidCallback? onSkipOutro,
+  TorrentStatus? torrentStatus,
   Size size = _tv,
 }) async {
   tester.view.physicalSize = size;
@@ -241,6 +244,7 @@ Future<VlcPlayerController> _pumpControls(
         systemVolumeFactory: systemVolume == null ? null : () => systemVolume,
         skipSegments: skipSegments,
         onSkipOutro: onSkipOutro,
+        torrentStatus: torrentStatus,
       ),
       isTv: isTv,
       desktopProfile: desktopProfile,
@@ -672,8 +676,8 @@ void main() {
       expect(tester.getSize(find.byType(PlayerSeekBar)).height, 38);
     });
 
-    testWidgets('a parked remote does not pin the chrome, but comes back '
-        'where it left', (tester) async {
+    testWidgets('a parked remote does not pin the chrome, and OK always '
+        'brings it back on play/pause', (tester) async {
       await _pumpControls(tester);
 
       // Rest on Subtitles. Focus alone must not hold the bars: on a
@@ -691,12 +695,93 @@ void main() {
       );
       expect(_primary.debugLabel, 'player-key-sink');
 
-      // Nothing is lost: the next press brings the bars back with focus where
-      // it was.
       await tester.sendKeyEvent(LogicalKeyboardKey.select);
       await tester.pump();
       _expectShown(tester);
-      expect(_primary, subtitles);
+      expect(
+        _primary.debugLabel,
+        'player-play-pause',
+        reason: 'the bars used to come back on whatever was focused when they '
+            'went down. With the D-pad now driving the transport while they '
+            'are hidden, OK is the one press that opens them, and where it '
+            'lands has to be predictable rather than a memory of where the '
+            'viewer was four minutes ago',
+      );
+    });
+
+    // The remote's transport. With the bars down the D-pad IS the transport
+    // rather than a way of summoning the bars: left and right step the film,
+    // up and down walk the boost, and OK is the one key that opens the chrome.
+    //
+    // What this replaces could not step through a film at all. The press woke
+    // the bars, focus landed on a control, and every arrow after it was
+    // traversal - so seeking meant waiting for the bars to time out and then
+    // spending another press waking them again.
+    testWidgets('a hidden chrome makes left and right seek, not traverse', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, engine: engine);
+      await _snapshot(tester, position: 60000, duration: 300000);
+      await _letHide(tester);
+      _expectHidden(tester);
+      engine.calls.clear();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+
+      expect(_seeks(engine), <int>[70000]);
+      _expectHidden(
+        tester,
+        reason: 'raising the bars is what takes the next arrow away from '
+            'seeking, so this press must not raise them',
+      );
+      expect(_primary.debugLabel, 'player-key-sink', reason: 'and not moved');
+      expect(
+        tester.widget<PlayerSeekBurst>(find.byType(PlayerSeekBurst)).seconds,
+        10,
+        reason: 'the readout is the feedback, in place of the bars',
+      );
+
+      // And again, which is the whole point: a second press steps on rather
+      // than being spent on the chrome.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(_seeks(engine), <int>[70000, 80000]);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pump();
+      expect(_seeks(engine), <int>[70000, 80000, 70000]);
+
+      await _snapshot(tester, state: 'paused', position: 70000);
+    });
+
+    testWidgets('and up and down walk the boost in 25s', (tester) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, engine: engine);
+      await _snapshot(tester, position: 60000, duration: 300000);
+      await _letHide(tester);
+      _expectHidden(tester);
+      engine.calls.clear();
+
+      // A television's in-app volume is boost only - the set owns everything
+      // below unity - so the walk is 100 to 200 and four presses cover it.
+      for (final int expected in <int>[125, 150, 175, 200]) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+        await tester.pump();
+        expect(_volumes(engine).last, expected);
+      }
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump();
+      expect(_volumes(engine).last, 200, reason: 'and stops at the ceiling');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(_volumes(engine).last, 175);
+
+      _expectHidden(tester, reason: 'the rail says it, not the bars');
+      await _snapshot(tester, state: 'paused', position: 60000);
     });
 
     testWidgets('a D-pad seek holds the chrome, then lets it go', (
@@ -2016,7 +2101,7 @@ void main() {
       await _snapshot(tester, state: 'paused', position: 20000);
     });
 
-    testWidgets('J and L keep the centred pill, never the side burst', (
+    testWidgets('J and L read out the way every other seek does', (
       tester,
     ) async {
       final engine = FakeVlcEngine();
@@ -2024,26 +2109,27 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
       await tester.pump();
-      expect(find.text('+10s'), findsOneWidget);
-      expect(find.byType(PlayerSeekBurst), findsNothing);
+      var burst = tester.widget<PlayerSeekBurst>(find.byType(PlayerSeekBurst));
+      expect(burst.forward, isTrue);
+      expect(burst.seconds, 10);
+      expect(
+        find.text('+10s'),
+        findsNothing,
+        reason: 'the centred pill is gone from seeking entirely',
+      );
 
       await tester.sendKeyEvent(LogicalKeyboardKey.keyJ);
       await tester.pump();
-      expect(find.text('+0s'), findsOneWidget, reason: 'back to the start');
-      expect(
-        find.byType(PlayerSeekBurst),
-        findsNothing,
-        reason:
-            'the burst says which half of the screen fired; a keypress has '
-            'no half, so routing the keyboard through it would be a lie',
-      );
+      burst = tester.widget<PlayerSeekBurst>(find.byType(PlayerSeekBurst));
+      expect(burst.forward, isFalse, reason: 'drawn on the side it moved to');
+      expect(burst.seconds, 0, reason: 'back to the start');
 
       await _snapshot(tester, state: 'paused');
     });
 
     // On a pad the shoulder buttons are the whole seek affordance. They route
     // through the same _seekBy as J and L rather than a parallel mechanism, so
-    // they inherit the chain window and the centred pill.
+    // they inherit the chain window and the readout.
     testWidgets(
       'LB and RB seek by the configured step and chain like J and L',
       (tester) async {
@@ -2062,16 +2148,22 @@ void main() {
           20000,
           30000,
         ], reason: 'chained, not undone');
-        expect(find.text('+20s'), findsOneWidget, reason: 'the shared toast');
         expect(
-          find.byType(PlayerSeekBurst),
-          findsNothing,
-          reason: 'a button press has no half of the screen to point at',
+          tester.widget<PlayerSeekBurst>(find.byType(PlayerSeekBurst)).seconds,
+          20,
+          reason: 'the shared readout, counting the whole chain',
         );
 
         await _shoulder(tester, LogicalKeyboardKey.gameButtonLeft1);
         expect(_seeks(engine), <int>[20000, 30000, 20000]);
-        expect(find.text('+10s'), findsOneWidget);
+        final back = tester.widget<PlayerSeekBurst>(
+          find.byType(PlayerSeekBurst),
+        );
+        expect(back.forward, isFalse);
+        // Signed in the direction of the press, which is [SeekBurst.seconds]'s
+        // existing convention: the chain is still 10 s ahead of where it
+        // started, and this press went the other way.
+        expect(back.seconds, -10);
 
         await _snapshot(tester, state: 'paused', position: 20000);
       },
@@ -2121,18 +2213,16 @@ void main() {
     // not publish for a round trip. The next arrow must step on from the click,
     // not from the chain's stale target and not from the pre-click position.
     testWidgets('a scrubber commit inside the window re-bases the chain, and '
-        'the toast counts from there', (tester) async {
+        'the readout counts from there', (tester) async {
       final engine = FakeVlcEngine();
       await _pumpControls(tester, isTv: false, desktop: true, engine: engine);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
       await tester.pump();
       expect(_seeks(engine), [10000]);
-      expect(find.text('+10s'), findsOneWidget);
       expect(
-        find.byType(PlayerSeekBurst),
-        findsNothing,
-        reason: 'a keypress has no half of the screen to be localised to',
+        tester.widget<PlayerSeekBurst>(find.byType(PlayerSeekBurst)).seconds,
+        10,
       );
 
       // A click near the head of the track, well inside the chain's window.
@@ -2153,9 +2243,9 @@ void main() {
         clicked + 10000,
       ], reason: 'the arrow steps on from the click, not from the old chain');
       expect(
-        find.text('+10s'),
-        findsOneWidget,
-        reason: 'the toast counts from the click too, not from the chain',
+        tester.widget<PlayerSeekBurst>(find.byType(PlayerSeekBurst)).seconds,
+        10,
+        reason: 'the readout counts from the click too, not from the chain',
       );
 
       await _snapshot(tester, state: 'paused', position: clicked + 10000);
@@ -2348,7 +2438,10 @@ void main() {
       await _pumpControls(tester, isTv: false, desktop: true);
       expect(find.byType(PlayerCenterPlayButton), findsNothing);
 
-      await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+      // Any toast will do; this one is the aspect-ratio label. A seek used to
+      // be the convenient trigger here, but seeking now draws the side burst
+      // rather than the centred pill, and the pill is what this measures.
+      await _tapControl(tester, find.byTooltip('Resize'));
       await tester.pump();
 
       final message = find.descendant(
@@ -2363,7 +2456,7 @@ void main() {
         ),
       );
 
-      await _snapshot(tester, state: 'paused', position: 10000);
+      await _snapshot(tester, state: 'paused');
     });
 
     // A rebuffer keeps offering pause, exactly as the bottom bar's copy does -
@@ -2963,6 +3056,46 @@ void main() {
       });
     }
 
+    // The centre pair is aimed at one half of the screen each, which is the
+    // test the side-aware readout exists for - the same one the double tap
+    // passes. They used to get the centred pill instead, so the button and
+    // the gesture that do the identical thing said it two different ways.
+    testWidgets('the centre pair reads out like a double tap', (tester) async {
+      await _pumpControls(
+        tester,
+        isTv: false,
+        size: const Size(390, 844),
+        settings: const PlayerSettings(seekDuration: 10),
+      );
+      await _snapshot(tester, position: 60000, duration: 300000);
+      expect(find.byType(PlayerSeekBurst), findsNothing);
+
+      await _tapControl(tester, find.bySemanticsLabel('Forward 10 seconds'));
+      await tester.pump();
+
+      final burst = tester.widget<PlayerSeekBurst>(
+        find.byType(PlayerSeekBurst),
+      );
+      expect(burst.forward, isTrue, reason: 'on the half it was pressed from');
+      expect(burst.seconds, 10);
+      // The icon and the number are the point; the ripple comes with them.
+      expect(find.text('10s'), findsOneWidget);
+      expect(
+        find.byIcon(Icons.keyboard_double_arrow_right_rounded),
+        findsOneWidget,
+      );
+
+      // A second press accumulates, exactly as a second double tap does.
+      await _tapControl(tester, find.bySemanticsLabel('Forward 10 seconds'));
+      await tester.pump();
+      expect(
+        tester.widget<PlayerSeekBurst>(find.byType(PlayerSeekBurst)).seconds,
+        20,
+      );
+
+      await _snapshot(tester, state: 'paused', position: 60000);
+    });
+
     // A bare Row with a Spacer leaves Flex.clipBehavior at Clip.none, so a
     // button past the edge is painted outside the bar and left mounted and
     // focusable there. 480 dp is a legitimate desktop window: lib/main.dart
@@ -3076,6 +3209,127 @@ void main() {
 
         await tester.pump(const Duration(seconds: 2));
         await _snapshot(tester, state: 'paused', position: 65000);
+      });
+    }
+
+    // The clock is the whole transport group on a handset - play/pause and the
+    // seek pair are in the centre cluster there - so it is the one thing on
+    // the line that has to supply its own optical inset. Measured against the
+    // track rather than against a neighbouring button, because on this form
+    // factor it has no neighbour.
+    testWidgets('the clock starts where the track does on a handset', (
+      tester,
+    ) async {
+      // A film, so nothing precedes the clock. With an episode pair in the
+      // bar the first button supplies the inset and the clock rightly keeps
+      // its small gap - the bug is only visible when the clock is alone.
+      await _pumpControls(
+        tester,
+        isTv: false,
+        onEnterPip: () {},
+        size: _phone,
+        withoutEpisodes: true,
+      );
+      await _snapshot(tester, position: 65000, duration: 300000);
+
+      final Rect seek = tester.getRect(find.byType(PlayerSeekBar));
+      final Rect clock = tester.getRect(find.byType(PlayerTimeLabel));
+
+      expect(
+        clock.left,
+        moreOrLessEquals(seek.left + HotstarPlayerStyle.trackInset, epsilon: 0.5),
+        reason: 'the clock used to carry the 8 dp gap it wears when it '
+            'follows a button, and sat outside the column the track, the '
+            'Back button and the utility row all line up in',
+      );
+
+      await _snapshot(tester, state: 'paused', position: 65000);
+    });
+
+    // The torrent card is the one overlay with no width of its own: its rows
+    // are [Expanded] inside a [Row], so it lays out only against a constraint
+    // the caller supplies. Pinned in a [Positioned] by two edges and nothing
+    // else it is handed an unbounded width, the flex has nothing to divide,
+    // and pressing the button that summons it does nothing at all.
+    for (final (String name, bool isTv, Size size)
+        in <(String, bool, Size)>[
+          ('a handset', false, const Size(390, 844)),
+          ('a television', true, const Size(960, 540)),
+        ]) {
+      testWidgets('the torrent card opens and is laid out on $name', (
+        tester,
+      ) async {
+        await _pumpControls(
+          tester,
+          isTv: isTv,
+          size: size,
+          torrentStatus: TorrentStatus(
+            title: 'Some.Release.2024.1080p',
+            status: 'Downloading',
+            downloadSpeed: 2500000,
+            uploadSpeed: 100000,
+            seeds: 12,
+            peers: 34,
+            totalSize: 4000000000,
+            bytesRead: 1000000000,
+            data: const <dynamic, dynamic>{},
+          ),
+        );
+        await _snapshot(tester, position: 65000, duration: 300000);
+
+        expect(
+          find.byType(TorrentInfoWidget),
+          findsNothing,
+          reason: 'the card is a toggle, not permanent chrome',
+        );
+
+        await _tapControl(tester, find.byTooltip('Torrent stats'));
+        // Not pumpAndSettle: the card's title is a marquee and never stops,
+        // so settling it would hang rather than fail.
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byType(TorrentInfoWidget),
+          findsOneWidget,
+          reason: 'pressing the button has to show the card',
+        );
+
+        // Laid out, not merely mounted: a card with no width is a card the
+        // viewer cannot read.
+        final Rect card = tester.getRect(find.byType(TorrentInfoWidget));
+        expect(card.width, greaterThan(0));
+        expect(card.width, lessThan(size.width));
+        expect(card.height, greaterThan(0));
+        expect(find.text('12 / 34'), findsOneWidget);
+
+        // And in the corner it is anchored to. An unlaid-out box paints at the
+        // origin, so "it opened" and "it opened where it should" are two
+        // different claims and this is the second one.
+        expect(
+          card.right,
+          moreOrLessEquals(
+            size.width -
+                (isTv
+                    ? HotstarPlayerStyle.tvEdgeInset
+                    : HotstarPlayerStyle.edgeInset),
+            epsilon: 0.5,
+          ),
+          reason: 'the card hangs off the right edge, not the left',
+        );
+        expect(
+          card.left,
+          greaterThan(0),
+          reason: 'flush against the left edge is what the broken layout did',
+        );
+
+        await _snapshot(tester, state: 'paused', position: 65000);
+
+        // The card's title is a marquee and its pause between sweeps is a real
+        // timer, so unmount and let the last one fire rather than ending the
+        // test with it pending.
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump(const Duration(seconds: 3));
       });
     }
 

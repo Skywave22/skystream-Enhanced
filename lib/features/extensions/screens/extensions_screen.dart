@@ -31,14 +31,23 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
   late final TabController _tabController;
   bool _didEnsureInit = false;
 
-  /// Marks the two tabs' shared subtree, so [_handleTabSettled] can tell a
-  /// focus node inside the tab body from one in the app bar.
+  /// One key per tab, so a repair can search the page that is actually on
+  /// screen.
   ///
-  /// A [FocusScope] would be the obvious way to draw that line and is the
-  /// wrong one: a scope is also the boundary directional traversal works
-  /// within, so wrapping the body in one would trap the remote inside it -
-  /// no way back up to the tabs or the Back button.
-  final GlobalKey _tabViewKey = GlobalKey(debugLabel: 'extensions-tab-body');
+  /// Keys rather than a [FocusScope] around each page, which is the obvious
+  /// way to draw the line and the wrong one: a scope is also the boundary
+  /// directional traversal works within, so a page wrapped in one would trap
+  /// the remote inside it - no way back up to the tabs or the Back button.
+  ///
+  /// Searching the body as a whole is not good enough: during a tab change
+  /// both pages are in the tree, and the first focusable in tree order belongs
+  /// to the page being *left* - whose controls are disposed a beat later. The
+  /// first version of this fix did exactly that and still ended up with
+  /// nothing focused, which is the same dead end wearing a different hat.
+  final List<GlobalKey> _tabKeys = <GlobalKey>[
+    GlobalKey(debugLabel: 'extensions-tab-installed'),
+    GlobalKey(debugLabel: 'extensions-tab-repositories'),
+  ];
 
   /// Set when something inside a tab switches tabs, so the focus that switch
   /// is about to destroy can be put back. See [_showRepositoriesTab].
@@ -85,22 +94,63 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
     if (_tabController.indexIsChanging || !_wantsBodyFocus) return;
     _wantsBodyFocus = false;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final body = _tabViewKey.currentContext;
-      if (body == null) return;
+    _afterNextFrame(_focusFirstInSelectedTab);
+  }
 
-      // Skip the node being left behind. Both pages are still in the tree at
-      // this point - the outgoing one is disposed a beat later - so a plain
-      // "first focusable in the body" would land straight back on the button
-      // that is about to vanish, and lose focus all over again.
-      final leaving = FocusManager.instance.primaryFocus;
-      for (final node in FocusScope.of(context).traversalDescendants) {
-        if (node == leaving || !_isInside(node, body)) continue;
-        node.requestFocus();
+  /// The same repair, for the second way this screen throws focus away.
+  ///
+  /// Adding the first repository replaces the empty state - a single
+  /// [FilledButton], which is what the viewer just pressed and what still
+  /// holds focus - with the list of repositories. The button is disposed, and
+  /// [FocusManager.primaryFocus] goes quietly to null exactly as it does on a
+  /// tab change. Same dead end, one step further along the same journey: the
+  /// viewer adds the repository they came for and the screen stops answering
+  /// the remote at the moment it starts being useful.
+  ///
+  /// Unlike the tab case this one can simply ask whether focus was lost,
+  /// because by the time this runs the old subtree is gone rather than
+  /// lingering for a frame.
+  void _restoreBodyFocusIfLost() {
+    _afterNextFrame(() {
+      if (!mounted) return;
+      // A real, still-mounted node has it: nothing to repair.
+      final primary = FocusManager.instance.primaryFocus;
+      if (primary != null &&
+          primary is! FocusScopeNode &&
+          primary.context?.mounted == true) {
         return;
       }
+      // Not while a dialog is up. Add Repository is a route of its own, and
+      // pulling focus down to the page underneath would take the remote out
+      // of the field the viewer is typing in.
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
+      _focusFirstInSelectedTab();
     });
+  }
+
+  /// Runs [action] once the tree has been rebuilt, and makes sure it runs.
+  ///
+  /// [SchedulerBinding.addPostFrameCallback] waits for a frame that something
+  /// else asks for - it does not ask for one itself. The moment a tab
+  /// animation finishes the app is idle and nothing is going to, so the repair
+  /// below would sit there unrun until the viewer pressed a key, which is the
+  /// one thing they cannot usefully do while focus is lost.
+  void _afterNextFrame(VoidCallback action) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => action());
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Focuses the first control on the tab that is currently selected.
+  void _focusFirstInSelectedTab() {
+    if (!mounted) return;
+    final page = _tabKeys[_tabController.index].currentContext;
+    if (page == null) return;
+    for (final node in FocusScope.of(context).traversalDescendants) {
+      if (!_isInside(node, page)) continue;
+      node.requestFocus();
+      return;
+    }
   }
 
   /// Whether [node]'s element sits under [ancestor].
@@ -126,6 +176,9 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
       });
     }
     ref.listen(extensionsControllerProvider, (previous, next) {
+      // A state change can swap a tab's whole body - an empty state for a
+      // list, or back again - and take the focused control with it.
+      _restoreBodyFocusIfLost();
       if (next is ExtensionsError &&
           (previous is! ExtensionsError || previous.message != next.message)) {
         showDialog<void>(
@@ -166,14 +219,15 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
     );
 
     final tabView = TabBarView(
-      key: _tabViewKey,
       controller: _tabController,
       children: [
         FocusTraversalGroup(
+          key: _tabKeys[0],
           policy: ReadingOrderTraversalPolicy(),
           child: _buildInstalledTab(context, ref, state),
         ),
         FocusTraversalGroup(
+          key: _tabKeys[1],
           policy: ReadingOrderTraversalPolicy(),
           child: _buildRepositoriesTab(context, ref, state),
         ),
@@ -823,10 +877,16 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
       hintText: l10n.repoUrlOrShortcode,
       confirmLabel: l10n.addRepo,
     );
-    if (url == null || url.isEmpty || !context.mounted) return;
+    if (url == null || url.isEmpty || !context.mounted) {
+      // Cancelled. The opener may still have been swapped out underneath the
+      // dialog, so check anyway - it is a no-op when focus is fine.
+      _restoreBodyFocusIfLost();
+      return;
+    }
     unawaited(
       ref.read(extensionsControllerProvider.notifier).addRepository(url),
     );
+    _restoreBodyFocusIfLost();
   }
 }
 

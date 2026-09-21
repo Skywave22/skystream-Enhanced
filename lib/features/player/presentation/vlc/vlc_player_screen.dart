@@ -194,10 +194,10 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// undo the work that stopped a position tick repainting everything.
   final ValueNotifier<double> _bufferedFraction = ValueNotifier<double>(0);
 
-  /// The demux counter from the previous stats sample, and when it was taken.
-  /// The estimate is a rate, so it needs two readings.
-  int? _lastDemuxReadBytes;
-  Duration _lastStatsAt = Duration.zero;
+  /// Turns the byte counters into the seek bar's buffered band, and keeps
+  /// that estimate honest across seeks. All of the arithmetic lives in the
+  /// domain layer, where it can be tested a sample at a time.
+  final BufferedAheadEstimator _bufferedAhead = BufferedAheadEstimator();
 
   /// The window in which a second Back means "I really do want out".
   ///
@@ -1624,6 +1624,9 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // negative delta on the incoming one.
     _videoBaseline = null;
     _videoWindow = Duration.zero;
+    // The seek correction describes the outgoing media's counters. The band's
+    // rate baseline is left alone on purpose - see [noteMediaChanged].
+    _bufferedAhead.noteMediaChanged();
   }
 
   void _resetStallClock() {
@@ -1803,13 +1806,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// claiming a buffer through a stall is worse than one that admits it does
   /// not know.
   void _updateBufferedAhead(VlcMediaStats stats) {
-    final now = _attemptAge;
-    final previous = _lastDemuxReadBytes;
-    final interval = now - _lastStatsAt;
-    _lastDemuxReadBytes = stats.demuxReadBytes;
-    _lastStatsAt = now;
-
-    if (!stats.isAvailable || previous == null) {
+    if (!stats.isAvailable) {
       _bufferedFraction.value = 0;
       return;
     }
@@ -1818,11 +1815,15 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     final fraction = bufferedFraction(
       position: value.position,
       duration: value.duration,
-      ahead: bufferedAhead(
+      ahead: _bufferedAhead.sample(
         readBytes: stats.readBytes,
         demuxReadBytes: stats.demuxReadBytes,
-        previousDemuxReadBytes: previous,
-        sampleInterval: interval,
+        position: value.position,
+        at: _attemptAge,
+        // What tells the estimate a skip happened, so the bytes the skip
+        // stranded stop being counted as buffer. See [BufferedAheadEstimator].
+        seekRequests: _controller.seekRequests,
+        speed: value.playbackSpeed,
       ),
     );
     _bufferedFraction.value = fraction ?? 0;

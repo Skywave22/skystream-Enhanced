@@ -203,13 +203,6 @@ class VlcPlayerControls extends ConsumerStatefulWidget {
   ConsumerState<VlcPlayerControls> createState() => _VlcPlayerControlsState();
 }
 
-/// How a relative seek reports itself.
-///
-/// A keypress or a D-pad burst has no side, so it keeps the centred pill every
-/// other transient message uses. A double-tap does have one, and saying which
-/// half fired is the point of the burst.
-enum _SeekFeedback { toast, burst }
-
 class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   static const Duration _fade = Duration(milliseconds: 200);
 
@@ -651,7 +644,15 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     // per-episode: rebuilding the action list can unmount the remembered
     // button.
     final revivable = previous != null && previous.enclosingScope != null;
-    final target = revivable ? previous : (_isTv ? _playPause : null);
+    // A television always lands on play/pause, whatever was focused when the
+    // bars went down. The remote's D-pad is the transport while they are
+    // hidden, so OK is the one press that opens them and the viewer should be
+    // able to predict where it puts them - waking up on Subtitles because
+    // that is where they happened to be four minutes ago is a guess they have
+    // to read the screen to resolve.
+    final target = _isTv
+        ? _playPause
+        : (revivable ? previous : null);
     target?.requestFocus();
   }
 
@@ -693,18 +694,12 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     _toast.clear();
   }
 
-  /// Seeks by a fixed step, forward or back depending on which half was tapped.
-  ///
-  /// The only caller that asks for [_SeekFeedback.burst]: J/L, the D-pad and
-  /// the skip chip keep the centred pill, because none of them is aimed at one
-  /// half of the screen.
+  /// Seeks by a fixed step, forward or back depending on which half was
+  /// tapped.
   void _doubleTapSeek(double dx) {
     final width = context.size?.width ?? 0;
     if (width <= 0) return;
-    _seekBy(
-      dx >= width / 2 ? _seekStep : -_seekStep,
-      feedback: _SeekFeedback.burst,
-    );
+    _seekBy(dx >= width / 2 ? _seekStep : -_seekStep);
     _chrome.keepAlive();
   }
 
@@ -815,6 +810,15 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// 5%, matching every mainstream keyboard player. Volume is a keyboard
   /// affordance only - see [_ownsVolumeKeys] for who gets the hardware keys.
   static const int _volumeStep = 5;
+
+  /// The step the remote's up/down takes, against the keyboard's 5.
+  ///
+  /// A television's in-app volume is boost only - the set owns everything
+  /// below unity, see [VolumeRouting] - so the whole range this walks is 100
+  /// to [_maxVolume], and 200 is where that lands by default. Four presses
+  /// end to end at 25 apiece; at 5 it would be twenty, which is not a volume
+  /// control, it is a ratchet.
+  static const int _tvVolumeStep = 25;
 
   void _nudgeVolume(int delta) => _setVolume(_volume + delta);
 
@@ -1124,11 +1128,6 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
       return KeyEventResult.ignored;
     }
 
-    // Any other key keeps the chrome alive, and summons it when hidden - on a
-    // remote there is no tap to reveal it with. Focus is restored after the
-    // frame, so the key doing the summoning is judged against where focus was.
-    _chrome.poke();
-
     // Arrows are shortcuts only while the sink itself holds focus, which is to
     // say nothing else in the player does. With a control focused they are
     // traversal and belong to the focus system.
@@ -1136,11 +1135,37 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
 
     final key = event.logicalKey;
 
-    // A bare arrow is a keyboard idiom - volume and seek with nothing focused.
-    // On a remote, bare means the bars are down, so the same press is the one
-    // summoning them, and firing volume or a seek off it would make waking the
-    // chrome destructive. The press is spent revealing the bars instead.
-    if (bare && _isTv && _isDirectional(key)) return KeyEventResult.handled;
+    // The remote's transport: a D-pad with the bars down is the transport
+    // itself, not a way of summoning the bars.
+    //
+    // It used to be the other way round - the press was spent revealing the
+    // chrome - and the cost of that was that a remote could not step through
+    // a film at all. The press woke the bars, focus landed on a control, and
+    // every arrow after it was traversal; seeking meant waiting for the bars
+    // to time out and then spending another press waking them again. OK is
+    // the key that opens the chrome, and it is the only one that needs to.
+    final tvTransport = bare && _isTv && _isDirectional(key);
+
+    // Any other key keeps the chrome alive, and summons it when hidden - on a
+    // remote there is no tap to reveal it with. Focus is restored after the
+    // frame, so the key doing the summoning is judged against where focus was.
+    //
+    // Skipped for the transport keys above: poking would raise the bars, and
+    // raising the bars is what takes the next arrow away from seeking.
+    if (!tvTransport) _chrome.poke();
+
+    if (tvTransport) {
+      if (key == LogicalKeyboardKey.arrowLeft) {
+        _seekBy(-_seekStep);
+      } else if (key == LogicalKeyboardKey.arrowRight) {
+        _seekBy(_seekStep);
+      } else if (key == LogicalKeyboardKey.arrowUp) {
+        _nudgeVolume(_tvVolumeStep);
+      } else {
+        _nudgeVolume(-_tvVolumeStep);
+      }
+      return KeyEventResult.handled;
+    }
     // K and the media keys have no activation meaning, so they stay global.
     if (key == LogicalKeyboardKey.mediaPlayPause ||
         key == LogicalKeyboardKey.keyK) {
@@ -1258,13 +1283,19 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   ///
   /// Presses within [_seekBase]'s window chain: the second step counts from
   /// the first target, not from the position the engine last published, and
-  /// the toast shows the offset of the whole chain. The window is the one the
+  /// the readout shows the offset of the whole chain. The window is the one the
   /// progress bar latches its thumb for, and it is longer than the
   /// controller's stall delay on purpose - a chain the engine is slow to
   /// honour gets its spinner before the base falls back to the truth.
   ///
-  /// [feedback] picks how the step is shown and changes nothing else.
-  void _seekBy(Duration delta, {_SeekFeedback feedback = _SeekFeedback.toast}) {
+  /// Every relative seek reports itself the same way: the burst, on the side
+  /// it moved towards. There used to be a second form - a centred pill
+  /// reading `+10s` - for the callers that are not aimed at half the screen,
+  /// which meant the double tap and the button under the viewer's thumb said
+  /// the identical thing two different ways. The side is a property of the
+  /// *seek*, not of the gesture that asked for it, so the direction carries it
+  /// for a key and a wheel just as well as for a tap.
+  void _seekBy(Duration delta) {
     final value = widget.controller.value;
     if (widget.isLive || !value.isSeekable) return;
     final origin = _seekBase == null ? value.position : _seekOrigin!;
@@ -1276,17 +1307,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     _seekOrigin = origin;
     _armSeekBaseReset();
     widget.controller.seekTo(target);
-    final offset = target - origin;
-    switch (feedback) {
-      case _SeekFeedback.toast:
-        _showToast(
-          offset.isNegative
-              ? '-${(-offset).inSeconds}s'
-              : '+${offset.inSeconds}s',
-        );
-      case _SeekFeedback.burst:
-        _showSeekBurst(delta, offset);
-    }
+    _showSeekBurst(delta, target - origin);
   }
 
   /// The side is [delta]'s - which half the viewer actually tapped - and the
@@ -1374,7 +1395,7 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
     PlayerSettings settings, {
     required bool isTv,
   }) {
-    return <Widget>[
+    final leading = <Widget>[
       // Play/pause is in the bar only where there is no centre cluster to hold
       // it. On a handset it is in the middle of the frame, under the thumb.
       //
@@ -1431,10 +1452,16 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
             widget.onNextEpisode!.call();
           },
         ),
-      // Last in the transport group, on every form factor: the clock comes
-      // down off the scrubber and reads beside the buttons.
-      _clock(),
     ];
+
+    // Last in the transport group, on every form factor: the clock comes down
+    // off the scrubber and reads beside the buttons.
+    //
+    // Whether anything precedes it decides how far in it starts. A button's
+    // glyph carries its own optical inset, so a clock that follows one only
+    // needs a gap; a clock that is first on the line has to supply that inset
+    // itself or it hangs outside the column. See [_clock].
+    return leading..add(_clock(first: leading.isEmpty));
   }
 
   /// The elapsed/total clock, at the end of the transport group.
@@ -1449,8 +1476,17 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
   /// on a duration that arrives once, the inner on every tick. Inside a
   /// [RepaintBoundary] because the row around it is full of icon buttons that
   /// have no reason to repaint on the second.
-  Widget _clock() => Padding(
-    padding: const EdgeInsets.only(left: 8, right: 4),
+  /// [first] means nothing precedes it on the control line, which is the
+  /// handset: play/pause and the seek pair are in the centre cluster there, so
+  /// the clock is the whole transport group. It then owns the optical inset
+  /// the first glyph would otherwise have supplied, and lines up with the
+  /// scrubber's track and the Back button above it rather than sitting 8 dp
+  /// outside both.
+  Widget _clock({bool first = false}) => Padding(
+    padding: EdgeInsets.only(
+      left: first ? HotstarPlayerStyle.trackInset : 8,
+      right: 4,
+    ),
     child: RepaintBoundary(
       child: PlayerValueSelector<(Duration, bool)>(
         controller: widget.controller,
@@ -1834,13 +1870,29 @@ class _VlcPlayerControlsState extends ConsumerState<VlcPlayerControls> {
             ),
           Positioned(
             top: MediaQuery.viewPaddingOf(context).top + 72,
-            right: isTv ? 48 : 16,
+            right: isTv
+                ? HotstarPlayerStyle.tvEdgeInset
+                : HotstarPlayerStyle.edgeInset,
             // Refreshed by the screen's 3 s poll, so the panel repaints on a
             // schedule and must do so alone.
             child: RepaintBoundary(
               child: IgnorePointer(
                 child: _showTorrentInfo && widget.torrentStatus != null
-                    ? TorrentInfoWidget(status: widget.torrentStatus)
+                    // The card has no width of its own - its stat rows are
+                    // [Expanded] inside a [Row] - so the caller has to supply
+                    // one. Anchored by two edges and nothing else it was
+                    // handed an unbounded width, the flex had nothing to
+                    // divide, and the card never laid out: pressing the
+                    // button appeared to do nothing, and an unlaid-out box
+                    // that does paint lands at the origin, which is the
+                    // top-left corner it was seen in.
+                    ? ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: (MediaQuery.sizeOf(context).width * 0.36)
+                              .clamp(240.0, 360.0),
+                        ),
+                        child: TorrentInfoWidget(status: widget.torrentStatus),
+                      )
                     : const SizedBox.shrink(),
               ),
             ),

@@ -22,6 +22,21 @@ class MockExtensionsController extends ExtensionsController {
   Future<void> ensureInitialized() async {}
 }
 
+/// A controller the test can push new states through, to stand in for a
+/// repository finishing its install.
+class MutableExtensionsController extends ExtensionsController {
+  MutableExtensionsController(this._initial);
+  final ExtensionsState _initial;
+
+  @override
+  ExtensionsState build() => _initial;
+
+  @override
+  Future<void> ensureInitialized() async {}
+
+  void push(ExtensionsState next) => state = next;
+}
+
 class MockExtensionManager extends ExtensionManager {
   @override
   List<SkyStreamProvider> build() => [];
@@ -143,6 +158,7 @@ void main() {
   );
 
   group('plugin row focus affordance', _focusAffordanceTests);
+  group('TV dead ends', _tvDeadEndTests);
 }
 
 // ---------------------------------------------------------------------------
@@ -440,4 +456,115 @@ void _focusAffordanceTests() {
       expect(_rowLayers(tester, find.text('Plugin B')).ring, isNull);
     },
   );
+}
+
+
+/// The two ways this screen used to throw focus away, and the reason a fresh
+/// install read as locked on a television.
+///
+/// Flutter drops [FocusManager.primaryFocus] to null when the node holding it
+/// is disposed, and tells nobody: no listener fires, and `handleKeyMessage`
+/// returns early for every key that arrives afterwards. So a screen whose only
+/// control destroys itself stops answering the remote completely - not "the
+/// button did not highlight" but "no arrow key has anything left to move
+/// from". Both paths below do exactly that, and both are on the one journey a
+/// first-time viewer has to complete before the app can play anything.
+void _tvDeadEndTests() {
+  /// Asserts focus is on a real, live control inside the tab body.
+  void expectFocusInBody(WidgetTester tester) {
+    final primary = FocusManager.instance.primaryFocus;
+    expect(primary, isNotNull, reason: 'focus was dropped entirely');
+    expect(
+      primary,
+      isNot(isA<FocusScopeNode>()),
+      reason: 'a scope holding focus answers no arrow keys',
+    );
+    final context = primary!.context;
+    expect(context?.mounted, isTrue, reason: 'focused node is not on screen');
+
+    final body = tester.element(find.byType(TabBarView));
+    var inside = false;
+    context!.visitAncestorElements((element) {
+      if (element != body) return true;
+      inside = true;
+      return false;
+    });
+    expect(inside, isTrue, reason: 'focus left the tab body');
+  }
+
+  ExtensionsSuccess empty() => const ExtensionsSuccess(
+    repositories: [],
+    installedPlugins: [],
+    availablePlugins: {},
+    availableUpdates: {},
+    installingPlugins: {},
+  );
+
+  ExtensionsSuccess withRepository() => ExtensionsSuccess(
+    repositories: [
+      ExtensionRepository(
+        name: 'Test Repo',
+        url: 'https://example.com/repo.json',
+        pluginLists: const [],
+      ),
+    ],
+    installedPlugins: const [],
+    availablePlugins: const {},
+    availableUpdates: const {},
+    installingPlugins: const {},
+  );
+
+  Widget hostFor(MutableExtensionsController controller) => ProviderScope(
+    overrides: [
+      extensionsControllerProvider.overrideWith(() => controller),
+      extensionManagerProvider.overrideWith(() => MockExtensionManager()),
+    ],
+    child: const MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: ExtensionsScreen(),
+    ),
+  );
+
+  testWidgets('Browse Repositories carries focus into the tab it opens', (
+    tester,
+  ) async {
+    await tester.pumpWidget(hostFor(MutableExtensionsController(empty())));
+    await tester.pumpAndSettle();
+
+    // The Installed tab's empty state is this one button, so it is both what
+    // the viewer presses and what the press destroys.
+    final browse = find.widgetWithText(FilledButton, 'Browse Repositories');
+    expect(browse, findsOneWidget);
+    await _focusOn(tester, browse);
+
+    await tester.tap(browse);
+    await tester.pumpAndSettle();
+
+    expectFocusInBody(tester);
+    expect(find.widgetWithText(FilledButton, 'Add Repository'), findsOneWidget);
+  });
+
+  testWidgets('adding the first repository does not strand the remote', (
+    tester,
+  ) async {
+    final controller = MutableExtensionsController(empty());
+    await tester.pumpWidget(hostFor(controller));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Browse Repositories'));
+    await tester.pumpAndSettle();
+
+    final add = find.widgetWithText(FilledButton, 'Add Repository');
+    await _focusOn(tester, add);
+    expectFocusInBody(tester);
+
+    // The repository lands. The empty state - and the focused button in it -
+    // is replaced by the list, exactly as it is after a real install.
+    controller.push(withRepository());
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Add Repository'), findsNothing);
+    expectFocusInBody(tester);
+  });
 }
