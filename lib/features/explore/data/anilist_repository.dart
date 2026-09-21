@@ -1,6 +1,7 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:html_unescape/html_unescape.dart';
 import 'package:dio/dio.dart';
+
 import '../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/models/tmdb_details.dart';
 import '../../../core/services/anilist_explore_service.dart';

@@ -1,8 +1,10 @@
 import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:skystream/features/library/presentation/history_provider.dart';
+
 import '../../../../core/domain/entity/multimedia_item.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,10 +13,12 @@ import 'package:skystream/core/addons/models/addon_meta.dart'
     show kAddonItemSource;
 import 'package:skystream/core/utils/image_fallbacks.dart';
 import 'package:skystream/core/utils/layout_constants.dart';
+
 import '../../../../core/extensions/extension_manager.dart';
 import '../../../details/presentation/playback_launcher.dart';
 import '../../../../shared/widgets/cards_wrapper.dart';
 import '../../../../shared/widgets/loading_dialog.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
 import 'package:skystream/core/services/notification_service.dart';
 
@@ -244,9 +248,8 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
         }
 
         unawaited(
-          DetailsRoute(
-            $extra: DetailsRouteExtra(item: item, autoPlay: true),
-          ).push<void>(context),
+          DetailsRoute($extra: DetailsRouteExtra(item: item, autoPlay: true))
+              .push<void>(context),
         );
       },
       onLongPress: () {
@@ -266,9 +269,8 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                   onTap: () {
                     Navigator.pop(context);
                     unawaited(
-                      DetailsRoute(
-                        $extra: DetailsRouteExtra(item: item),
-                      ).push<void>(context),
+                      DetailsRoute($extra: DetailsRouteExtra(item: item))
+                          .push<void>(context),
                     );
                   },
                 ),
@@ -291,9 +293,8 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                     ref
                         .read(notificationServiceProvider)
                         .showSuccess(
-                          AppLocalizations.of(
-                            context,
-                          )!.removedFromHistory(item.title),
+                          AppLocalizations.of(context)!
+                              .removedFromHistory(item.title),
                           title: 'Watch History',
                           icon: Icons.history_rounded,
                         );
@@ -371,8 +372,11 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                 // is not survivable now that the wash gets lighter.
                 //
                 // It sits before the badge and the gauge so that it cannot
-                // paint over them. It does not overlap them either way: the
-                // 28 dp bottom padding clears the badge, which ends 28 dp up.
+                // paint over them. The 12 dp foot is the resume gauge's 4 dp
+                // plus 8 dp of air. It used to be 28, to clear a duration
+                // badge that sat in this same corner; the badge reads at the
+                // top right now, so the text drops back down to where the
+                // scrim is actually at its darkest.
                 Positioned(
                   bottom: 0,
                   left: 0,
@@ -386,7 +390,7 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                           colors: [Colors.black87, Colors.transparent],
                         ),
                       ),
-                      padding: const EdgeInsets.fromLTRB(12, 24, 12, 28),
+                      padding: const EdgeInsets.fromLTRB(12, 24, 12, 12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
@@ -443,11 +447,17 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                   ),
                 ),
 
-                // Duration badge (bottom-right)
+                // Duration badge (top-right).
+                //
+                // Up here rather than in the bottom-right corner it used to
+                // share with the title: the two were competing for the same
+                // strip of scrim, and the title had to hold a 28 dp foot to
+                // stay clear of it. Its own 70% black pill is what carries it,
+                // so it needs no scrim of its own on bare artwork.
                 if (!isLivestream)
                   Positioned(
-                    bottom: 10,
-                    right: 6,
+                    top: 8,
+                    right: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 6,

@@ -21,6 +21,7 @@ import 'vlc_screen_harness.dart';
 /// its own - `--stream-filter=prefetch` has to name it, and the two options
 /// only mean anything together.
 void main() {
+  _torrentSplitTests();
   late FakeVlcEngine engine;
 
   setUp(() {
@@ -108,7 +109,14 @@ void main() {
 
       expect(low, lessThan(standard));
       expect(standard, lessThan(high));
-      expect(high, 256, reason: 'a desktop can spare it');
+      expect(
+        high,
+        512,
+        reason:
+            'anything with memory to spare, which is every desktop and any '
+            'handset reporting 6 GB or more - the tier is a RAM verdict, not '
+            'a platform one',
+      );
     });
 
     test('every default is one of the sizes actually on offer', () {
@@ -122,19 +130,22 @@ void main() {
       }
     });
 
-    test('512 MB is offered but is nobody default', () {
-      // Offered because a desktop owner may want it; not a default, because
-      // the buffer is resident and competes with the decoder.
-      expect(kNetworkBufferChoicesMb, contains(512));
+    test('the largest size is offered but is nobody default', () {
+      // Offered because someone with the memory may want it; never a default,
+      // because the buffer is resident and competes with the decoder's own
+      // picture pool - and the top of this range is not sized for the bottom
+      // of the device range.
+      final largest = kNetworkBufferChoicesMb.last;
+      expect(largest, 1024);
       expect(
         DeviceTier.values.map(defaultNetworkBufferMb),
-        isNot(contains(512)),
+        isNot(contains(largest)),
       );
     });
 
     test('a choice beats the device, whichever way it goes', () {
-      expect(resolveNetworkBufferMb(32, DeviceTier.high), 32);
-      expect(resolveNetworkBufferMb(512, DeviceTier.low), 512);
+      expect(resolveNetworkBufferMb(64, DeviceTier.high), 64);
+      expect(resolveNetworkBufferMb(1024, DeviceTier.low), 1024);
     });
 
     test('no choice falls to the device', () {
@@ -142,6 +153,71 @@ void main() {
         resolveNetworkBufferMb(null, DeviceTier.high),
         defaultNetworkBufferMb(DeviceTier.high),
       );
+    });
+  });
+}
+
+/// The torrent cache's ahead/behind split.
+///
+/// TorrServer holds one cache and `readerReadAHead` is the share of it kept in
+/// front of the read point. The remainder is the only backward buffer anywhere
+/// in this player - libVLC 3's prefetch filter takes a size and decides the
+/// rest itself - so this is where "a ten second step back should not
+/// re-download" is answered.
+void _torrentSplitTests() {
+  group('torrentReadAheadPercent', () {
+    /// How much of a cache is left behind the playhead at this split.
+    double behindMb(int cacheMb) =>
+        cacheMb * (100 - torrentReadAheadPercent(cacheMb)) / 100;
+
+    test('a quarter of the cache is held behind the playhead', () {
+      for (final cacheMb in kNetworkBufferChoicesMb) {
+        final behind = behindMb(cacheMb);
+        expect(
+          behind,
+          greaterThan(0),
+          reason: '$cacheMb MB kept nothing behind the read point',
+        );
+        expect(
+          behind,
+          lessThanOrEqualTo(kMaxTorrentBehindMb.toDouble()),
+          reason: 'the behind window is capped; the rest is what plays',
+        );
+      }
+    });
+
+    test('and it is enough for the step the seek buttons take', () {
+      // A ten second step at 1080p is roughly 10 MB - 8 Mbit/s is 1 MB/s. The
+      // 95 % this replaced left about 3 MB behind a 64 MB cache, so every
+      // back-step of any size re-fetched pieces the reader had just released.
+      for (final cacheMb in kNetworkBufferChoicesMb) {
+        expect(
+          behindMb(cacheMb),
+          greaterThanOrEqualTo(8),
+          reason: '$cacheMb MB leaves too little behind for a 10 s step back',
+        );
+      }
+    });
+
+    test('the cap stops a large cache spending all of it on history', () {
+      // 512 MB at a flat quarter would be 128 MB of data already watched.
+      expect(behindMb(512), lessThanOrEqualTo(kMaxTorrentBehindMb.toDouble()));
+      expect(
+        torrentReadAheadPercent(512),
+        greaterThan(torrentReadAheadPercent(128)),
+        reason: 'a bigger cache spends proportionally more of it ahead',
+      );
+    });
+
+    test('read-ahead never drops low enough to starve playback', () {
+      for (final cacheMb in <int>[1, 8, 32, 64, 128, 256, 512, 2048]) {
+        expect(torrentReadAheadPercent(cacheMb), inInclusiveRange(60, 99));
+      }
+    });
+
+    test('a nonsense cache falls back rather than dividing by zero', () {
+      expect(torrentReadAheadPercent(0), 95);
+      expect(torrentReadAheadPercent(-1), 95);
     });
   });
 }

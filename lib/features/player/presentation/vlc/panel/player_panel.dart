@@ -103,7 +103,6 @@ Future<void> showPlayerPanel(
 }) {
   return Navigator.of(context).push<void>(
     _PlayerPanelRoute(
-      isTv: isTv,
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       builder: (routeContext) {
         onOpened?.call(routeContext);
@@ -130,22 +129,23 @@ Future<void> showPlayerPanel(
 /// route below built and visible, own its own transition (a slide, never a
 /// window-sized fade), and take its shape from the window.
 class _PlayerPanelRoute extends PopupRoute<void> {
-  _PlayerPanelRoute({
-    required this.builder,
-    required this.isTv,
-    required this.barrierLabel,
-  });
+  _PlayerPanelRoute({required this.builder, required this.barrierLabel});
 
   final WidgetBuilder builder;
-  final bool isTv;
 
   @override
   final String barrierLabel;
 
   /// A plain colour, drawn by the framework's own barrier: a [ColoredBox], not
   /// an opacity layer over the video.
+  ///
+  /// 45 %, not the 54 % it was, because the barrier is painted behind the
+  /// drawer as well as beside it and the drawer is glass now. Two dimmings in
+  /// series left about 7 % of the picture coming through, which is a panel that
+  /// is translucent only on paper. The drawer does its own darkening; the
+  /// barrier only has to say that the video is not what is being pointed at.
   @override
-  Color get barrierColor => const Color(0x8A000000);
+  Color get barrierColor => const Color(0x73000000);
 
   @override
   bool get barrierDismissible => true;
@@ -169,13 +169,9 @@ class _PlayerPanelRoute extends PopupRoute<void> {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    final shape = playerPanelShapeFor(MediaQuery.sizeOf(context), isTv: isTv);
     return SlideTransition(
       position:
-          Tween<Offset>(
-            begin: playerPanelSlideFrom(shape),
-            end: Offset.zero,
-          ).animate(
+          Tween<Offset>(begin: kPanelSlideFrom, end: Offset.zero).animate(
             CurvedAnimation(parent: animation, curve: Curves.fastOutSlowIn),
           ),
       child: child,
@@ -350,10 +346,6 @@ class _PlayerPanelState extends State<PlayerPanel> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final shape = playerPanelShapeFor(
-      MediaQuery.sizeOf(context),
-      isTv: widget.isTv,
-    );
     // The panel is a PopupRoute and inherits nothing from the screen's tree,
     // so its type scale, insets and text alphas are installed once here and
     // everything below reads them off the context.
@@ -376,7 +368,6 @@ class _PlayerPanelState extends State<PlayerPanel> {
         child: PlayerPanelMetricsScope(
           metrics: metrics,
           child: PlayerPanelShell(
-            shape: shape,
             metrics: metrics,
             // One builder around strip and body together, so both read the
             // same value and the strip can never offer a tab the body cannot
@@ -427,34 +418,59 @@ class _PlayerPanelState extends State<PlayerPanel> {
   /// scrollable strip traps directional focus, and a Material tab is two nodes
   /// where a remote needs one.
   ///
-  /// The tabs sit in a [Wrap], not in a row of [Expanded]s. Five equal columns
-  /// of a drawer give each tab about 62 dp of text, which ellipsises
-  /// `Subtitles` in English and cannot hold the Hindi or Kannada labels at
-  /// all. Intrinsically-sized tabs take the width their word needs and fall
-  /// onto a second line when the words run out of room, still one focus stop
-  /// per tab and still no [Scrollable].
+  /// The strip is a row of equal columns when every label fits one, and a
+  /// [Wrap] of intrinsically-sized tabs when they do not.
+  ///
+  /// Equal columns are the shape the panel is meant to have: three tabs across
+  /// the width of the drawer, each underlined beneath its own word. But five
+  /// equal columns of a drawer give each tab about 62 dp of text, which
+  /// ellipsises `Subtitles` in English and cannot hold the Hindi or Kannada
+  /// labels at all — and an ellipsised tab strip is worse than a wrapped one.
+  ///
+  /// So the choice is measured rather than guessed at, against the labels this
+  /// locale actually has and the text scale actually in force: [_tabsFit] lays
+  /// every label out and answers whether the widest one clears an equal share.
+  /// English and Hindi at three or four tabs take the row; Kannada at five
+  /// falls back to the [Wrap] it had before. Either way a tab is one focus
+  /// stop and there is no [Scrollable] to trap directional focus.
   Widget _header(
     AppLocalizations l10n,
     List<PlayerPanelTab> tabs,
     PlayerPanelTab shown,
   ) {
+    final metrics = PlayerPanelMetrics.of(context);
+    final labels = <String>[for (final tab in tabs) _tabLabel(l10n, tab)];
+
+    Widget tabButton(int index) => _PanelTabButton(
+      label: labels[index],
+      selected: tabs[index] == shown,
+      onPressed: () => _select(tabs[index]),
+    );
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 6, 4, 4),
       child: Row(
         children: <Widget>[
           Expanded(
-            child: Wrap(
-              spacing: 4,
-              runSpacing: 2,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: <Widget>[
-                for (final tab in tabs)
-                  _PanelTabButton(
-                    label: _tabLabel(l10n, tab),
-                    selected: tab == shown,
-                    onPressed: () => _select(tab),
-                  ),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (_tabsFit(context, labels, metrics, constraints.maxWidth)) {
+                  return Row(
+                    children: <Widget>[
+                      for (var i = 0; i < tabs.length; i++)
+                        Expanded(child: tabButton(i)),
+                    ],
+                  );
+                }
+                return Wrap(
+                  spacing: 4,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: <Widget>[
+                    for (var i = 0; i < tabs.length; i++) tabButton(i),
+                  ],
+                );
+              },
             ),
           ),
           _PanelIconButton(
@@ -465,6 +481,52 @@ class _PlayerPanelState extends State<PlayerPanel> {
         ],
       ),
     );
+  }
+
+  /// Whether every one of [labels] fits an equal share of [available].
+  ///
+  /// Laid out for real with a [TextPainter], in this locale's script and under
+  /// this device's text scale, because that is what a threshold on the label
+  /// count cannot know: `Subtitles` and `ಉಪಶೀರ್ಷಿಕೆಗಳು` are the same one tab
+  /// and nothing about the number of tabs tells them apart.
+  ///
+  /// Cheap enough to run in a build: at most five short strings, and only when
+  /// the strip's constraints or the tab set change.
+  static bool _tabsFit(
+    BuildContext context,
+    List<String> labels,
+    PlayerPanelMetrics metrics,
+    double available,
+  ) {
+    if (labels.isEmpty || !available.isFinite) return false;
+    final share = available / labels.length - 2 * metrics.tabHorizontalPadding;
+    if (share <= 0) return false;
+    final textScaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final painter = TextPainter(
+      textDirection: direction,
+      textScaler: textScaler,
+      maxLines: 1,
+    );
+    try {
+      for (final label in labels) {
+        painter.text = TextSpan(
+          text: label,
+          // The selected weight, which is the wider of the two: a tab that
+          // fits unselected and ellipsises the moment it is chosen is the
+          // failure this measurement exists to avoid.
+          style: TextStyle(
+            fontSize: metrics.tabLabelSize,
+            fontWeight: FontWeight.w800,
+          ),
+        );
+        painter.layout();
+        if (painter.width > share) return false;
+      }
+    } finally {
+      painter.dispose();
+    }
+    return true;
   }
 
   String _tabLabel(AppLocalizations l10n, PlayerPanelTab tab) => switch (tab) {
@@ -651,7 +713,8 @@ class _PanelTabButtonState extends State<_PanelTabButton> {
             // A floor on the width, because a Wrap gives a tab exactly the
             // width of its word: `Files` is 37 dp of Roboto at the touch ramp's
             // 13 sp, and three of those 4 dp apart is a mis-tap rather than a
-            // tab strip.
+            // tab strip. In the equal-column strip the [Expanded] above is
+            // already wider than this, so it binds only in the [Wrap].
             child: ConstrainedBox(
               constraints: BoxConstraints(minWidth: metrics.tabMinWidth),
               child: AnimatedContainer(
@@ -660,6 +723,9 @@ class _PanelTabButtonState extends State<_PanelTabButton> {
                   horizontal: metrics.tabHorizontalPadding,
                   vertical: metrics.tabVerticalPadding,
                 ),
+                // Fill and target are the whole column; the indicator below is
+                // not. Hover and focus want every pixel a pointer or a remote
+                // can land on.
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
                   color: _focused
@@ -667,26 +733,38 @@ class _PanelTabButtonState extends State<_PanelTabButton> {
                       : (_hovered
                             ? const Color(0xFF151A22)
                             : Colors.transparent),
-                  border: Border(
-                    bottom: BorderSide(
-                      color: active
-                          ? HotstarPlayerStyle.accent
-                          : Colors.transparent,
-                      width: 2,
-                    ),
-                  ),
                 ),
-                child: Text(
-                  widget.label,
-                  maxLines: 1,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: active
-                        ? HotstarPlayerStyle.primaryText
-                        : metrics.secondaryText,
-                    fontSize: metrics.tabLabelSize,
-                    fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                // The indicator sits under the word, not under the column: an
+                // accent rule the full width of an equal share reads as a
+                // filled segment rather than as a tab marker, and in the
+                // [Wrap] the two are the same thing anyway.
+                child: Center(
+                  widthFactor: 1,
+                  child: Container(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: active
+                              ? HotstarPlayerStyle.accent
+                              : Colors.transparent,
+                          width: 2.5,
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      widget.label,
+                      maxLines: 1,
+                      textAlign: TextAlign.center,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: active
+                            ? HotstarPlayerStyle.primaryText
+                            : metrics.secondaryText,
+                        fontSize: metrics.tabLabelSize,
+                        fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ),

@@ -36,6 +36,9 @@ class PlayerPanelMetrics {
     required this.badgeSize,
     required this.subheaderSize,
     required this.emptySize,
+    required this.chipMinHeight,
+    required this.chipLabelSize,
+    required this.chipHorizontalPadding,
     required this.bannerTextSize,
     required this.bannerIconSize,
     required this.tabLabelSize,
@@ -102,6 +105,23 @@ class PlayerPanelMetrics {
 
   final double subheaderSize;
   final double emptySize;
+
+  // --- Quality filter pills ---
+
+  /// Height of a pill in the Sources tab's filter strip, which is also what
+  /// makes it a target: the pills sit above a list of rows that each clear
+  /// 48 dp, and a 24 dp pill between them would be the one thing in the panel
+  /// a thumb misses.
+  final double chipMinHeight;
+
+  /// A pill's label. A rung above [badgeSize], unlike everything else about
+  /// the two: a badge is read off a row the viewer is already looking at, and
+  /// a pill is a control they have to find first.
+  final double chipLabelSize;
+
+  /// Horizontal padding inside a pill. Wide enough that `4K` is still a pill
+  /// and not a circle.
+  final double chipHorizontalPadding;
 
   /// The Sources tab's fallback banner — the sentence that says why sources
   /// below the viewer's quality preference are in the list. Its own rung rather
@@ -176,6 +196,9 @@ class PlayerPanelMetrics {
     badgeSize: 10,
     subheaderSize: 11,
     emptySize: 13,
+    chipMinHeight: 32,
+    chipLabelSize: 11,
+    chipHorizontalPadding: 12,
     bannerTextSize: 11,
     bannerIconSize: 16,
     tabLabelSize: 13,
@@ -206,6 +229,9 @@ class PlayerPanelMetrics {
     badgeSize: 13,
     subheaderSize: 14,
     emptySize: 16,
+    chipMinHeight: 42,
+    chipLabelSize: 14,
+    chipHorizontalPadding: 16,
     bannerTextSize: 14,
     bannerIconSize: 20,
     tabLabelSize: 16,

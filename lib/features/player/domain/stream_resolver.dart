@@ -422,9 +422,9 @@ int _savedStreamIndex(
     if (isSeries) {
       lastUrl = read(historyRepositoryProvider).getLastStreamUrl(item.url);
     }
-    lastUrl ??= read(
-      watchHistoryProvider,
-    ).firstWhereOrNull((h) => h.item.url == item.url)?.lastStreamUrl;
+    lastUrl ??= read(watchHistoryProvider)
+        .firstWhereOrNull((h) => h.item.url == item.url)
+        ?.lastStreamUrl;
 
     if (lastUrl != null) {
       final found = streams.indexWhere((s) => s.url == lastUrl);
@@ -532,9 +532,9 @@ Future<int> _firstHealthyStream(
     final idx = order[dispatched++];
     onProbe?.call(idx, ProbeOutcome.trying);
     unawaited(
-      _isHealthy(
-        streams[idx],
-      ).then((h) => record(idx, h)).catchError((_) => record(idx, false)),
+      _isHealthy(streams[idx])
+          .then((h) => record(idx, h))
+          .catchError((_) => record(idx, false)),
     );
   };
 

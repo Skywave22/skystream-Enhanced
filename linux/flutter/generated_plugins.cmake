@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   flutter_js_ng
   flutter_secure_storage_linux
+  flutter_volume_controller
   open_file_linux
   screen_retriever_linux
   url_launcher_linux

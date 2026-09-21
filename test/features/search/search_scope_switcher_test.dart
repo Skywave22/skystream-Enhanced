@@ -60,36 +60,54 @@ void main() {
   /// drives itself, so these four were the only motion in the app that
   /// ignored the setting outright.
   group('OS remove-animations setting', () {
-    testWidgets('the live-TV equalizer stops looping when motion is off', (
+    // The live-TV glyph used to be three looping controllers that had to
+    // answer the setting themselves. It is now static, which answers it for
+    // every setting at once - so the assertion is simply that nothing moves.
+    for (final motionOff in [false, true]) {
+      testWidgets('the live-TV indicator never animates '
+          '(disableAnimations: $motionOff)', (tester) async {
+        await tester.pumpWidget(
+          host(
+            const LiveTvIndicator(isActive: true),
+            media: MediaQueryData(disableAnimations: motionOff),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          tester.hasRunningAnimations,
+          isFalse,
+          reason: 'a standing glyph must never request another frame',
+        );
+      });
+    }
+
+    testWidgets('the live-TV indicator draws three bars of unequal height', (
       tester,
     ) async {
       await tester.pumpWidget(
         host(
-          const WaveformEqualizer(isActive: true),
+          const LiveTvIndicator(isActive: true),
           media: const MediaQueryData(),
         ),
       );
       await tester.pump();
-      expect(
-        tester.hasRunningAnimations,
-        isTrue,
-        reason: 'with motion allowed the bars should be moving',
-      );
 
-      await tester.pumpWidget(
-        host(
-          const WaveformEqualizer(isActive: true),
-          media: const MediaQueryData(disableAnimations: true),
-        ),
-      );
-      await tester.pump();
-      expect(
-        tester.hasRunningAnimations,
-        isFalse,
-        reason:
-            'the OS asked for no animation; a repeat() loop has to answer for '
-            'itself because the framework cannot shorten it',
-      );
+      final bars = tester
+          .widgetList<Container>(
+            find.descendant(
+              of: find.byType(LiveTvIndicator),
+              matching: find.byType(Container),
+            ),
+          )
+          .toList();
+      expect(bars, hasLength(3));
+
+      final heights = bars
+          .map((bar) => (bar.constraints?.maxHeight ?? 0))
+          .toList();
+      // Three of one height reads as a pause glyph, not as sound.
+      expect(heights.toSet(), hasLength(3));
     });
 
     testWidgets('the hover border stops sweeping when motion is off', (
@@ -100,9 +118,7 @@ void main() {
         child: const SizedBox(width: 40, height: 20),
       );
 
-      await tester.pumpWidget(
-        host(subject(), media: const MediaQueryData()),
-      );
+      await tester.pumpWidget(host(subject(), media: const MediaQueryData()));
       await tester.pump();
       expect(tester.hasRunningAnimations, isTrue);
 

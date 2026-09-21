@@ -1,11 +1,13 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+
 import '../domain/entity/subtitle_model.dart';
 
 class OpenSubtitlesProvider extends SubtitleProvider {
   final Dio _dio;
   final String? _apiKey;
   static const String baseUrl = "https://api.opensubtitles.com/api/v1";
+
   /// Build-time fallback key, supplied by the build rather than the source.
   ///
   /// Pass via: flutter build --dart-define=OPENSUBTITLES_API_KEY=your_key
@@ -839,8 +841,7 @@ class SubSourceProvider extends SubtitleProvider {
         options: Options(
           headers: {
             ...SubtitleProvider.commonHeaders,
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
             'Referer': 'https://subsource.net/',
             'Origin': 'https://subsource.net/',
           },
@@ -873,8 +874,7 @@ class SubSourceProvider extends SubtitleProvider {
         options: Options(
           headers: {
             ...SubtitleProvider.commonHeaders,
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
             'Referer': 'https://subsource.net/',
             'Origin': 'https://subsource.net/',
           },
@@ -950,8 +950,7 @@ class SubSourceProvider extends SubtitleProvider {
         options: Options(
           headers: {
             ...SubtitleProvider.commonHeaders,
-            'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
             'Referer': 'https://subsource.net/',
             'Origin': 'https://subsource.net/',
           },
@@ -973,8 +972,7 @@ class SubSourceProvider extends SubtitleProvider {
 
   /// Browser-mimicking headers for keyless SubSource
   static const Map<String, String> _keylessBrowserHeaders = {
-    'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
     'Referer': 'https://subsource.net/',
     'Origin': 'https://subsource.net/',
     'Accept': '*/*',
@@ -1089,8 +1087,7 @@ class SubSourceProvider extends SubtitleProvider {
           options: Options(
             headers: {
               ...SubtitleProvider.commonHeaders,
-              'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
               'Referer': 'https://subsource.net/',
               'Origin': 'https://subsource.net/',
             },

@@ -58,14 +58,13 @@ class SyncDispatchResult {
 }
 
 /// Performs one fan-out, skipping every service in [alreadyDelivered].
-typedef SyncSender =
-    Future<SyncDispatchResult> Function(
-      SyncOp op,
-      MultimediaItem item,
-      Episode? episode,
-      double progress,
-      Set<String> alreadyDelivered,
-    );
+typedef SyncSender = Future<SyncDispatchResult> Function(
+  SyncOp op,
+  MultimediaItem item,
+  Episode? episode,
+  double progress,
+  Set<String> alreadyDelivered,
+);
 
 /// Somewhere to keep one string across restarts.
 abstract class SyncOutboxStore {

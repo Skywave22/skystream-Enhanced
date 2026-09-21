@@ -5,6 +5,7 @@ import 'package:skystream/core/utils/responsive_breakpoints.dart';
 import 'package:skystream/core/utils/layout_constants.dart';
 import 'package:skystream/features/tracking/domain/sync_progress_item.dart';
 import 'package:skystream/shared/widgets/desktop_scroll_wrapper.dart';
+
 import 'synced_progress_card.dart';
 
 class SyncedProgressSection extends ConsumerStatefulWidget {
@@ -82,11 +83,13 @@ class _SyncedProgressSectionState extends ConsumerState<SyncedProgressSection> {
             showButtons: isLarge,
             child: ListView.builder(
               controller: _scrollController,
+              // Same as ContinueWatchingSection above it: no vertical padding,
+              // and Clip.none so the card's focus ring and glow survive.
+              clipBehavior: Clip.none,
               padding: EdgeInsets.symmetric(
                 horizontal: isLarge
                     ? LayoutConstants.dashboardContentPadding
                     : 16,
-                vertical: 8,
               ),
               scrollDirection: Axis.horizontal,
               itemCount: widget.items.length,

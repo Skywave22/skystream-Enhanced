@@ -1,6 +1,8 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../core/utils/layout_constants.dart';
 import '../../data/explore_filter_provider.dart';
 import '../../data/explore_language_provider.dart';
@@ -45,9 +47,8 @@ class _UnifiedFilterDialogState extends ConsumerState<UnifiedFilterDialog>
           width: double.infinity,
           constraints: const BoxConstraints(maxHeight: 650, maxWidth: 500),
           decoration: BoxDecoration(
-            color: Theme.of(context).scaffoldBackgroundColor.withValues(
-              alpha: 0.9,
-            ), // Glassmorphism base
+            color: Theme.of(context).scaffoldBackgroundColor
+                .withValues(alpha: 0.9), // Glassmorphism base
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
               color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
@@ -111,9 +112,9 @@ class _UnifiedFilterDialogState extends ConsumerState<UnifiedFilterDialog>
                         controller: _tabController,
                         indicatorColor: Theme.of(context).colorScheme.primary,
                         labelColor: Theme.of(context).colorScheme.primary,
-                        unselectedLabelColor: Theme.of(
-                          context,
-                        ).colorScheme.onSurfaceVariant,
+                        unselectedLabelColor: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant,
                         labelStyle: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 13,
@@ -320,17 +321,15 @@ class _RatingTab extends ConsumerWidget {
           tileColor: isSelected
               ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
               : null,
-          focusColor: Theme.of(
-            context,
-          ).colorScheme.primary.withValues(alpha: 0.5),
+          focusColor: Theme.of(context).colorScheme.primary
+              .withValues(alpha: 0.5),
           leading: Icon(
             Icons.star,
             color: isSelected
                 ? Theme.of(context).colorScheme.primary
                 : (rating == null
-                      ? Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.3)
+                      ? Theme.of(context).colorScheme.onSurface
+                            .withValues(alpha: 0.3)
                       : Colors.amber),
           ),
           title: Text(
@@ -389,9 +388,8 @@ class _LanguageTab extends ConsumerWidget {
             ref.read(languageProvider.notifier).setLanguage(lang.code);
           },
           borderRadius: BorderRadius.circular(16),
-          focusColor: Theme.of(
-            context,
-          ).colorScheme.primary.withValues(alpha: 0.6),
+          focusColor: Theme.of(context).colorScheme.primary
+              .withValues(alpha: 0.6),
           child: Container(
             padding: const EdgeInsets.symmetric(
               horizontal: LayoutConstants.spacingMd,
@@ -399,9 +397,8 @@ class _LanguageTab extends ConsumerWidget {
             decoration: BoxDecoration(
               color: isSelected
                   ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
-                  : Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.05),
+                  : Theme.of(context).colorScheme.onSurface
+                        .withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isSelected
@@ -419,9 +416,8 @@ class _LanguageTab extends ConsumerWidget {
                     shape: BoxShape.circle,
                     color: isSelected
                         ? Theme.of(context).colorScheme.primary
-                        : Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.1),
+                        : Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.1),
                   ),
                   child: Text(
                     lang.code.split('-')[0].toUpperCase(),
@@ -456,9 +452,8 @@ class _LanguageTab extends ConsumerWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: isSelected
-                              ? Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.7)
+                              ? Theme.of(context).colorScheme.primary
+                                    .withValues(alpha: 0.7)
                               : Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 12,
                         ),
@@ -518,9 +513,8 @@ class _GenreTab extends ConsumerWidget {
                 style: TextStyle(
                   color: isSelected
                       ? Theme.of(context).colorScheme.primary
-                      : Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.7),
+                      : Theme.of(context).colorScheme.onSurface
+                            .withValues(alpha: 0.7),
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
@@ -540,16 +534,14 @@ class _GenreTab extends ConsumerWidget {
             tileColor: isSelected
                 ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
                 : null,
-            focusColor: Theme.of(
-              context,
-            ).colorScheme.primary.withValues(alpha: 0.5),
+            focusColor: Theme.of(context).colorScheme.primary
+                .withValues(alpha: 0.5),
             leading: Icon(
               isSelected ? Icons.check_circle : Icons.circle_outlined,
               color: isSelected
                   ? Theme.of(context).colorScheme.primary
-                  : Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.3),
+                  : Theme.of(context).colorScheme.onSurface
+                        .withValues(alpha: 0.3),
             ),
             title: Text(
               genre.name,
@@ -601,19 +593,16 @@ class _YearTab extends ConsumerWidget {
               ref.read(exploreFilterProvider.notifier).setYear(null);
             },
             borderRadius: BorderRadius.circular(8),
-            focusColor: Theme.of(
-              context,
-            ).colorScheme.primary.withValues(alpha: 0.6),
+            focusColor: Theme.of(context).colorScheme.primary
+                .withValues(alpha: 0.6),
             child: Container(
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: isSelected
-                    ? Theme.of(
-                        context,
-                      ).colorScheme.primary.withValues(alpha: 0.2)
-                    : Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.05),
+                    ? Theme.of(context).colorScheme.primary
+                          .withValues(alpha: 0.2)
+                    : Theme.of(context).colorScheme.onSurface
+                          .withValues(alpha: 0.05),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: isSelected
@@ -626,9 +615,8 @@ class _YearTab extends ConsumerWidget {
                 style: TextStyle(
                   color: isSelected
                       ? Theme.of(context).colorScheme.primary
-                      : Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.7),
+                      : Theme.of(context).colorScheme.onSurface
+                            .withValues(alpha: 0.7),
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                   fontSize: 16,
                 ),
@@ -645,17 +633,15 @@ class _YearTab extends ConsumerWidget {
             ref.read(exploreFilterProvider.notifier).setYear(year);
           },
           borderRadius: BorderRadius.circular(8),
-          focusColor: Theme.of(
-            context,
-          ).colorScheme.primary.withValues(alpha: 0.4),
+          focusColor: Theme.of(context).colorScheme.primary
+              .withValues(alpha: 0.4),
           child: Container(
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: isSelected
                   ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
-                  : Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.05),
+                  : Theme.of(context).colorScheme.onSurface
+                        .withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: isSelected
@@ -712,9 +698,8 @@ class _TitleLanguageTab extends ConsumerWidget {
                 .setLanguage(lang['code']!);
           },
           borderRadius: BorderRadius.circular(16),
-          focusColor: Theme.of(
-            context,
-          ).colorScheme.primary.withValues(alpha: 0.6),
+          focusColor: Theme.of(context).colorScheme.primary
+              .withValues(alpha: 0.6),
           child: Container(
             padding: const EdgeInsets.symmetric(
               horizontal: LayoutConstants.spacingMd,
@@ -722,9 +707,8 @@ class _TitleLanguageTab extends ConsumerWidget {
             decoration: BoxDecoration(
               color: isSelected
                   ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2)
-                  : Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.05),
+                  : Theme.of(context).colorScheme.onSurface
+                        .withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isSelected
@@ -742,9 +726,8 @@ class _TitleLanguageTab extends ConsumerWidget {
                     shape: BoxShape.circle,
                     color: isSelected
                         ? Theme.of(context).colorScheme.primary
-                        : Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.1),
+                        : Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.1),
                   ),
                   child: Text(
                     lang['code']!.substring(0, 2).toUpperCase(),
@@ -779,9 +762,8 @@ class _TitleLanguageTab extends ConsumerWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: isSelected
-                              ? Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.7)
+                              ? Theme.of(context).colorScheme.primary
+                                    .withValues(alpha: 0.7)
                               : Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 12,
                         ),

@@ -26,8 +26,14 @@ class PlayerRail extends StatelessWidget {
   /// Text shown above the track, e.g. `140%`.
   final String label;
 
-  /// Brightness sits on the left, volume on the right, matching where the
-  /// gesture started.
+  /// Which edge the rail is drawn against.
+  ///
+  /// Volume on the left, brightness on the right — fixed, not a reflection of
+  /// which edge the drag began on. The two edges are configurable, so a viewer
+  /// can put volume on both of them or on neither, and a rail that followed
+  /// the finger would then be the same rail in two places or in a place the
+  /// setting had moved. A fixed side is one a viewer learns once, and it is
+  /// also the side each of them was on before the engine rewrite.
   final bool onLeft;
 
   @override
@@ -35,10 +41,7 @@ class PlayerRail extends StatelessWidget {
     return Align(
       alignment: onLeft ? Alignment.centerLeft : Alignment.centerRight,
       child: Padding(
-        padding: EdgeInsets.only(
-          left: onLeft ? 28 : 0,
-          right: onLeft ? 0 : 28,
-        ),
+        padding: EdgeInsets.only(left: onLeft ? 28 : 0, right: onLeft ? 0 : 28),
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: 0.62),

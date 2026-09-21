@@ -113,9 +113,7 @@ Future<TorrentFile?> showTorrentFileSheet(
               selected: selected,
               selectedColor: Colors.white,
               leading: Icon(
-                selected
-                    ? Icons.play_arrow_rounded
-                    : Icons.video_file_outlined,
+                selected ? Icons.play_arrow_rounded : Icons.video_file_outlined,
                 color: Colors.white70,
               ),
               title: Text(

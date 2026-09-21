@@ -124,55 +124,36 @@ const double _kCompactWidth = 300;
 /// under the viewer every time they tapped.
 const double _kTopChromeHeight = 92;
 
-/// Clearance over the scrubber, from the shared chrome token so the card
-/// follows the bottom bar instead of repeating its metrics.
+/// The clearance the card holds over the scrubber.
 ///
-/// One number on every form factor. [PlayerBottomBar]'s height is
-/// content-driven and measures 137 dp on the ten-foot bar, 123 for one flat
-/// control row and 171 when the touch action strip takes a run of its own, so
-/// `bottomChromeHeight + 12` clears both flat bars.
+/// From the shared chrome token so the card follows the bottom bar instead of
+/// repeating its metrics, and per form factor because the bar is: 92 dp on a
+/// handset, 102 on a desktop window and 116 on a television.
 ///
 /// Too small a clearance is worse than it looks: the card is a later child of
 /// the player's Stack than the controls, so it does not merely cover the right
 /// end of the seek bar, it hit-tests in front of it and eats the drags aimed
 /// at it.
-const double _kBottomClearance = HotstarPlayerStyle.bottomChromeHeight + 12;
-
-/// What the bar grows by when its action strip takes a run of its own, which
-/// on a portrait handset it does: `171 - 123`, one [PlayerIconButton] row.
-/// See [PlayerBottomBar.narrowTouchWidth] for when.
-const double _kActionRunHeight = 48;
-
-/// The clearance the card actually gets: [_kBottomClearance] with two
-/// corrections, in this order.
 ///
-/// Up by [_kActionRunHeight] below [PlayerBottomBar.narrowTouchWidth] of inner
-/// width, where the bar puts its action strip on a run of its own and stands
-/// that much taller. The threshold is read off the bar's own constant and
-/// applied to the same inner width the bar measures, so the card cannot
-/// disagree with the bar about which shape the bar is in. No `isTouch` is
-/// needed: every viewport narrow enough to reach the split is a handset held
-/// upright, since desktop windows are floored at 800x600 and no phone in
-/// landscape is under 568 dp.
-///
-/// Down when there is no room. The clearance is a preference and gives before
-/// the card breaks: [_kMinCardHeight] is reserved out of the viewport and what
-/// is left over is the clearance. [build] hands the card
+/// One correction, and only one. The clearance is a preference and gives
+/// before the card breaks: [_kMinCardHeight] is reserved out of the viewport
+/// and what is left over is the clearance. [build] hands the card
 /// `size.height - clearance`, so a flat clearance overflows a 360 dp-tall
 /// phone by 2 dp and a 320 dp one by 34.
+///
+/// There used to be a second correction - `+ 48` below
+/// [PlayerBottomBar.narrowTouchWidth], for the run the action strip took on a
+/// portrait handset. The strip scrolls now and is one line at every width, so
+/// that run does not exist and the correction was 48 dp of empty video held
+/// above the bar on the one form factor with the least of it to spare.
 double _bottomClearance(
   Size size,
   EdgeInsets padding, {
   required double edge,
   required bool isTv,
 }) {
-  // The bar's own arithmetic, from PlayerBottomBar.build.
-  final double left = isTv ? edge : math.max(padding.left, edge);
-  final double right = isTv ? edge : math.max(padding.right, edge);
-  final double inner = size.width - left - right;
-  final double preferred = inner < PlayerBottomBar.narrowTouchWidth
-      ? _kBottomClearance + _kActionRunHeight
-      : _kBottomClearance;
+  final double preferred =
+      HotstarPlayerStyle.bottomChromeHeightFor(isTv: isTv) + 12;
   final double room = size.height - padding.bottom - _kMinCardHeight;
   return math.min(preferred, math.max(0.0, room));
 }
@@ -367,9 +348,14 @@ class _NextEpisodeCountdownState extends State<NextEpisodeCountdown>
         alignment: Alignment.bottomRight,
         child: Padding(
           padding: EdgeInsets.only(
-            right: widget.isTv
-                ? edge
-                : (padding.right > edge ? padding.right : edge),
+            // The trailing line: the bar's own right padding plus the optical
+            // inset the track's far end and the last utility button both
+            // answer to. See `HotstarPlayerStyle.trackEndInset`.
+            right:
+                (widget.isTv
+                    ? edge
+                    : (padding.right > edge ? padding.right : edge)) +
+                HotstarPlayerStyle.trackEndInset,
             bottom:
                 _bottomClearance(size, padding, edge: edge, isTv: widget.isTv) +
                 padding.bottom,

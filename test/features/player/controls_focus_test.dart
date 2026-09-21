@@ -9,6 +9,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
 import 'package:skystream/features/player/presentation/vlc/chrome_visibility_controller.dart';
+import 'package:skystream/features/player/presentation/system_volume.dart';
+import 'package:skystream/features/player/presentation/vlc/player_rail.dart';
+import 'package:skystream/features/player/presentation/vlc/player_slider_dialog.dart';
 import 'package:skystream/features/player/presentation/vlc/panel/player_panel.dart'
     show PlayerPanelTab;
 import 'package:skystream/features/player/presentation/vlc/vlc_player_controls.dart';
@@ -22,10 +25,12 @@ import 'package:skystream/features/player/presentation/widgets/player_control_co
         PlayerActionButton,
         PlayerActionStrip,
         PlayerBottomBar,
+        PlayerCenterControls,
+        PlayerCenterSeekButton,
         PlayerCenterPlayButton,
         PlayerIconButton;
 import 'package:skystream/features/player/presentation/widgets/player_stream_widgets.dart'
-    show PlayerBufferingIndicator, PlayerSeekBar;
+    show PlayerBufferingIndicator, PlayerSeekBar, PlayerTimeLabel;
 import 'package:skystream/features/player/presentation/player_platform_service.dart';
 import 'package:skystream/features/settings/presentation/player_settings_provider.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
@@ -137,12 +142,15 @@ Future<void> _shoulder(WidgetTester tester, LogicalKeyboardKey key) async {
 Widget _host(
   Widget child, {
   required bool isTv,
+  bool desktopProfile = false,
   PlayerSettings settings = const PlayerSettings(),
 }) {
   return ProviderScope(
     overrides: [
       deviceProfileProvider.overrideWithValue(
-        AsyncValue.data(DeviceProfile(isTv: isTv)),
+        AsyncValue.data(
+          DeviceProfile(isTv: isTv, isDesktopOS: desktopProfile),
+        ),
       ),
       playerSettingsProvider.overrideWithBuild((_, _) => settings),
     ],
@@ -175,6 +183,12 @@ Future<VlcPlayerController> _pumpControls(
   bool withoutPanel = false,
   Set<PlayerPanelTab> panelTabs = _allTabs,
   VoidCallback? onNextEpisode,
+  VoidCallback? onPreviousEpisode,
+
+  /// Stands in for "a film", which a default parameter cannot express: the
+  /// harness gives `onNextEpisode` a callback when none is passed, the way
+  /// [withoutPanel] stands in for `onOpenPanel: null`.
+  bool withoutEpisodes = false,
 
   /// A phone gets these two and a television does not. Null by default.
   VoidCallback? onEnterPip,
@@ -182,6 +196,16 @@ Future<VlcPlayerController> _pumpControls(
   ChromeVisibilityController? chrome,
   FakeVlcEngine? engine,
   PlayerSettings settings = const PlayerSettings(),
+  bool isLive = false,
+  SystemVolume? systemVolume,
+
+  /// Whether the *device profile* says desktop, as opposed to [desktop], which
+  /// only hands the controls an `onToggleFullscreen`. They agree on a real
+  /// machine and are deliberately separate here: most of this file predates
+  /// the distinction and reads the build-local flag, while anything that has
+  /// to state which kind of device this is - the volume routing, the lock -
+  /// reads the profile.
+  bool desktopProfile = false,
   List<SkipSegment> skipSegments = const <SkipSegment>[],
   VoidCallback? onSkipOutro,
   Size size = _tv,
@@ -206,16 +230,20 @@ Future<VlcPlayerController> _pumpControls(
         title: 'The Body',
         subtitle: 'S5 E16',
         onBack: () {},
-        onNextEpisode: onNextEpisode ?? () {},
+        onNextEpisode: withoutEpisodes ? null : (onNextEpisode ?? () {}),
+        onPreviousEpisode: withoutEpisodes ? null : onPreviousEpisode,
         onOpenPanel: withoutPanel ? null : onOpenPanel,
         panelTabs: panelTabs,
         onEnterPip: onEnterPip,
         locked: locked,
         onToggleFullscreen: desktop ? () {} : null,
+        isLive: isLive,
+        systemVolumeFactory: systemVolume == null ? null : () => systemVolume,
         skipSegments: skipSegments,
         onSkipOutro: onSkipOutro,
       ),
       isTv: isTv,
+      desktopProfile: desktopProfile,
       settings: settings,
     ),
   );
@@ -303,6 +331,63 @@ void _expectHidden(WidgetTester tester, {String? reason}) {
 /// screen-wide detector owns a double-tap (seek on touch, fullscreen on
 /// desktop), so a button's own tap recogniser only wins the arena once that
 /// one has timed out.
+/// What holds primary focus, named the way a viewer would name it: a button's
+/// tooltip, else its accessibility label, else the node's debug label.
+String _focusedControl() {
+  final context = FocusManager.instance.primaryFocus?.context;
+  final tooltip = context?.findAncestorWidgetOfExactType<Tooltip>()?.message;
+  if (tooltip != null) return tooltip;
+  final label = context
+      ?.findAncestorWidgetOfExactType<Semantics>()
+      ?.properties
+      .label;
+  return label ?? '<${FocusManager.instance.primaryFocus?.debugLabel}>';
+}
+
+/// The platform's media volume, faked.
+///
+/// A handset routes the bottom of its scale through the system stream rather
+/// than through libVLC, so on that form factor this - not `engine.callsTo
+/// ('setVolume')` - is where the level a viewer chose actually lands.
+class _FakeSystemVolume implements SystemVolume {
+  _FakeSystemVolume();
+
+  /// Starts at full, which is where the engine's own default of 100 % puts the
+  /// joined level. A fake that started halfway would make every relative
+  /// gesture in these tests start from a different place than it does on a
+  /// device.
+  double level = 1;
+  final StreamController<double> _changes = StreamController<double>.broadcast();
+  bool disposed = false;
+
+  /// Every level this app has written, in order.
+  final List<double> writes = <double>[];
+
+  @override
+  Future<double?> read() async => level;
+
+  @override
+  Future<void> write(double value) async {
+    level = value;
+    writes.add(value);
+  }
+
+  @override
+  Stream<double> get changes => _changes.stream;
+
+  /// The hardware rocker, which moves the stream with no call from the app.
+  void rocker(double value) {
+    level = value;
+    _changes.add(value);
+  }
+
+  @override
+  void dispose() {
+    disposed = true;
+    unawaited(_changes.close());
+  }
+}
+
 Future<void> _tapControl(WidgetTester tester, Finder finder) async {
   await tester.tap(finder);
   await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
@@ -327,28 +412,39 @@ void main() {
     // The panel is a route of its own, so the chrome underneath it keeps
     // ticking. Without a hold the bars fade out behind it, their ExcludeFocus
     // makes the button that opened it unfocusable, and closing focuses nothing.
-    testWidgets('an open panel holds the chrome up for as long as it lives', (
+    testWidgets('an open panel takes the bars out of sight but keeps them', (
       tester,
     ) async {
+      // Two different things, and the panel needs both. The bars are not
+      // painted while it is up - they would sit half-lit under its barrier -
+      // but the chrome is still *held*, which is what stops the clock and what
+      // keeps the button that opened the panel focusable for the pop to hand
+      // focus back to. The proof of the hold is that the bars are there the
+      // instant the panel closes, with no poke to summon them.
       final panel = Completer<void>();
       await _pumpControls(tester, onOpenPanel: (_) => panel.future);
 
       await tester.tap(find.byTooltip('Sources'));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      _expectHidden(tester, reason: 'out of sight behind the panel');
 
       // Well past the hide clock, and past the one re-arm _expire grants a
       // player it thinks is paused.
       await _letHide(tester);
       await _letHide(tester);
       await _letHide(tester);
-      _expectShown(tester, reason: 'the panel is still open');
 
       panel.complete();
-      await tester.pump();
+      await tester.pumpAndSettle();
+      _expectShown(
+        tester,
+        reason: 'the hold outlasted the clock, so they come straight back',
+      );
+
       await _letHide(tester);
       await _letHide(tester);
       await _letHide(tester);
-      _expectHidden(tester, reason: 'the hold ended with the panel');
+      _expectHidden(tester, reason: 'and the clock has them again');
     });
 
     testWidgets('hiding hands focus to the sink, never the route scope', (
@@ -562,8 +658,11 @@ void main() {
     // isTv is declared on VlcProgressBar and passed by the controls; it has to
     // be read as well.
     testWidgets('the scrubber is sized for a sofa on TV', (tester) async {
+      // Still the taller of the two ramps. Both came down 10 dp when the row
+      // was trimmed to the track and its thumb: the dead space under an 8 dp
+      // track was reading as a gap between the scrubber and the controls.
       await _pumpControls(tester);
-      expect(tester.getSize(find.byType(PlayerSeekBar)).height, 48);
+      expect(tester.getSize(find.byType(PlayerSeekBar)).height, 38);
     });
 
     testWidgets('a parked remote does not pin the chrome, but comes back '
@@ -678,6 +777,458 @@ void main() {
     });
   });
 
+  /// Coverage, as opposed to the containment the group above pins.
+  ///
+  /// "Every arrow stays on a chrome node" is satisfied by a bar where half the
+  /// buttons are islands nothing reaches. What a remote actually needs is that
+  /// every control is *on the way* to somewhere, and the bar is wide: on a
+  /// television it renders up to fifteen focus stops across two rows and a
+  /// scrubber.
+  ///
+  /// Each walk is one direction in its own test on purpose.
+  /// [DirectionalFocusTraversalPolicyMixin] keeps a history per scope and a
+  /// reversal pops it rather than moving geometrically, so a test that turns
+  /// round mid-walk measures the backtracking and not the layout — which
+  /// reads, very convincingly, as a bar whose right-hand half is unreachable.
+  group('VlcPlayerControls D-pad coverage on TV', () {
+    /// Presses [key] until focus stops moving, and returns everywhere it went.
+    Future<List<String>> walk(
+      WidgetTester tester,
+      LogicalKeyboardKey key, {
+      int limit = 20,
+    }) async {
+      _byLabel('player-play-pause').requestFocus();
+      await tester.pump();
+      final trail = <String>[_focusedControl()];
+      for (var i = 0; i < limit; i++) {
+        await tester.sendKeyEvent(key);
+        await tester.pump();
+        final next = _focusedControl();
+        if (next == trail.last) break;
+        trail.add(next);
+      }
+      return trail;
+    }
+
+    testWidgets('Right from play/pause reaches every utility button', (
+      tester,
+    ) async {
+      await _pumpControls(tester, onEnterPip: () {});
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      final trail = await walk(tester, LogicalKeyboardKey.arrowRight);
+
+      // The transport group and then the whole right-hand group, in the order
+      // _actions builds it. The clock is between them and is not in the trail
+      // on purpose: it is a read-out, holds no focus node and is not a stop on
+      // the way anywhere.
+      expect(trail, <String>[
+        l10n.pause,
+        l10n.next,
+        l10n.sources,
+        l10n.audioTracks,
+        l10n.subtitles,
+        l10n.episodes,
+        l10n.volume,
+        l10n.torrentFiles,
+        '1x',
+        l10n.pip,
+        l10n.resize,
+      ]);
+    });
+
+    testWidgets('Left from play/pause has nowhere to go and stays', (
+      tester,
+    ) async {
+      // Play/pause is the left end of the bar now: the seek pair that used to
+      // sit outside it is in the centre cluster on a handset and nowhere else.
+      await _pumpControls(tester, onEnterPip: () {});
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      final trail = await walk(tester, LogicalKeyboardKey.arrowLeft);
+
+      expect(trail, <String>[l10n.pause]);
+    });
+
+    testWidgets('Up from play/pause reaches the scrubber and then Back', (
+      tester,
+    ) async {
+      await _pumpControls(tester, onEnterPip: () {});
+      final back = MaterialLocalizations.of(
+        tester.element(find.byType(VlcPlayerControls)),
+      ).backButtonTooltip;
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      final trail = await walk(tester, LogicalKeyboardKey.arrowUp);
+
+      expect(trail, <String>[l10n.pause, '<player-seek-bar>', back]);
+    });
+
+    testWidgets('the skip chip joins that column without displacing Back', (
+      tester,
+    ) async {
+      // The chip lives outside the chrome, bottom-right, and appears while the
+      // bars may already be up. It has to be one more stop on the way to Back,
+      // not a replacement for it: an intro is exactly when a viewer reaches for
+      // Back, and the chip is on a clock.
+      await _pumpControls(
+        tester,
+        onEnterPip: () {},
+        skipSegments: <SkipSegment>[
+          SkipSegment(type: SkipType.intro, startTime: 0, endTime: 90),
+        ],
+      );
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      final back = MaterialLocalizations.of(
+        tester.element(find.byType(VlcPlayerControls)),
+      ).backButtonTooltip;
+
+      final trail = await walk(tester, LogicalKeyboardKey.arrowUp);
+
+      expect(trail, contains(l10n.skipIntro));
+      expect(trail, contains(back));
+      expect(
+        trail.indexOf(l10n.skipIntro),
+        lessThan(trail.indexOf(back)),
+        reason: 'the chip sits below the top bar, so it is met first',
+      );
+    });
+  });
+
+  // Requirement: a remote reaches every control, including the ones inside the
+  // two dialogs. They are the newest surface in the player and the only one a
+  // viewer opens *from* a remote, so an unreachable chip there is a value that
+  // cannot be chosen at all.
+  //
+  // The slider is deliberately not in these trails: on a television it is a
+  // read-out (`CustomSlider.focusable` is false) and the two step buttons are
+  // what adjusts it, so Up/Down are never trapped inside it.
+  group('the value dialogs on a remote', () {
+    /// Walks [keys] from wherever the dialog opened and returns everywhere
+    /// focus went, the entry point included.
+    Future<Set<String>> walkDialog(
+      WidgetTester tester,
+      List<LogicalKeyboardKey> keys,
+    ) async {
+      final seen = <String>{_focusedControl()};
+      for (final key in keys) {
+        await tester.sendKeyEvent(key);
+        await tester.pumpAndSettle();
+        seen.add(_focusedControl());
+      }
+      return seen;
+    }
+
+    /// Down to the step row, left to its far button, down into the presets and
+    /// right along them. One turn per axis, because
+    /// [DirectionalFocusTraversalPolicyMixin] pops its history on a reversal
+    /// and a walk that doubles back measures the backtracking instead.
+    const List<LogicalKeyboardKey> sweep = <LogicalKeyboardKey>[
+      LogicalKeyboardKey.arrowDown,
+      LogicalKeyboardKey.arrowLeft,
+      LogicalKeyboardKey.arrowDown,
+      LogicalKeyboardKey.arrowRight,
+      LogicalKeyboardKey.arrowRight,
+      LogicalKeyboardKey.arrowRight,
+      LogicalKeyboardKey.arrowRight,
+    ];
+
+    testWidgets('the speed dialog: every preset and both steps', (
+      tester,
+    ) async {
+      await _pumpControls(tester, isTv: true);
+      await _tapControl(tester, find.byTooltip('1x'));
+      await tester.pumpAndSettle();
+
+      // It opens on Close, which is the one control here that changes nothing.
+      expect(_focusedControl(), 'Close');
+
+      expect(await walkDialog(tester, sweep), <String>{
+        'Close',
+        'Decrease',
+        'Increase',
+        '0.5x',
+        '1x',
+        '1.25x',
+        '1.5x',
+        '2x',
+      });
+
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('the volume dialog: the same shape, its own values', (
+      tester,
+    ) async {
+      await _pumpControls(tester, isTv: true);
+      await _tapControl(tester, find.byTooltip('Volume'));
+      await tester.pumpAndSettle();
+
+      // 100 % is the floor on a television, not the middle: the remote's
+      // volume keys belong to the set, so the app has no business attenuating
+      // underneath them and the dialog is a boost control.
+      expect(await walkDialog(tester, sweep), <String>{
+        'Close',
+        'Decrease',
+        'Increase',
+        '100%',
+        '125%',
+        '150%',
+        '175%',
+        '200%',
+      });
+
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('a preset row never takes a second line to walk', (
+      tester,
+    ) async {
+      // The reason the presets are a row of equal columns rather than a Wrap:
+      // five chips at their natural width overflow the dialog, and a second
+      // run is a band Left and Right cannot cross.
+      await _pumpControls(tester, isTv: true);
+      await _tapControl(tester, find.byTooltip('Volume'));
+      await tester.pumpAndSettle();
+
+      final tops = <double>{
+        for (final label in <String>['100%', '125%', '150%', '175%', '200%'])
+          tester.getRect(
+            find.descendant(
+              of: find.byKey(kPlayerPresetRowKey),
+              matching: find.text(label),
+            ),
+          ).top,
+      };
+      expect(tops, hasLength(1), reason: 'one run, so one arrow walks it');
+
+      await _snapshot(tester, state: 'paused');
+    });
+  });
+
+  // The scrubber's own insets, as opposed to the bar's. The control row under
+  // it is icon glyphs, and a glyph does not fill its button: the track is held
+  // off each edge by roughly what the ink beside it is, so the two read as one
+  // column rather than as a bar that overhangs its controls.
+  group('VlcPlayerControls track alignment', () {
+    /// The painted track, which is the first [AnimatedContainer] the seek bar
+    /// lays down - the full-width background segment.
+    Rect track(WidgetTester tester) => tester
+        .renderObjectList<RenderBox>(
+          find.descendant(
+            of: find.byType(PlayerSeekBar),
+            matching: find.byType(AnimatedContainer),
+          ),
+        )
+        .map((b) => b.localToGlobal(Offset.zero) & b.size)
+        .first;
+
+    /// Every glyph box in the bottom bar, left to right.
+    List<Rect> glyphs(WidgetTester tester) =>
+        tester
+            .renderObjectList<RenderBox>(
+              find.descendant(
+                of: find.byType(PlayerBottomBar),
+                matching: find.byType(Icon),
+              ),
+            )
+            .map((b) => b.localToGlobal(Offset.zero) & b.size)
+            .toList()
+          ..sort((a, b) => a.left.compareTo(b.left));
+
+    for (final (String name, bool isTv, bool desktop, Size size)
+        in <(String, bool, bool, Size)>[
+          ('a desktop window', false, true, const Size(1280, 720)),
+          ('a television', true, false, const Size(960, 540)),
+        ]) {
+      testWidgets('the track sits inside the control row on $name', (
+        tester,
+      ) async {
+        await _pumpControls(
+          tester,
+          isTv: isTv,
+          desktop: desktop,
+          onEnterPip: () {},
+          size: size,
+        );
+        await _snapshot(tester, position: 65000, duration: 300000);
+
+        final Rect bar = track(tester);
+        final List<Rect> row = glyphs(tester);
+
+        expect(
+          bar.left,
+          greaterThan(row.first.left),
+          reason: 'the track starts inside the first control, not before it',
+        );
+        expect(
+          bar.right,
+          lessThan(row.last.right),
+          reason: 'and ends inside the last one',
+        );
+        // The trailing inset is the smaller of the two: off a television the
+        // utility glyph's 44 dp box is itself centred inside a 48 dp tap
+        // target, which is two more dp of slack at that end than the leading
+        // control has. A symmetric inset left a visible gap at the right.
+        expect(
+          size.width - bar.right,
+          lessThanOrEqualTo(bar.left),
+          reason: 'measured from each edge of the bar, right is never looser',
+        );
+
+        await tester.pump(const Duration(seconds: 2));
+        await _snapshot(tester, state: 'paused', position: 65000);
+      });
+    }
+
+    testWidgets('the track does not shift when the scrubber takes focus', (
+      tester,
+    ) async {
+      // The focus ring is drawn at a fixed width whether or not it is visible,
+      // because a transparent Border still takes its space. The padding used
+      // to give that width back on focus, which slid the whole track 2 dp
+      // sideways the moment a remote landed on it.
+      await _pumpControls(tester, isTv: true);
+      await _snapshot(tester, position: 65000, duration: 300000);
+
+      final Rect resting = track(tester);
+      _scrubber().requestFocus();
+      await tester.pumpAndSettle();
+
+      expect(track(tester), resting);
+
+      await _snapshot(tester, state: 'paused', position: 65000);
+    });
+  });
+
+  // The wiring between the routing and the three places a volume can be
+  // changed from. The arithmetic is volume_routing_test's; this is about the
+  // widget obeying it.
+  group('VlcPlayerControls volume routing', () {
+    testWidgets('a handset moves the system stream and leaves libVLC alone', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      final system = _FakeSystemVolume();
+      await _pumpControls(
+        tester,
+        isTv: false,
+        engine: engine,
+        systemVolume: system,
+      );
+
+      await _tapControl(tester, find.byTooltip('Volume'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('50%'));
+      await tester.pumpAndSettle();
+
+      expect(system.writes.last, 0.5);
+      expect(
+        _volumes(engine).every((v) => v == 100),
+        isTrue,
+        reason: 'libVLC stays at unity for everything under it',
+      );
+
+      await tester.pump(const Duration(seconds: 1));
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('and hands the boost to libVLC over a system already full', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      final system = _FakeSystemVolume();
+      await _pumpControls(
+        tester,
+        isTv: false,
+        engine: engine,
+        systemVolume: system,
+      );
+
+      await _tapControl(tester, find.byTooltip('Volume'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('200%'));
+      await tester.pumpAndSettle();
+
+      expect(_volumes(engine).last, 200);
+      expect(system.writes.last, 1.0, reason: 'pinned at full underneath it');
+
+      await tester.pump(const Duration(seconds: 1));
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('the rocker moves the readout without the app asking', (
+      tester,
+    ) async {
+      // The whole reason the level cannot simply be remembered: on a handset
+      // the hardware keys change the stream behind the player's back.
+      final system = _FakeSystemVolume();
+      await _pumpControls(tester, isTv: false, systemVolume: system);
+
+      system.rocker(0.3);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(PlayerRail),
+        findsOneWidget,
+        reason: 'and the player says so, the way every other route does',
+      );
+      expect(find.text('30%'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 1));
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('a desktop never touches the system stream', (tester) async {
+      final engine = FakeVlcEngine();
+      final system = _FakeSystemVolume();
+      await _pumpControls(
+        tester,
+        isTv: false,
+        desktop: true,
+        desktopProfile: true,
+        engine: engine,
+        systemVolume: system,
+      );
+
+      await _tapControl(tester, find.byTooltip('Volume'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('50%'));
+      await tester.pumpAndSettle();
+
+      expect(_volumes(engine).last, 50, reason: 'all of it is libVLC gain');
+      expect(
+        system.writes,
+        isEmpty,
+        reason: 'the machine has a mixer of its own and it stays its own',
+      );
+
+      await tester.pump(const Duration(seconds: 1));
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('a television boosts and never attenuates', (tester) async {
+      final engine = FakeVlcEngine();
+      final system = _FakeSystemVolume();
+      await _pumpControls(tester, isTv: true, engine: engine, systemVolume: system);
+
+      // The keyboard step, downwards, from the floor.
+      await tester.sendKeyEvent(LogicalKeyboardKey.audioVolumeDown);
+      await tester.pump();
+
+      expect(
+        _volumes(engine).every((v) => v >= 100),
+        isTrue,
+        reason: 'the set owns everything under unity; the app only amplifies',
+      );
+      expect(system.writes, isEmpty, reason: 'and the remote owns the stream');
+
+      await tester.pump(const Duration(seconds: 1));
+      await _snapshot(tester, state: 'paused');
+    });
+  });
+
   group('VlcPlayerControls list buttons', () {
     // Five buttons, one callback, one panel. Each button opens the panel on
     // its own tab and holds the chrome for the panel's life, so the control
@@ -709,15 +1260,17 @@ void main() {
         await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
         expect(opened, <PlayerPanelTab>[tab]);
 
+        _expectHidden(tester, reason: 'out of sight behind the panel');
         await _letHide(tester);
         await _letHide(tester);
-        _expectShown(tester, reason: 'the panel is still open');
 
         panel.complete();
-        await tester.pump();
+        await tester.pumpAndSettle();
+        _expectShown(tester, reason: 'the hold outlasted the clock');
+
         await _letHide(tester);
         await _letHide(tester);
-        _expectHidden(tester, reason: 'the hold ended with the panel');
+        _expectHidden(tester, reason: 'and the clock has them again');
       });
     }
 
@@ -902,7 +1455,7 @@ void main() {
   group('VlcPlayerControls keyboard on desktop', () {
     testWidgets('the scrubber keeps its compact size off TV', (tester) async {
       await _pumpControls(tester, isTv: false, desktop: true);
-      expect(tester.getSize(find.byType(PlayerSeekBar)).height, 36);
+      expect(tester.getSize(find.byType(PlayerSeekBar)).height, 26);
     });
 
     // Space is the activation key for whatever is focused. Claiming it as a
@@ -1032,6 +1585,114 @@ void main() {
         reason: 'and the release is not a deferred toggle either',
       );
       expect(nextPressed, greaterThanOrEqualTo(1));
+
+      await _snapshot(tester, state: 'paused');
+    });
+  });
+
+  group('VlcPlayerControls wheel on desktop', () {
+    /// One notch over [target]. The magnitude is whatever the platform sends
+    /// and only the sign is portable, so these are deliberately round numbers
+    /// rather than a real device's.
+    /// The middle of the frame, which on a desktop window is video: there is
+    /// no centre cluster there off touch.
+    final Finder video = find.byType(VlcPlayerControls);
+
+    Future<void> wheel(
+      WidgetTester tester,
+      Finder target, {
+      double dy = 0,
+      double dx = 0,
+    }) async {
+      final centre = tester.getCenter(target);
+      final pointer = TestPointer(1, PointerDeviceKind.mouse);
+      pointer.hover(centre);
+      await tester.sendEventToBinding(
+        pointer.scroll(Offset(dx, dy)),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('the wheel over the video is volume, as it is in VLC', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, isTv: false, desktop: true, engine: engine);
+
+      await wheel(tester, video, dy: -1);
+      expect(_volumes(engine).last, 105, reason: 'up is louder');
+
+      await wheel(tester, video, dy: 1);
+      expect(_volumes(engine).last, 100);
+
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('shift turns that wheel into a seek', (tester) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, isTv: false, desktop: true, engine: engine);
+      await _snapshot(tester, position: 65000, duration: 300000);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await wheel(tester, video, dy: -1);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+
+      expect(_seeks(engine), <int>[75000], reason: '65 s + one 10 s step');
+      expect(_volumes(engine), isEmpty, reason: 'and the volume is untouched');
+
+      await tester.pump(const Duration(seconds: 2));
+      await _snapshot(tester, state: 'paused', position: 65000);
+    });
+
+    testWidgets('a horizontal scroll seeks without shift', (tester) async {
+      // A trackpad's two-finger swipe sideways over a timeline means one
+      // thing, so it does not need a modifier to say so.
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, isTv: false, desktop: true, engine: engine);
+      await _snapshot(tester, position: 65000, duration: 300000);
+
+      await wheel(tester, video, dx: 1);
+
+      expect(_seeks(engine), <int>[75000], reason: 'right is forward');
+      expect(_volumes(engine), isEmpty);
+
+      await tester.pump(const Duration(seconds: 2));
+      await _snapshot(tester, state: 'paused', position: 65000);
+    });
+
+    testWidgets('the wheel over the scrubber seeks, and the overlay does not '
+        'take the same notch', (tester) async {
+      // The resolver hands one pointer signal to one widget. Without it the
+      // bar would seek and the overlay behind it would change the volume off
+      // the same spin.
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, isTv: false, desktop: true, engine: engine);
+      await _snapshot(tester, position: 65000, duration: 300000);
+
+      await wheel(tester, find.byType(PlayerSeekBar), dy: -1);
+      // The bar coalesces a spin the way it coalesces a held D-pad, so the
+      // seek lands once the burst has settled rather than once per notch.
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(_seeks(engine), <int>[75000]);
+      expect(_volumes(engine), isEmpty, reason: 'the overlay stayed out of it');
+
+      await tester.pump(const Duration(seconds: 2));
+      await _snapshot(tester, state: 'paused', position: 65000);
+    });
+
+    testWidgets('a handset has no wheel handler at all', (tester) async {
+      // Null rather than guarded inside: nothing is registered with the
+      // resolver on a device that cannot produce a scroll.
+      await _pumpControls(tester, isTv: false, desktop: false);
+
+      final Listener outer = tester.widgetList<Listener>(
+        find.descendant(
+          of: find.byType(VlcPlayerControls),
+          matching: find.byType(Listener),
+        ),
+      ).first;
+      expect(outer.onPointerSignal, isNull);
 
       await _snapshot(tester, state: 'paused');
     });
@@ -1737,11 +2398,15 @@ void main() {
     tearDown(() => fullScreenModeActive.value = false);
 
     // The proxy for "ten-foot" is the overscan inset the bar lays out to,
-    // measured rather than read back: a television is held to `tvEdgeInset` and
-    // every other device to `edgeInset`. The volume button cannot tell them
-    // apart, because it is on every form factor.
+    // measured rather than read back: a television is held to `tvEdgeInset`
+    // and every other device to `edgeInset`.
+    //
+    // Measured off the seek bar, which is the one thing inside the bar's
+    // padding on every form factor. The rewind button used to stand here and
+    // cannot any more: on a handset the transport pair is in the centre
+    // cluster, and on a desktop window there is no pair at all.
     double leftInset(WidgetTester tester) =>
-        tester.getRect(find.byTooltip('Rewind 10 seconds')).left;
+        tester.getRect(find.byType(PlayerSeekBar)).left;
 
     testWidgets('a non-TV device in full screen mode gets the ten-foot bar', (
       tester,
@@ -1844,31 +2509,47 @@ void main() {
       tester,
     ) async {
       final engine = FakeVlcEngine();
-      await _pumpControls(tester, isTv: false, engine: engine);
+      final system = _FakeSystemVolume();
+      await _pumpControls(
+        tester,
+        isTv: false,
+        engine: engine,
+        systemVolume: system,
+      );
 
       // The right half is the volume rail by default; a drag down lands
-      // somewhere under the engine's 100. Where exactly does not matter - that
-      // M comes back to exactly there does.
+      // somewhere under unity. Where exactly does not matter - that M comes
+      // back to exactly there does.
+      //
+      // Read off the system stream rather than the engine: this is a handset,
+      // so everything under 100 % is the platform's media volume and libVLC
+      // stays at unity. Attenuating in both would make the bottom of the scale
+      // useless.
       final rect = tester.getRect(find.byType(VlcPlayerControls));
       await tester.dragFrom(
         Offset(rect.right - 200, rect.center.dy),
         const Offset(0, 400),
       );
       await tester.pump(const Duration(milliseconds: 600));
-      final dragged = _volumes(engine).last;
-      expect(dragged, greaterThan(0));
-      expect(dragged, lessThan(100), reason: 'the drag went down');
+      final dragged = system.writes.last;
+      expect(dragged, greaterThan(0.0));
+      expect(dragged, lessThan(1.0), reason: 'the drag went down');
+      expect(
+        _volumes(engine).last,
+        100,
+        reason: 'and libVLC stayed at unity through all of it',
+      );
 
       await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
       await tester.pump();
-      expect(_volumes(engine).last, 0, reason: 'M mutes');
+      expect(system.writes.last, 0.0, reason: 'M mutes');
 
       await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
       await tester.pump();
       expect(
-        _volumes(engine).last,
-        dragged,
-        reason: 'unmuting returns to the dragged level, not to 100',
+        system.writes.last,
+        closeTo(dragged, 0.001),
+        reason: 'unmuting returns to the dragged level, not to full',
       );
 
       await tester.pump(const Duration(seconds: 1));
@@ -1880,36 +2561,73 @@ void main() {
     // are spent revealing the chrome on television, M is a keyboard key and
     // the rail is a drag. The OSD picker is a remote's only way to the
     // 100-200% boost.
-    testWidgets('the OSD volume picker reaches the boost above 100%', (
+    testWidgets('the volume dialog reaches the boost above 100%', (
       tester,
     ) async {
       final engine = FakeVlcEngine();
       await _pumpControls(tester, engine: engine);
 
-      await tester.tap(find.byTooltip('Volume'));
+      await _tapControl(tester, find.byTooltip('Volume'));
       await tester.pumpAndSettle();
 
-      final selected = tester.widget<ListTile>(
-        find.ancestor(of: find.text('100%'), matching: find.byType(ListTile)),
-      );
-      expect(selected.selected, isTrue, reason: 'the level in force');
+      expect(find.byType(PlayerSliderDialog), findsOneWidget);
+      // The read-out is the level in force. Unique while it differs from every
+      // preset label on screen, which at 100 % it does not - so the assertion
+      // is on the dialog's own state rather than on a text finder.
       expect(
-        selected.autofocus,
-        isTrue,
-        reason:
-            'the remote opens onto the current level, as the speed sheet '
-            'does, so a press lands somewhere meaningful',
+        tester.widget<PlayerSliderDialog>(find.byType(PlayerSliderDialog)).max,
+        200,
+        reason: 'ranged over the configured maximum, not clamped to 100',
       );
 
-      expect(
-        find.text('200%'),
-        findsOneWidget,
-        reason: 'ranged over the max, not clamped to 100',
-      );
+      // A preset, straight to the boost.
       await tester.tap(find.text('200%'));
       await tester.pumpAndSettle();
-
       expect(_volumes(engine), <int>[200]);
+
+      // And the step button, which is what a remote adjusts with.
+      await tester.tap(find.byTooltip('Decrease'));
+      await tester.pumpAndSettle();
+      expect(
+        _volumes(engine),
+        <int>[200, 195],
+        reason: 'one press is the same 5 % the keyboard steps by',
+      );
+
+      await tester.pump(const Duration(seconds: 1));
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('the speed dialog applies live and offers its presets', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(tester, engine: engine);
+
+      await _tapControl(tester, find.byTooltip('1x'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PlayerSliderDialog), findsOneWidget);
+      final dialog = tester.widget<PlayerSliderDialog>(
+        find.byType(PlayerSliderDialog),
+      );
+      expect(dialog.min, 0.25);
+      expect(dialog.max, 3.0);
+      expect(
+        dialog.presets,
+        <double>[0.5, 1.0, 1.25, 1.5, 2.0],
+        reason: 'the five worth one press; the rest is the slider',
+      );
+
+      await tester.tap(find.text('1.5x'));
+      await tester.pumpAndSettle();
+      expect(_speeds(engine), <double>[1.5]);
+
+      // 0.05 a press, which is finer than any preset - the point of having a
+      // slider behind the chips at all.
+      await tester.tap(find.byTooltip('Increase'));
+      await tester.pumpAndSettle();
+      expect(_speeds(engine), <double>[1.5, 1.55]);
 
       await tester.pump(const Duration(seconds: 1));
       await _snapshot(tester, state: 'paused');
@@ -1976,117 +2694,262 @@ void main() {
         .map((b) => b.tooltip)
         .toList(growable: false);
 
-    // The bar carries a visible seek pair on every platform. Precise stepping
-    // otherwise exists only as an invisible double-tap on touch and as J/L on a
-    // keyboard, while the Android PiP mini-window has always shown buttons.
+    // The seek pair is in the centre cluster and nowhere else. Every other
+    // form factor has a better step of its own - J/L and the arrows on a
+    // desktop, the D-pad on the ten-foot scrubber - so a pair in the bar was
+    // two buttons for something already covered.
     for (final (String device, bool isTv, bool desktop)
         in <(String, bool, bool)>[
           ('a television', true, false),
           ('a desktop window', false, true),
-          ('a handset', false, false),
         ]) {
-      testWidgets('the seek pair is in the bar on $device, and honours the '
-          'configured step', (tester) async {
-        final engine = FakeVlcEngine();
+      testWidgets('$device has no seek pair in the bar', (tester) async {
         await _pumpControls(
           tester,
           isTv: isTv,
           desktop: desktop,
-          engine: engine,
-          // Deliberately not the 10 s default: a pair that hardcoded ten
-          // would pass at the default and lie to everyone who changed it.
           settings: const PlayerSettings(seekDuration: 30),
         );
-        // Five minutes long, so a 30 s step forward is nowhere near the
-        // clamp at the end and the numbers below are the step, not the end.
-        await _snapshot(tester, position: 5000, duration: 300000);
+        await _snapshot(tester, position: 65000, duration: 300000);
 
+        expect(find.byTooltip('Rewind 30 seconds'), findsNothing);
+        expect(find.byTooltip('Forward 30 seconds'), findsNothing);
         expect(
-          find.byTooltip('Rewind 30 seconds').hitTestable(),
-          findsOneWidget,
+          find.byType(PlayerCenterControls),
+          findsNothing,
+          reason: 'and no centre cluster either, off a handset',
         );
-        expect(
-          find.byTooltip('Forward 30 seconds').hitTestable(),
-          findsOneWidget,
-        );
-        expect(
-          find.byIcon(Icons.replay_30_rounded),
-          findsOneWidget,
-          reason: 'the glyph says the step the setting says',
-        );
-        expect(find.byIcon(Icons.forward_30_rounded), findsOneWidget);
 
-        await _tapControl(tester, find.byTooltip('Forward 30 seconds'));
-        expect(_seeks(engine), <int>[35000], reason: '5 s + one 30 s step');
-
-        await _tapControl(tester, find.byTooltip('Rewind 30 seconds'));
-        expect(_seeks(engine), <int>[
-          35000,
-          5000,
-        ], reason: 'and the chain counts the step back off again');
-
-        // The burst overlay and the seek chain each hold a timer.
-        await tester.pump(const Duration(seconds: 2));
-        await _snapshot(tester, state: 'paused', position: 5000);
+        await _snapshot(tester, state: 'paused', position: 65000);
       });
     }
 
-    // The tooltip is the only name these two glyphs have anywhere, and Tooltip
-    // publishes it to the accessibility tree, so it names the action rather
-    // than a bare signed amount: `playerRewindSeconds` and
-    // `playerForwardSeconds` carry the step as an ICU plural argument.
+    testWidgets('a television seeks with the D-pad on the scrubber instead', (
+      tester,
+    ) async {
+      // What replaces the pair there, and why the ten-foot scrubber is drawn
+      // at 48 dp: it is the seek surface on a television.
+      final engine = FakeVlcEngine();
+      await _pumpControls(
+        tester,
+        isTv: true,
+        engine: engine,
+        settings: const PlayerSettings(seekDuration: 30),
+      );
+      await _snapshot(tester, position: 65000, duration: 300000);
+
+      _scrubber().requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(_seeks(engine), <int>[95000], reason: '65 s + one 30 s step');
+
+      await tester.pump(const Duration(seconds: 2));
+      await _snapshot(tester, state: 'paused', position: 65000);
+    });
+
+    testWidgets('a desktop window trades the seek pair for the clock', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(
+        tester,
+        isTv: false,
+        desktop: true,
+        engine: engine,
+        settings: const PlayerSettings(seekDuration: 30),
+      );
+      await _snapshot(tester, position: 65000, duration: 300000);
+
+      expect(find.byTooltip('Rewind 30 seconds'), findsNothing);
+      expect(find.byTooltip('Forward 30 seconds'), findsNothing);
+      expect(find.byType(PlayerTimeLabel), findsOneWidget);
+      expect(find.text('1:05 / 5:00'), findsOneWidget);
+
+      // The clock reads out of the transport group, not from above the track:
+      // its left edge is past play/pause, and it sits on the button row rather
+      // than over the scrubber.
+      final clock = tester.getRect(find.byType(PlayerTimeLabel));
+      final playPause = tester.getRect(find.byTooltip('Pause'));
+      final scrubber = tester.getRect(find.byType(PlayerSeekBar));
+      expect(clock.left, greaterThan(playPause.right));
+      expect(
+        clock.center.dy,
+        greaterThan(scrubber.bottom),
+        reason: 'below the track, on the line the buttons are on',
+      );
+
+      // And the keyboard step the buttons used to carry is still there.
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+      await tester.pump();
+      expect(_seeks(engine), <int>[95000], reason: '65 s + one 30 s step');
+
+      await tester.pump(const Duration(seconds: 2));
+      await _snapshot(tester, state: 'paused', position: 65000);
+    });
+
+    testWidgets('a handset puts the seek pair in the centre, not the bar', (
+      tester,
+    ) async {
+      final engine = FakeVlcEngine();
+      await _pumpControls(
+        tester,
+        isTv: false,
+        engine: engine,
+        size: const Size(390, 844),
+        withoutEpisodes: true,
+        settings: const PlayerSettings(seekDuration: 30),
+      );
+      await _snapshot(tester, position: 65000, duration: 300000);
+
+      // Not in the bar. The centre glyphs carry a semantics label rather than
+      // a Tooltip - there is no pointer on a handset to hover one with - so a
+      // tooltip finder is exactly the "is it in the bar" question.
+      expect(find.byTooltip('Rewind 30 seconds'), findsNothing);
+      expect(find.byTooltip('Forward 30 seconds'), findsNothing);
+      expect(
+        tester
+            .widget<PlayerBottomBar>(find.byType(PlayerBottomBar))
+            .leading
+            .length,
+        1,
+        reason: 'a film, so the left end is the clock and nothing else',
+      );
+
+      // In the centre, either side of the disc, and they seek.
+      final Finder cluster = find.byType(PlayerCenterControls);
+      expect(cluster, findsOneWidget);
+      final Finder back = find.bySemanticsLabel('Rewind 30 seconds');
+      final Finder forward = find.bySemanticsLabel('Forward 30 seconds');
+      final Rect disc = tester.getRect(find.byType(PlayerCenterPlayButton));
+      expect(tester.getRect(back).right, lessThan(disc.left));
+      expect(tester.getRect(forward).left, greaterThan(disc.right));
+      expect(
+        tester.getRect(cluster).center.dx,
+        closeTo(390 / 2, 0.5),
+        reason: 'the group is centred on the frame, disc and all',
+      );
+
+      // Through [_tapControl]: the cluster sits over the screen-wide
+      // double-tap recogniser, so a bare tap is held until that timeout the
+      // same way a bar button's is.
+      await _tapControl(tester, forward);
+      expect(_seeks(engine), <int>[95000], reason: '65 s + one 30 s step');
+      await _tapControl(tester, back);
+      expect(_seeks(engine), <int>[95000, 65000]);
+
+      await tester.pump(const Duration(seconds: 2));
+      await _snapshot(tester, state: 'paused', position: 65000);
+    });
+
+    testWidgets('a live handset centres the disc with no pair beside it', (
+      tester,
+    ) async {
+      // [_seekBy] returns on a live edge, so a step there is a dead press and
+      // the cluster renders the disc on its own.
+      await _pumpControls(
+        tester,
+        isTv: false,
+        isLive: true,
+        size: const Size(390, 844),
+      );
+
+      expect(find.byType(PlayerCenterPlayButton), findsOneWidget);
+      expect(find.byType(PlayerCenterSeekButton), findsNothing);
+      expect(
+        tester.getRect(find.byType(PlayerCenterControls)).center.dx,
+        closeTo(390 / 2, 0.5),
+        reason: 'and it is still centred, not offset by a missing neighbour',
+      );
+
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('the episode pair is in the bar, and only where it plays '
+        'something', (tester) async {
+      final pressed = <String>[];
+      await _pumpControls(
+        tester,
+        isTv: true,
+        onNextEpisode: () => pressed.add('next'),
+        onPreviousEpisode: () => pressed.add('previous'),
+      );
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      final PlayerBottomBar bar = tester.widget<PlayerBottomBar>(
+        find.byType(PlayerBottomBar),
+      );
+      expect(
+        bar.leading.length,
+        4,
+        reason: 'play/pause, previous, next, clock',
+      );
+
+      await _tapControl(tester, find.byTooltip(l10n.previous));
+      await _tapControl(tester, find.byTooltip(l10n.next));
+      expect(pressed, <String>['previous', 'next']);
+
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('a film renders neither episode button', (tester) async {
+      // Both are null on a film, so the bar's left end is the clock alone -
+      // absent rather than disabled, which is this file's rule everywhere.
+      await _pumpControls(tester, isTv: true, withoutEpisodes: true);
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      expect(find.byTooltip(l10n.next), findsNothing);
+      expect(find.byTooltip(l10n.previous), findsNothing);
+
+      await _snapshot(tester, state: 'paused');
+    });
+
+    // The accessibility label is the only name these two glyphs have anywhere:
+    // they live in the centre cluster now, where there is no pointer to hover
+    // a tooltip with, so the label is what a screen reader is given and the
+    // only thing standing between a viewer and two anonymous chevrons.
     //
-    // Two steps, neither the 10 s default: a label that hardcodes any single
-    // number, or that drops the placeholder, fails at one of them.
+    // It names the action rather than a bare signed amount, and carries the
+    // step as an ICU plural argument: `playerRewindSeconds` and
+    // `playerForwardSeconds`. Two steps, neither the 10 s default, so a label
+    // that hardcodes any single number - or drops the placeholder - fails at
+    // one of them.
     for (final int step in <int>[5, 120]) {
-      testWidgets('the seek pair says what it does, at a $step s step', (
+      testWidgets('the centre pair says what it does, at a $step s step', (
         tester,
       ) async {
         await _pumpControls(
           tester,
+          isTv: false,
+          size: const Size(390, 844),
           settings: PlayerSettings(seekDuration: step),
         );
         await _snapshot(tester, position: 5000, duration: 300000);
 
-        final Finder rewind = find.byTooltip('Rewind $step seconds');
-        final Finder forward = find.byTooltip('Forward $step seconds');
         expect(
-          rewind.hitTestable(),
+          find.bySemanticsLabel('Rewind $step seconds'),
           findsOneWidget,
-          reason: 'the button is named for the action and the configured step',
+          reason: 'the glyph is named for the action and the configured step',
         );
-        expect(forward.hitTestable(), findsOneWidget);
+        expect(find.bySemanticsLabel('Forward $step seconds'), findsOneWidget);
 
-        // The tooltip is also what a screen reader is given: [RawTooltip]
-        // publishes `semanticsTooltip` as the `tooltip` semantics property,
-        // and these two buttons are pure glyphs with no other name anywhere.
-        // Read off the tooltip widget itself, so a build that shows a name
-        // and announces something else - or nothing - fails here.
-        //
-        // That property currently lands on the bar's own semantics node rather
-        // than on each button's, because PlayerIconButton puts its Tooltip
-        // above CustomButton while Material's IconButton puts it below the
-        // button's Semantics. It affects every icon button in the bar.
+        // And no signed amount survives anywhere a viewer can read one: a
+        // build that kept the old label would still satisfy the finders above.
+        final List<String> named = <String>[
+          ...tester
+              .widgetList<PlayerIconButton>(find.byType(PlayerIconButton))
+              .map((PlayerIconButton b) => b.tooltip),
+          ...tester
+              .widgetList<PlayerCenterSeekButton>(
+                find.byType(PlayerCenterSeekButton),
+              )
+              .map((PlayerCenterSeekButton b) => b.label),
+        ];
         expect(
-          tester.widget<RawTooltip>(rewind).semanticsTooltip,
-          'Rewind $step seconds',
-          reason: 'the name has to reach the accessibility tree at all',
-        );
-        expect(
-          tester.widget<RawTooltip>(forward).semanticsTooltip,
-          'Forward $step seconds',
-        );
-
-        // And no signed amount survives anywhere on the transport row: a build
-        // that kept both labels would still satisfy the finders above.
-        final List<String> transport = tester
-            .widgetList<PlayerIconButton>(find.byType(PlayerIconButton))
-            .map((PlayerIconButton b) => b.tooltip)
-            .toList(growable: false);
-        expect(
-          transport.where((String t) => t.startsWith('-') || t.startsWith('+')),
+          named.where((String t) => t.startsWith('-') || t.startsWith('+')),
           isEmpty,
-          reason: 'a signed amount is not a name: $transport',
+          reason: 'a signed amount is not a name: $named',
         );
 
         await _snapshot(tester, state: 'paused', position: 5000);
@@ -2097,39 +2960,237 @@ void main() {
     // button past the edge is painted outside the bar and left mounted and
     // focusable there. 480 dp is a legitimate desktop window: lib/main.dart
     // sets the minimum at 360x640.
-    testWidgets('a 480 dp desktop window wraps the row instead of painting '
-        'buttons off the edge', (tester) async {
+    testWidgets('a 480 dp desktop window scrolls the row instead of growing '
+        'the bar upwards', (tester) async {
+      // What this replaces: the row used to be a [Wrap] off touch, and a
+      // narrow desktop window sent it onto extra runs. At 440x330 with the
+      // clock in the transport group that was five runs and a 284 dp bar
+      // inside a 330 dp viewport - the scrubber pushed off the top of its own
+      // chrome and the overlays anchored off it landing on the buttons.
       await _pumpControls(
         tester,
         isTv: false,
         desktop: true,
+        onEnterPip: () {},
         size: const Size(480, 640),
       );
 
-      const Rect viewport = Rect.fromLTWH(0, 0, 480, 640);
-      final List<String> tooltips = wrapTooltips(tester);
       expect(
-        tooltips.length,
-        greaterThan(6),
-        reason: 'this only measures anything if the row is genuinely full',
+        find.byType(PlayerActionStrip),
+        findsOneWidget,
+        reason: 'a desktop window has a pointer, so it scrolls',
+      );
+      expect(find.byType(Wrap), findsNothing);
+
+      final Rect bar = tester.getRect(find.byType(PlayerBottomBar));
+      final Rect row = tester.getRect(find.byType(PlayerActionStrip));
+      expect(
+        row.height,
+        lessThan(64),
+        reason: 'one control line, whatever will not fit on it',
+      );
+      expect(
+        bar.height,
+        lessThanOrEqualTo(
+          HotstarPlayerStyle.bottomChromeHeightFor(isTv: false),
+        ),
+        reason: 'and the whole bar stays inside the clearance',
       );
 
-      for (final String tooltip in tooltips) {
-        final Rect r = tester.getRect(find.byTooltip(tooltip));
+      await _snapshot(tester, state: 'paused');
+    });
+
+    // The two groups are the left and right ends of one line, so they answer
+    // to the same three lines: the scrubber's left edge, the scrubber's right
+    // edge, and one horizontal centre. A [Wrap] that took a second run broke
+    // the third silently - [Row] centres the short child against the tall one,
+    // so the transport group ended up floating between two rows of icons.
+    for (final (String name, bool isTv, bool desktop, Size size)
+        in <(String, bool, bool, Size)>[
+          ('a narrow desktop window', false, true, const Size(440, 330)),
+          ('a wide desktop window', false, true, const Size(1280, 720)),
+          ('a handset in landscape', false, false, const Size(844, 390)),
+          ('a television', true, false, const Size(960, 540)),
+        ]) {
+      testWidgets('the bar squares up to the scrubber on $name', (
+        tester,
+      ) async {
+        await _pumpControls(
+          tester,
+          isTv: isTv,
+          desktop: desktop,
+          onEnterPip: () {},
+          size: size,
+        );
+        await _snapshot(tester, position: 65000, duration: 300000);
+
+        final Rect seek = tester.getRect(find.byType(PlayerSeekBar));
+        final Rect bar = tester.getRect(find.byType(PlayerBottomBar));
+        // The leading edge of the transport group and the trailing edge of the
+        // utility group, whichever buttons those happen to be: the seek pair
+        // is absent on desktop and the fullscreen button on a television, so
+        // naming them would make this a test about which buttons exist.
+        // Below the track, so the top bar's Back button is out; and inside
+        // the bar, so the utility buttons a narrow window has scrolled off the
+        // left edge - which sit at negative x, still laid out - are out too.
+        // Those are meant to be off screen; the question here is where the
+        // ones on screen begin and end.
+        final List<Rect> buttons = tester
+            .widgetList<PlayerIconButton>(find.byType(PlayerIconButton))
+            .map((b) => tester.getRect(find.byTooltip(b.tooltip)))
+            .where((r) => r.top > seek.top && r.left >= bar.left - 0.01)
+            .toList(growable: false);
+        final double left = buttons
+            .map((r) => r.left)
+            .reduce((a, b) => a < b ? a : b);
+        final double right = buttons
+            .map((r) => r.right)
+            .reduce((a, b) => a > b ? a : b);
+
         expect(
-          viewport.contains(r.topLeft) && viewport.contains(r.bottomRight),
-          isTrue,
+          left,
+          seek.left,
+          reason: 'the first control starts where the track starts',
+        );
+        expect(
+          right,
+          seek.right,
+          reason: 'and the last one ends where the track ends',
+        );
+        expect(
+          bar.height,
+          lessThanOrEqualTo(
+            HotstarPlayerStyle.bottomChromeHeightFor(isTv: isTv),
+          ),
           reason:
-              '$tooltip is laid out at $r, outside the $viewport it is '
-              'painted into - clipped, unreachable by a pointer, and still a '
-              'D-pad stop',
+              'the bottom bar fits inside the clearance every overlay is '
+              'anchored off; raise the token rather than the overlays',
         );
+
+        await tester.pump(const Duration(seconds: 2));
+        await _snapshot(tester, state: 'paused', position: 65000);
+      });
+    }
+
+    // Requirement: the floating overlays answer to the same two vertical lines
+    // the bar does. They are the screen's children, not the controls', so they
+    // are measured here against a bar pumped at the same size - which is also
+    // the only place that can catch one of them using a different edge token.
+    for (final (String name, bool isTv, Size size)
+        in <(String, bool, Size)>[
+          ('a handset', false, const Size(390, 844)),
+          ('a television', true, const Size(960, 540)),
+        ]) {
+      testWidgets('the floating overlays line up with the bar on $name', (
+        tester,
+      ) async {
+        await _pumpControls(
+          tester,
+          isTv: isTv,
+          onEnterPip: () {},
+          size: size,
+          skipSegments: <SkipSegment>[
+            SkipSegment(type: SkipType.intro, startTime: 0, endTime: 90),
+          ],
+        );
+        await _snapshot(tester, position: 5000, duration: 300000);
+
+        // The skip chip is the controls' own right-hand overlay, and it
+        // answers to the trailing line: the bar's edge inset plus the optical
+        // one the track's far end and the last utility button share.
+        final Rect chip = tester.getRect(find.byType(PlayerActionButton));
         expect(
-          find.byTooltip(tooltip).hitTestable(),
-          findsOneWidget,
-          reason: '$tooltip has to be clickable, not merely mounted',
+          size.width - chip.right,
+          HotstarPlayerStyle.trailingLineOf(isTv: isTv),
+          reason: 'the chip stops on the same line as the track and the icons',
         );
+
+        await tester.pump(const Duration(seconds: 2));
+        await _snapshot(tester, state: 'paused', position: 5000);
+      });
+    }
+
+    // Requirement: a remote reaches everything, including when a build has
+    // fewer buttons than the full set. Most of the row is conditional - no
+    // PiP off Android, no torrent pair off a torrent, no episodes on a film,
+    // no speed on a live edge - and an arrow that walked a fixed list would
+    // stop at the first gap.
+    testWidgets('a stripped-down television bar is still walkable end to end', (
+      tester,
+    ) async {
+      await _pumpControls(
+        tester,
+        isTv: true,
+        isLive: true,
+        withoutEpisodes: true,
+        panelTabs: const <PlayerPanelTab>{
+          PlayerPanelTab.audio,
+          PlayerPanelTab.subtitles,
+        },
+        settings: const PlayerSettings(
+          showResize: false,
+          showPip: false,
+          showPlaybackSpeed: false,
+        ),
+      );
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      // What is left: play/pause - no seek pair, because a live edge cannot
+      // step - and three utilities.
+      final List<String> rendered = tester
+          .widgetList<PlayerIconButton>(find.byType(PlayerIconButton))
+          .map((b) => b.tooltip)
+          .toList(growable: false);
+      expect(rendered, contains(l10n.pause));
+      expect(rendered, isNot(contains(l10n.next)));
+      expect(rendered, isNot(contains(l10n.resize)));
+
+      _byLabel('player-play-pause').requestFocus();
+      await tester.pump();
+      final trail = <String>[_focusedControl()];
+      for (var i = 0; i < 12; i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pump();
+        final next = _focusedControl();
+        if (next == trail.last) break;
+        trail.add(next);
       }
+
+      expect(trail, <String>[
+        l10n.pause,
+        l10n.audioTracks,
+        l10n.subtitles,
+        l10n.volume,
+      ], reason: 'every button that exists is on the way, and nothing else is');
+
+      await _snapshot(tester, state: 'paused');
+    });
+
+    testWidgets('the utility group hugs the right edge when it fits', (
+      tester,
+    ) async {
+      // `reverse: true` right-anchors the strip only while it overflows. With
+      // room to spare the viewport lays the row out from its leading edge, and
+      // on a 1280 dp window that left the whole group some 500 dp short of the
+      // scrubber's end, in the middle of the bar. See [PlayerActionStrip].
+      await _pumpControls(
+        tester,
+        isTv: false,
+        desktop: true,
+        onEnterPip: () {},
+        size: const Size(1280, 720),
+      );
+
+      final Rect strip = tester.getRect(find.byType(PlayerActionStrip));
+      // Fullscreen is last in the row on a desktop window - band three, hard
+      // against the right edge.
+      final Rect last = tester.getRect(find.byTooltip('Fullscreen'));
+      expect(
+        strip.width,
+        greaterThan(last.width * 10),
+        reason: 'this only measures anything while the row has room to spare',
+      );
+      expect(last.right, strip.right);
 
       await _snapshot(tester, state: 'paused');
     });
@@ -2137,23 +3198,44 @@ void main() {
     // The row is right-anchored, so a squeeze eats it from the left and
     // whatever leads the list is what the viewer loses. A 360 dp portrait
     // handset is a real state: the app pins portrait for a portrait video.
-    testWidgets('audio and subtitles are last in the row, where a squeeze '
-        'cannot reach them', (tester) async {
-      await _pumpControls(tester, isTv: true);
+    // The row reads in three bands: what a viewer reaches for without leaving
+    // the film, then the rest, then the two that change the shape of the
+    // picture. Pinned as an order rather than as a list of names, so a button
+    // that does not exist on this build - PiP, the torrent pair, the lock -
+    // takes itself out of the sequence without taking the test with it.
+    testWidgets('the utility row reads in its three bands', (tester) async {
+      await _pumpControls(tester, isTv: true, onEnterPip: () {});
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
 
       final List<String> tooltips = wrapTooltips(tester);
-      expect(tooltips.length, greaterThan(4));
+      int at(String tooltip) {
+        final index = tooltips.indexOf(tooltip);
+        expect(index, isNot(-1), reason: '$tooltip is in the row at all');
+        return index;
+      }
+
       expect(
-        tooltips.sublist(tooltips.length - 2),
-        <String>['Audio Tracks', 'Subtitles'],
-        reason:
-            'the two most-used utilities are hard against the right edge; '
-            'the full order is $tooltips',
+        <int>[
+          at(l10n.sources),
+          at(l10n.audioTracks),
+          at(l10n.subtitles),
+          at(l10n.episodes),
+          at(l10n.volume),
+        ],
+        <int>[0, 1, 2, 3, 4],
+        reason: 'band one leads, in this order; the full row is $tooltips',
       );
       expect(
-        tooltips.indexOf('Volume'),
-        lessThan(tooltips.indexOf('Audio Tracks')),
-        reason: 'and volume is beside them rather than out on the left',
+        at(l10n.resize),
+        greaterThan(at(l10n.torrentFiles)),
+        reason: 'and the view settings come after the rest of band two',
+      );
+      expect(
+        at(l10n.resize),
+        tooltips.length - 1,
+        reason:
+            'resize is last on a television, which has no fullscreen button '
+            'to put behind it',
       );
 
       await _snapshot(tester, state: 'paused');
@@ -2175,7 +3257,7 @@ void main() {
             child: SizedBox(
               width: width,
               child: PlayerBottomBar(
-                isTouch: true,
+                scrollingActions: true,
                 progressBar: const SizedBox(height: 8),
                 leading: const [SizedBox(width: 120, height: 44)],
                 actions: <Widget>[
@@ -2257,18 +3339,21 @@ void main() {
         size: const Size(360, 800),
         locked: locked,
         onEnterPip: () {},
+        onPreviousEpisode: () {},
       );
 
       final PlayerBottomBar built = tester.widget<PlayerBottomBar>(
         find.byType(PlayerBottomBar),
       );
       final List<Widget> actions = built.actions;
+      // The pinned group whose width is what squeezes the strip. On a handset
+      // that is the episode pair and the clock: the transport moved to the
+      // middle of the frame, which is most of why a 360 dp line fits at all.
+      expect(built.leading.length, 3);
       expect(
-        built.leading.length,
-        5,
-        reason:
-            'the pinned group whose width is what squeezes the strip: '
-            'rewind, play/pause, forward, lock, next',
+        find.byType(PlayerCenterControls),
+        findsOneWidget,
+        reason: 'and the transport it gave up is in the centre cluster',
       );
       expect(
         actions.length,
@@ -2285,14 +3370,6 @@ void main() {
       final Rect group = built.leading
           .map((w) => tester.getRect(find.byWidget(w)))
           .reduce((a, b) => a.expandToInclude(b));
-      expect(
-        group.width,
-        greaterThan(240),
-        reason:
-            'five transport buttons at 48 dp and a 58 dp play/pause: if this '
-            'group ever gets small enough that the flat row works, this test '
-            'is measuring the wrong thing',
-      );
 
       final Widget transport = SizedBox(
         width: group.width,
@@ -2307,7 +3384,7 @@ void main() {
               child: SizedBox(
                 width: width,
                 child: PlayerBottomBar(
-                  isTouch: true,
+                  scrollingActions: true,
                   progressBar: const SizedBox(height: 8),
                   leading: <Widget>[transport],
                   actions: actions,

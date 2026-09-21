@@ -17,6 +17,36 @@ class TorrentService {
   bool _isStarted = false;
   String? _activeTorrentHash;
 
+  /// The cache the server is configured with, in megabytes, and how much of it
+  /// is held ahead of the read point.
+  ///
+  /// Seeded with what the standard device tier would choose, because the
+  /// server can be started by a source resolver long before anything with
+  /// access to the viewer's settings runs. [applyBufferSettings] corrects it
+  /// the moment the player knows better.
+  int _cacheMb = 128;
+  int _readAheadPercent = 75;
+
+  /// Points the server's cache at the size the viewer chose for the player.
+  ///
+  /// One number for both engines: a viewer who asked for 256 MB of buffer
+  /// meant it for whatever they are watching, and a torrent used to ignore
+  /// them and take a hard-coded 64 MB whatever the setting said.
+  ///
+  /// Safe to call before the server is up - the values are remembered and
+  /// applied by [start] - and safe to call again afterwards, which re-POSTs
+  /// them. Note that TorrServer allocates the cache per torrent, so a change
+  /// made mid-stream reaches the *next* torrent rather than the one playing.
+  Future<void> applyBufferSettings({
+    required int cacheMb,
+    required int readAheadPercent,
+  }) async {
+    if (cacheMb == _cacheMb && readAheadPercent == _readAheadPercent) return;
+    _cacheMb = cacheMb;
+    _readAheadPercent = readAheadPercent;
+    if (_isStarted) await _configureSettings();
+  }
+
   Future<TorrentStatus?> getCurrentStatus() async {
     if (_activeTorrentHash == null || !_isStarted) {
       return null;
@@ -51,12 +81,18 @@ class TorrentService {
 
   Future<void> _configureSettings() async {
     try {
-      // Optimize for streaming (4K/High Bitrate)
-      // cacheSize: 64MB (67108864 bytes)
-      // readerReadAHead: 95%
+      // The cache is the viewer's own buffer setting, the same number libVLC's
+      // prefetch window gets - see applyBufferSettings. It used to be a
+      // hard-coded 64 MB, so the setting moved one engine and not the other.
+      //
+      // readerReadAHead is the share held *ahead* of the read point, which
+      // makes the remainder the only backward buffer this player has anywhere.
+      // At the 95 % this replaces there were about three megabytes behind the
+      // playhead, so a ten second step back re-downloaded pieces the reader
+      // had just finished with.
       final settings = {
-        "cacheSize": 67108864,
-        "readerReadAHead": 95,
+        "cacheSize": _cacheMb * 1024 * 1024,
+        "readerReadAHead": _readAheadPercent,
         "preload": true,
       };
 

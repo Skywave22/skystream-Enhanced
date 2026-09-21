@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../../data/explore_tmdb_provider.dart';
 import '../../data/explore_mode_provider.dart';
 import '../../data/anilist_repository.dart';

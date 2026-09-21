@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../../../core/storage/secure_token_storage.dart';
 import '../../../core/storage/settings_repository.dart';
 import '../../../core/storage/storage_service.dart'
     show kOsPasswordKey, kSubDlPasswordKey;
+import '../../player/domain/network_buffer.dart';
 import '../../player/data/subtitle_providers.dart';
 import '../../../core/network/dio_client_provider.dart';
 
@@ -545,7 +547,13 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
   }
 
   Future<void> setNetworkBufferMb(int megabytes) async {
-    final clamped = megabytes.clamp(32, 512);
+    // The ends of [kNetworkBufferChoicesMb]. Clamped rather than validated so
+    // a stored value from an older build - or a newer one - lands inside the
+    // range this build actually offers.
+    final clamped = megabytes.clamp(
+      kNetworkBufferChoicesMb.first,
+      kNetworkBufferChoicesMb.last,
+    );
     await _repository.setPlayerSetting('player_network_buffer_mb', clamped);
     _update((PlayerSettings c) => c.copyWith(networkBufferMb: clamped));
   }
@@ -668,11 +676,8 @@ class PlayerSettingsNotifier extends _$PlayerSettingsNotifier {
       await _repository.setPlayerSetting('player_os_key', key);
     }
     _update(
-      (PlayerSettings current) => current.copyWith(
-        osUsername: user,
-        osPassword: pass,
-        osApiKey: key,
-      ),
+      (PlayerSettings current) =>
+          current.copyWith(osUsername: user, osPassword: pass, osApiKey: key),
     );
   }
 

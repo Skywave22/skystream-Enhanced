@@ -11,12 +11,16 @@ import '../../../core/extensions/extension_manager.dart';
 import '../../../core/extensions/base_provider.dart';
 import '../../../core/extensions/providers.dart';
 import '../../settings/presentation/player_settings_provider.dart';
+
 import 'package:collection/collection.dart';
+
 import 'details_controller.dart';
 import '../../../core/services/download_service.dart';
 import '../../../shared/widgets/loading_dialog.dart';
 import '../../../core/utils/app_utils.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
+
 import '../../../core/services/notification_service.dart';
 
 part 'playback_launcher.g.dart';
@@ -243,9 +247,8 @@ class PlaybackLauncher {
       _ref
           .read(notificationServiceProvider)
           .showError(
-            AppLocalizations.of(
-              context,
-            )!.usingInternalPlayerError(e.toString()),
+            AppLocalizations.of(context)!
+                .usingInternalPlayerError(e.toString()),
             title: 'Playback Fallback',
             icon: Icons.play_circle_outline_rounded,
           );
@@ -360,12 +363,10 @@ class PlaybackLauncher {
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Text(
-                  AppLocalizations.of(
-                    context,
-                  )!.selectSourceForPlayer(playerName),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  AppLocalizations.of(context)!
+                      .selectSourceForPlayer(playerName),
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ),
               const Divider(height: 1),

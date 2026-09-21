@@ -1,12 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/utils/layout_constants.dart';
 import '../../../core/utils/responsive_breakpoints.dart';
+import 'search_history_provider.dart';
 import 'search_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import 'widgets/search_result_section.dart';
 import 'widgets/search_header_bar.dart';
+import 'widgets/search_suggestion_row.dart';
 import 'widgets/bouncy_entry_animation.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 
@@ -26,30 +31,43 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   final FocusNode _firstSuggestionFocusNode = FocusNode();
   final FocusNode _firstResultFocusNode = FocusNode();
 
+  /// Whether the recents-and-suggestions panel is covering the results.
+  ///
+  /// Tracked explicitly rather than read off [_focusNode], because on a
+  /// television focus moves *into* the panel's own rows - a focus-driven gate
+  /// would close the panel the moment the user pressed down into it.
+  ///
+  /// Opens when the field takes focus or the text changes; closes on submit.
+  bool _isPanelOpen = false;
+
   @override
   void initState() {
     super.initState();
     // Restore any previously committed query into the text field.
     _controller.text = ref.read(searchQueryProvider);
     _controller.addListener(_onTextChanged);
+    _focusNode.addListener(_onSearchFieldFocusChanged);
 
+    // The bar reads left to right now - field, clear, then the scope pill -
+    // with the panel and the results underneath it. It used to be a column,
+    // so down from the field meant "into the pill"; down now means "into the
+    // list", and the pill is reached by going right.
     _focusNode.onKeyEvent = (node, event) {
       if (event is KeyDownEvent) {
         if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-          if (_controller.text.isNotEmpty &&
-              _controller.selection.extentOffset == _controller.text.length) {
-            _clearButtonFocusNode.requestFocus();
+          // Only once the caret is at the end, so arrow-right still walks
+          // the text the user is editing.
+          if (_controller.selection.extentOffset == _controller.text.length) {
+            if (_controller.text.isNotEmpty) {
+              _clearButtonFocusNode.requestFocus();
+            } else {
+              _focusScopePill();
+            }
             return KeyEventResult.handled;
           }
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-          final filter = ref.read(searchFilterProvider);
-          if (filter == SearchFilter.live) {
-            _liveTvFocusNode.requestFocus();
-          } else {
-            _moviesShowsFocusNode.requestFocus();
-          }
-          return KeyEventResult.handled;
+          return _focusBelowBar();
         }
       }
       return KeyEventResult.ignored;
@@ -61,14 +79,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           _focusNode.requestFocus();
           return KeyEventResult.handled;
         }
-        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-          final filter = ref.read(searchFilterProvider);
-          if (filter == SearchFilter.live) {
-            _liveTvFocusNode.requestFocus();
-          } else {
-            _moviesShowsFocusNode.requestFocus();
-          }
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          _focusScopePill();
           return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          return _focusBelowBar();
         }
       }
       return KeyEventResult.ignored;
@@ -76,8 +92,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     _moviesShowsFocusNode.onKeyEvent = (node, event) {
       if (event is KeyDownEvent) {
-        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-          _focusNode.requestFocus();
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          // Back into the bar, at the control the pill actually sits next
+          // to: the clear button when there is one, else the field.
+          if (_controller.text.isNotEmpty) {
+            _clearButtonFocusNode.requestFocus();
+          } else {
+            _focusNode.requestFocus();
+          }
           return KeyEventResult.handled;
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
@@ -85,25 +107,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           return KeyEventResult.handled;
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-          final suggestionState = ref.read(searchSuggestionControllerProvider);
-          final typedLongEnough = suggestionState.query.trim().length >= 2;
-          final hasSuggestionContent =
-              suggestionState.isLoading ||
-              suggestionState.suggestions.isNotEmpty;
-
-          if (typedLongEnough && hasSuggestionContent) {
-            _firstSuggestionFocusNode.requestFocus();
-            return KeyEventResult.handled;
-          } else {
-            final resultsState = ref.read(searchResultsProvider).asData?.value;
-            final hasResults =
-                resultsState != null &&
-                resultsState.results.any((r) => r.results.isNotEmpty);
-            if (hasResults) {
-              _firstResultFocusNode.requestFocus();
-              return KeyEventResult.handled;
-            }
-          }
+          return _focusBelowBar();
         }
       }
       return KeyEventResult.ignored;
@@ -111,34 +115,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     _liveTvFocusNode.onKeyEvent = (node, event) {
       if (event is KeyDownEvent) {
-        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-          _focusNode.requestFocus();
-          return KeyEventResult.handled;
-        }
         if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
           _moviesShowsFocusNode.requestFocus();
           return KeyEventResult.handled;
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-          final suggestionState = ref.read(searchSuggestionControllerProvider);
-          final typedLongEnough = suggestionState.query.trim().length >= 2;
-          final hasSuggestionContent =
-              suggestionState.isLoading ||
-              suggestionState.suggestions.isNotEmpty;
-
-          if (typedLongEnough && hasSuggestionContent) {
-            _firstSuggestionFocusNode.requestFocus();
-            return KeyEventResult.handled;
-          } else {
-            final resultsState = ref.read(searchResultsProvider).asData?.value;
-            final hasResults =
-                resultsState != null &&
-                resultsState.results.any((r) => r.results.isNotEmpty);
-            if (hasResults) {
-              _firstResultFocusNode.requestFocus();
-              return KeyEventResult.handled;
-            }
-          }
+          return _focusBelowBar();
         }
       }
       return KeyEventResult.ignored;
@@ -147,25 +129,101 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _firstResultFocusNode.onKeyEvent = (node, event) {
       if (event is KeyDownEvent &&
           event.logicalKey == LogicalKeyboardKey.arrowUp) {
-        final filter = ref.read(searchFilterProvider);
-        if (filter == SearchFilter.live) {
-          _liveTvFocusNode.requestFocus();
-        } else {
-          _moviesShowsFocusNode.requestFocus();
-        }
+        _focusNode.requestFocus();
         return KeyEventResult.handled;
       }
       return KeyEventResult.ignored;
     };
   }
 
+  /// The selected half of the scope pill, which is where a walk rightwards
+  /// out of the bar should land.
+  void _focusScopePill() {
+    if (ref.read(searchFilterProvider) == SearchFilter.live) {
+      _liveTvFocusNode.requestFocus();
+    } else {
+      _moviesShowsFocusNode.requestFocus();
+    }
+  }
+
+  /// Leaves the bar downwards: into the panel if it has rows, else into the
+  /// results. Reports whether there was anywhere to go, so a press with
+  /// nothing below it falls through rather than being swallowed.
+  KeyEventResult _focusBelowBar() {
+    // Recents count as panel rows, so down lands on one whether the field is
+    // empty or mid-query.
+    if (_panelHasRows()) {
+      _firstSuggestionFocusNode.requestFocus();
+      return KeyEventResult.handled;
+    }
+    final resultsState = ref.read(searchResultsProvider).asData?.value;
+    final hasResults =
+        resultsState != null &&
+        resultsState.results.any((r) => r.results.isNotEmpty);
+    if (hasResults) {
+      _firstResultFocusNode.requestFocus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   void _onTextChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // Typing always reopens the panel: a user editing a committed query is
+    // starting a new search, and wants the recents and suggestions back.
+    setState(() => _isPanelOpen = true);
+  }
+
+  /// Reopens the panel when the user returns to the field.
+  ///
+  /// Also re-runs the suggestion fetch for text that is already in the field.
+  /// Submitting clears the suggestion controller, so without this a tap back
+  /// into a committed query would show recents and nothing else until the
+  /// next keystroke - which is not how the field behaved a moment earlier.
+  void _onSearchFieldFocusChanged() {
+    if (!mounted || !_focusNode.hasFocus) return;
+    setState(() => _isPanelOpen = true);
+
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    final controller = ref.read(searchSuggestionControllerProvider.notifier);
+    if (ref.read(searchSuggestionControllerProvider).query == text) return;
+    controller.onQueryChanged(text);
+  }
+
+  /// The recents to show, given the text in the field.
+  ///
+  /// Empty while the panel is closed, so the key handlers and the body agree
+  /// on what is on screen.
+  List<String> _recentsFor(List<String> history) {
+    if (!_isPanelOpen) return const [];
+    final trimmed = _controller.text.trim();
+    return matchingSearchHistory(
+      history,
+      trimmed,
+      limit: trimmed.isEmpty
+          ? kSearchHistoryEmptyFieldLimit
+          : kSearchHistoryTypingLimit,
+    );
+  }
+
+  /// Whether the panel currently has anything focusable in it.
+  ///
+  /// Read by the D-pad handlers to decide whether pressing down should land
+  /// in the panel or skip past it to the results grid.
+  bool _panelHasRows() {
+    if (!_isPanelOpen) return false;
+    final suggestionState = ref.read(searchSuggestionControllerProvider);
+    if (suggestionState.isLoading || suggestionState.suggestions.isNotEmpty) {
+      return true;
+    }
+    return _recentsFor(ref.read(searchHistoryProvider)).isNotEmpty;
   }
 
   @override
   void dispose() {
     _controller.removeListener(_onTextChanged);
+    _focusNode.removeListener(_onSearchFieldFocusChanged);
     _controller.dispose();
     _focusNode.dispose();
     _clearButtonFocusNode.dispose();
@@ -182,10 +240,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       text: trimmed,
       selection: TextSelection.collapsed(offset: trimmed.length),
     );
+    // Recorded on the way into the search, not on the way out: a query that
+    // returned nothing is still one the user made and may want back.
+    unawaited(ref.read(searchHistoryProvider.notifier).add(trimmed));
     ref.read(searchSuggestionControllerProvider.notifier).clear();
     ref.read(searchQueryProvider.notifier).set(trimmed);
     // Dismiss keyboard after submitting, just like YouTube / browser.
     _focusNode.unfocus();
+    // _onTextChanged reopened the panel as the value above was written; the
+    // submit is what closes it, so this has to come after.
+    if (mounted) setState(() => _isPanelOpen = false);
   }
 
   void _fillSuggestion(String suggestion) {
@@ -206,178 +270,44 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final isWidescreen = context.isTabletOrLarger;
 
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     if (isWidescreen) {
+      // No backdrop photograph, no stage lighting, no Stack. The screen was
+      // a cinema still under four blending gradients and a focus spotlight,
+      // all of it there to make one JPEG sit on the background - and all of
+      // it behind a search field and a list of text. What the user reads is
+      // now what the screen paints.
       return Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
-        body: Stack(
+        body: Column(
           children: [
-            // Cinematic Background Image - Local Asset (Dark Mode only)
-            if (isDark)
-              Positioned.fill(
-                child: Image.asset(
-                  'assets/images/search_background.jpg',
-                  fit: BoxFit.cover,
-                  // 2000x1125 = 8.6 MB decoded for a backdrop. 1280 is ~3.5 MB
-                  // and BoxFit.cover scales from there.
-                  cacheWidth: 1280,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const SizedBox.shrink(),
-                ),
-              ),
-            // Rich Architectural Stage Overlay (Vignette + Dark overlay - Dark Mode only)
-            if (isDark)
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(
-                      alpha: 0.7,
-                    ), // Rich dark overlay
-                  ),
-                ),
-              ),
-            // Radial Vignette Overlay centered on search area (Dark Mode only)
-            if (isDark)
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      center: Alignment.center,
-                      radius: 1.1,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.1),
-                        Colors.black.withValues(alpha: 0.85),
-                        Colors.black.withValues(alpha: 0.98),
-                      ],
-                      stops: const [0.0, 0.65, 1.0],
-                    ),
-                  ),
-                ),
-              ),
-            // Left-to-right fade to blend backdrop image with the sidebar / background (Dark Mode only)
-            if (isDark)
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: 320, // Wide fanning width to ease the transition
-                child: IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                        colors: [
-                          theme.scaffoldBackgroundColor,
-                          theme.scaffoldBackgroundColor.withValues(alpha: 0.85),
-                          theme.scaffoldBackgroundColor.withValues(alpha: 0.50),
-                          theme.scaffoldBackgroundColor.withValues(alpha: 0.18),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 0.25, 0.55, 0.8, 1.0],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            // Top-to-bottom edge vignette to mask out top/bottom image boundaries/black letterboxing (Dark Mode only)
-            if (isDark)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          theme.scaffoldBackgroundColor,
-                          theme.scaffoldBackgroundColor.withValues(alpha: 0.8),
-                          Colors.transparent,
-                          Colors.transparent,
-                          theme.scaffoldBackgroundColor.withValues(alpha: 0.8),
-                          theme.scaffoldBackgroundColor,
-                        ],
-                        stops: const [0.0, 0.08, 0.2, 0.8, 0.92, 1.0],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            // Focus Spotlight (Stage Lighting - Soft fanning semi-circle)
-            Positioned(
-              top:
-                  76, // Anchored immediately below the search bar (24 top padding + 52 height)
-              left: 0,
-              right: 0,
-              height: 250,
-              child: ListenableBuilder(
-                listenable: _focusNode,
-                builder: (context, child) {
-                  if (!_focusNode.hasFocus) return const SizedBox.shrink();
-                  final spotlightColor = isDark
-                      ? const Color(0xFF1E40AF)
-                      : theme.colorScheme.primary;
-                  return IgnorePointer(
-                    child: Center(
-                      child: Container(
-                        width: 900, // Broader fanning footprint
-                        decoration: BoxDecoration(
-                          gradient: RadialGradient(
-                            center: Alignment
-                                .topCenter, // Fanning downward from the bottom edge of the search bar
-                            radius: 1.3,
-                            colors: [
-                              spotlightColor.withValues(
-                                alpha: isDark ? 0.35 : 0.22,
-                              ), // Soft center source point
-                              spotlightColor.withValues(
-                                alpha: isDark ? 0.18 : 0.10,
-                              ), // Smooth bleed
-                              spotlightColor.withValues(
-                                alpha: isDark ? 0.06 : 0.03,
-                              ), // Gentle falloff
-                              spotlightColor.withValues(
-                                alpha: 0.0,
-                              ), // Fade to transparent
-                            ],
-                            stops: const [0.0, 0.35, 0.70, 1.0],
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
+            const SizedBox(height: 24),
+            SearchHeaderBar(
+              textController: _controller,
+              searchFocusNode: _focusNode,
+              clearButtonFocusNode: _clearButtonFocusNode,
+              moviesShowsFocusNode: _moviesShowsFocusNode,
+              liveTvFocusNode: _liveTvFocusNode,
+              isCompact: false,
+              // The recents and suggestions hang under the field as a
+              // flyout here rather than covering the results, which on a
+              // desktop-sized window would blank most of the screen to show
+              // four rows of text.
+              flyout: _buildFlyout(context),
+              onDismissFlyout: () {
+                if (mounted) setState(() => _isPanelOpen = false);
+              },
+              onSubmitted: _submitSearch,
+              onChanged: (val) {
+                ref
+                    .read(searchSuggestionControllerProvider.notifier)
+                    .onQueryChanged(val);
+              },
             ),
-
-            // Content layout in Column: Still header and Body directly below it
-            Positioned.fill(
-              child: Column(
-                children: [
-                  const SizedBox(height: 24),
-                  SearchHeaderBar(
-                    textController: _controller,
-                    searchFocusNode: _focusNode,
-                    clearButtonFocusNode: _clearButtonFocusNode,
-                    moviesShowsFocusNode: _moviesShowsFocusNode,
-                    liveTvFocusNode: _liveTvFocusNode,
-                    isCompact: false,
-                    onSubmitted: _submitSearch,
-                    onChanged: (val) {
-                      ref
-                          .read(searchSuggestionControllerProvider.notifier)
-                          .onQueryChanged(val);
-                    },
-                  ),
-                  Expanded(
-                    child: Padding(
-                      // Fixed top padding below the top search bar (24px)
-                      padding: const EdgeInsets.only(top: 24.0),
-                      child: _buildBody(context),
-                    ),
-                  ),
-                ],
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 24.0),
+                child: _buildResultsView(context),
               ),
             ),
           ],
@@ -435,7 +365,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       const SizedBox(
                         width: 18,
                         height: 18,
-                        child: Center(child: WaveformEqualizer(isActive: true)),
+                        child: Center(child: LiveTvIndicator(isActive: true)),
                       ),
                       const SizedBox(width: 12),
                       const Expanded(child: Text('Livestreams')),
@@ -463,7 +393,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child: Center(child: WaveformEqualizer(isActive: true)),
+                        child: Center(child: LiveTvIndicator(isActive: true)),
                       )
                     : const Text('🍿', style: TextStyle(fontSize: 18)),
               ),
@@ -581,103 +511,204 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _buildBody(BuildContext context) {
-    final searchResultsAsync = ref.watch(searchResultsProvider);
+  /// What belongs in the panel right now, or null when it stays shut.
+  ///
+  /// One answer for both surfaces: on a phone the panel takes over the body,
+  /// on a desktop it is a flyout under the field, and neither may disagree
+  /// with the other about whether there is anything to show.
+  ({List<String> recents, List<String> suggestions, bool isLoading})?
+  _panelData() {
     final suggestionState = ref.watch(searchSuggestionControllerProvider);
-    final l10n = AppLocalizations.of(context)!;
+    final recents = _recentsFor(ref.watch(searchHistoryProvider));
+    final suggestions = withoutDuplicatedHistory(
+      suggestionState.suggestions,
+      recents,
+    );
     final typedLongEnough = suggestionState.query.trim().length >= 2;
     final hasSuggestionContent =
-        suggestionState.isLoading || suggestionState.suggestions.isNotEmpty;
-    final showSuggestions = typedLongEnough && hasSuggestionContent;
+        typedLongEnough &&
+        (suggestionState.isLoading || suggestions.isNotEmpty);
 
-    return showSuggestions
-        ? _buildSuggestionsView(context, suggestionState)
-        : searchResultsAsync.when(
-            data: (state) {
-              final allResults = state.results
-                  .expand((e) => e.results)
-                  .toList();
-
-              if (allResults.isEmpty && !state.isLoading) {
-                return _buildEmptyState(context);
-              } else if (allResults.isEmpty && state.isLoading) {
-                return const Center(child: AppLoadingIndicator());
-              }
-
-              // RepaintBoundary isolates list repaints from the rest of the
-              // screen (app bar, background) so each incremental result update
-              // only repaints the list — not the entire scaffold.
-              return RepaintBoundary(
-                child: ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 100),
-                  itemCount: state.results.length,
-                  itemBuilder: (context, index) {
-                    final pResult = state.results[index];
-                    return SearchResultSection(
-                      key: ValueKey(pResult.providerId),
-                      providerName: pResult.providerName,
-                      providerId: pResult.providerId,
-                      results: pResult.results,
-                      firstCardFocusNode: index == 0
-                          ? _firstResultFocusNode
-                          : null,
-                    );
-                  },
-                ),
-              );
-            },
-            loading: () => const Center(child: AppLoadingIndicator()),
-            error: (err, stack) =>
-                Center(child: Text(l10n.errorPrefix(err.toString()))),
-          );
+    // With nothing to put in it the panel stays shut, so an empty field and
+    // an empty history still get the "search for your favourite content"
+    // prompt rather than a blank screen.
+    if (!_isPanelOpen || (recents.isEmpty && !hasSuggestionContent)) {
+      return null;
+    }
+    return (
+      recents: recents,
+      suggestions: suggestions,
+      isLoading: suggestionState.isLoading,
+    );
   }
 
+  /// The desktop flyout's contents, or null when there is no flyout.
+  Widget? _buildFlyout(BuildContext context) {
+    final panel = _panelData();
+    if (panel == null) return null;
+    return _buildSuggestionsView(
+      context,
+      recents: panel.recents,
+      suggestions: panel.suggestions,
+      isLoadingSuggestions: panel.isLoading,
+      isFlyout: true,
+    );
+  }
+
+  /// The phone body, where the panel covers the results outright.
+  Widget _buildBody(BuildContext context) {
+    final panel = _panelData();
+    if (panel == null) return _buildResultsView(context);
+    return _buildSuggestionsView(
+      context,
+      recents: panel.recents,
+      suggestions: panel.suggestions,
+      isLoadingSuggestions: panel.isLoading,
+    );
+  }
+
+  Widget _buildResultsView(BuildContext context) {
+    final searchResultsAsync = ref.watch(searchResultsProvider);
+    final l10n = AppLocalizations.of(context)!;
+
+    return searchResultsAsync.when(
+      data: (state) {
+        final allResults = state.results.expand((e) => e.results).toList();
+
+        if (allResults.isEmpty && !state.isLoading) {
+          return _buildEmptyState(context);
+        } else if (allResults.isEmpty && state.isLoading) {
+          return const Center(child: AppLoadingIndicator());
+        }
+
+        // RepaintBoundary isolates list repaints from the rest of the
+        // screen (app bar, background) so each incremental result update
+        // only repaints the list — not the entire scaffold.
+        return RepaintBoundary(
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 100),
+            itemCount: state.results.length,
+            itemBuilder: (context, index) {
+              final pResult = state.results[index];
+              return SearchResultSection(
+                key: ValueKey(pResult.providerId),
+                providerName: pResult.providerName,
+                providerId: pResult.providerId,
+                results: pResult.results,
+                firstCardFocusNode: index == 0 ? _firstResultFocusNode : null,
+              );
+            },
+          ),
+        );
+      },
+      loading: () => const Center(child: AppLoadingIndicator()),
+      error: (err, stack) =>
+          Center(child: Text(l10n.errorPrefix(err.toString()))),
+    );
+  }
+
+  /// The recents and suggestions the user picks from.
+  ///
+  /// One list rather than two so the entry animation staggers across the
+  /// whole panel and D-pad travel runs uninterrupted from the last recent
+  /// into the first suggestion.
   Widget _buildSuggestionsView(
-    BuildContext context,
-    SearchSuggestionState suggestionState,
-  ) {
-    if (suggestionState.isLoading) {
-      return const Center(child: AppLoadingIndicator());
+    BuildContext context, {
+    required List<String> recents,
+    required List<String> suggestions,
+    required bool isLoadingSuggestions,
+    bool isFlyout = false,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+
+    // Up from the first row returns to the field, which is what sits
+    // directly above the panel.
+    void focusSearchField() => _focusNode.requestFocus();
+
+    var index = 0;
+    final rows = <Widget>[];
+
+    Widget staggered(int position, Widget row) {
+      return BouncyEntryAnimation(
+        delay: Duration(milliseconds: position * 40),
+        child: row,
+      );
     }
 
-    if (suggestionState.suggestions.isEmpty) {
-      return Center(
-        child: Text(
-          'No results found',
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+    for (final query in recents) {
+      final isFirst = index == 0;
+      rows.add(
+        staggered(
+          index,
+          SearchSuggestionRow(
+            key: ValueKey('search-history-$query'),
+            text: query,
+            icon: Icons.history_rounded,
+            focusNode: isFirst ? _firstSuggestionFocusNode : null,
+            isFirst: isFirst,
+            onFocusUp: focusSearchField,
+            trailingIcon: Icons.close_rounded,
+            trailingSemanticLabel: l10n.removeFromSearchHistory(query),
+            onTap: () => _submitSearch(query),
+            onTrailingTap: () =>
+                ref.read(searchHistoryProvider.notifier).remove(query),
           ),
+        ),
+      );
+      index++;
+    }
+
+    for (final suggestion in suggestions) {
+      final isFirst = index == 0;
+      rows.add(
+        staggered(
+          index,
+          SearchSuggestionRow(
+            key: ValueKey('search-suggestion-$suggestion'),
+            text: suggestion,
+            icon: Icons.search_rounded,
+            focusNode: isFirst ? _firstSuggestionFocusNode : null,
+            isFirst: isFirst,
+            onFocusUp: focusSearchField,
+            trailingIcon: Icons.north_west_rounded,
+            onTap: () => _submitSearch(suggestion),
+            onTrailingTap: () => _fillSuggestion(suggestion),
+          ),
+        ),
+      );
+      index++;
+    }
+
+    if (isLoadingSuggestions) {
+      rows.add(
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Center(child: AppLoadingIndicator()),
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 100),
-      itemCount: suggestionState.suggestions.length,
-      itemBuilder: (context, index) {
-        final suggestion = suggestionState.suggestions[index];
-        return BouncyEntryAnimation(
-          delay: Duration(milliseconds: index * 40),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: _SuggestionCard(
-              suggestion: suggestion,
-              focusNode: index == 0 ? _firstSuggestionFocusNode : null,
-              isFirst: index == 0,
-              onFocusSearch: () {
-                final filter = ref.read(searchFilterProvider);
-                if (filter == SearchFilter.live) {
-                  _liveTvFocusNode.requestFocus();
-                } else {
-                  _moviesShowsFocusNode.requestFocus();
-                }
-              },
-              onTap: () => _submitSearch(suggestion),
-              onFill: () => _fillSuggestion(suggestion),
+    return ListView(
+      // Wrapped to its contents in the flyout so three recents make a small
+      // panel and a full list makes one that scrolls at its ceiling - a
+      // fixed-height box with three rows in it is a hole, not a flyout.
+      shrinkWrap: isFlyout,
+      padding: isFlyout
+          ? const EdgeInsets.symmetric(horizontal: 8, vertical: 8)
+          : const EdgeInsets.only(left: 8, right: 8, bottom: 100),
+      children: [
+        if (recents.isNotEmpty)
+          Semantics(
+            container: true,
+            explicitChildNodes: true,
+            label: l10n.recentSearches,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: rows.take(recents.length).toList(),
             ),
           ),
-        );
-      },
+        ...rows.skip(recents.length),
+      ],
     );
   }
 
@@ -694,9 +725,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             Icon(
               Icons.movie_filter_rounded,
               size: 64,
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.65),
+              color: Theme.of(context).colorScheme.onSurfaceVariant
+                  .withValues(alpha: 0.65),
             ),
             const SizedBox(height: LayoutConstants.spacingMd),
             Text(
@@ -743,271 +773,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             cacheWidth: 640,
             errorBuilder: (context, error, stackTrace) =>
                 const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SuggestionCard extends StatefulWidget {
-  final String suggestion;
-  final VoidCallback onTap;
-  final VoidCallback onFill;
-  final FocusNode? focusNode;
-  final bool isFirst;
-  final VoidCallback onFocusSearch;
-
-  const _SuggestionCard({
-    required this.suggestion,
-    required this.onTap,
-    required this.onFill,
-    required this.isFirst,
-    required this.onFocusSearch,
-    this.focusNode,
-  });
-
-  @override
-  State<_SuggestionCard> createState() => _SuggestionCardState();
-}
-
-class _SuggestionCardState extends State<_SuggestionCard> {
-  bool _isBodyHovered = false;
-  bool _isButtonHovered = false;
-
-  late final FocusNode _bodyNode;
-  late final FocusNode _buttonNode;
-
-  @override
-  void initState() {
-    super.initState();
-    _bodyNode = widget.focusNode ?? FocusNode();
-    _bodyNode.addListener(_onFocusChange);
-    _buttonNode = FocusNode();
-    _buttonNode.addListener(_onFocusChange);
-  }
-
-  void _onFocusChange() {
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  @override
-  void dispose() {
-    if (widget.focusNode == null) {
-      _bodyNode.dispose();
-    } else {
-      if (_bodyNode.hasFocus) {
-        _bodyNode.unfocus();
-      }
-      _bodyNode.removeListener(_onFocusChange);
-    }
-    _buttonNode.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final nativeFont = theme.textTheme.bodyLarge?.fontFamily;
-
-    final isBodyHighlighted = _isBodyHovered || _bodyNode.hasFocus;
-    final isButtonHighlighted = _isButtonHovered || _buttonNode.hasFocus;
-    final isAnyHighlighted = isBodyHighlighted || isButtonHighlighted;
-
-    final baseBorderColor = isDark
-        ? Colors.white.withValues(alpha: 0.1)
-        : theme.colorScheme.outlineVariant;
-    final highlightColor = isDark
-        ? const Color(0xFF1F80E0)
-        : theme.colorScheme.primary;
-
-    final borderColor = isAnyHighlighted
-        ? highlightColor.withValues(alpha: 0.85)
-        : baseBorderColor;
-
-    final cardBgColor = isDark
-        ? Colors.black.withValues(alpha: 0.65)
-        : theme.colorScheme.surfaceContainer;
-
-    final bodyHighlightBg = isDark
-        ? const Color(0xFF1F80E0).withValues(alpha: 0.25)
-        : theme.colorScheme.primary.withValues(alpha: 0.12);
-
-    final buttonHighlightBg = isDark
-        ? const Color(0xFF1F80E0).withValues(alpha: 0.35)
-        : theme.colorScheme.primary.withValues(alpha: 0.18);
-
-    final iconColor = isDark
-        ? Colors.white70
-        : theme.colorScheme.onSurfaceVariant;
-
-    final textColor = isDark ? Colors.white : theme.colorScheme.onSurface;
-
-    final buttonIconColor = isDark
-        ? Colors.white54
-        : theme.colorScheme.onSurfaceVariant;
-
-    final dividerColor = isDark
-        ? Colors.white.withValues(alpha: 0.08)
-        : theme.colorScheme.outlineVariant;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      decoration: BoxDecoration(
-        color: cardBgColor, // Theme-aware card background
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor, width: 1.5),
-        boxShadow: isAnyHighlighted
-            ? [
-                BoxShadow(
-                  color: highlightColor.withValues(alpha: 0.2),
-                  blurRadius: 8,
-                  spreadRadius: 1,
-                ),
-              ]
-            : null,
-      ),
-      child: Row(
-        children: [
-          // Main Body Focus (Search text)
-          Expanded(
-            child: Focus(
-              focusNode: _bodyNode,
-              onKeyEvent: (node, event) {
-                if (event is KeyDownEvent) {
-                  if (event.logicalKey == LogicalKeyboardKey.arrowUp &&
-                      widget.isFirst) {
-                    widget.onFocusSearch();
-                    return KeyEventResult.handled;
-                  }
-                  if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-                    _buttonNode.requestFocus();
-                    return KeyEventResult.handled;
-                  }
-                  if (event.logicalKey == LogicalKeyboardKey.select ||
-                      event.logicalKey == LogicalKeyboardKey.enter ||
-                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
-                      event.logicalKey == LogicalKeyboardKey.space) {
-                    widget.onTap();
-                    return KeyEventResult.handled;
-                  }
-                }
-                return KeyEventResult.ignored;
-              },
-              child: MouseRegion(
-                onEnter: (_) => setState(() => _isBodyHovered = true),
-                onExit: (_) => setState(() => _isBodyHovered = false),
-                child: GestureDetector(
-                  onTap: widget.onTap,
-                  behavior: HitTestBehavior.opaque,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeInOut,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isBodyHighlighted
-                          ? bodyHighlightBg
-                          : Colors.transparent,
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(11),
-                        bottomLeft: Radius.circular(11),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.search_rounded,
-                          color: isBodyHighlighted ? highlightColor : iconColor,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Text(
-                            widget.suggestion,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontFamily: nativeFont,
-                              color: textColor,
-                              fontSize: 16.0,
-                              fontWeight: isBodyHighlighted
-                                  ? FontWeight.w500
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // Vertical divider line between text block and arrow button
-          Container(width: 1.0, height: 24.0, color: dividerColor),
-          // Fill Button Focus (Arrow icon button)
-          Focus(
-            focusNode: _buttonNode,
-            onKeyEvent: (node, event) {
-              if (event is KeyDownEvent) {
-                if (event.logicalKey == LogicalKeyboardKey.arrowUp &&
-                    widget.isFirst) {
-                  widget.onFocusSearch();
-                  return KeyEventResult.handled;
-                }
-                if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-                  _bodyNode.requestFocus();
-                  return KeyEventResult.handled;
-                }
-                if (event.logicalKey == LogicalKeyboardKey.select ||
-                    event.logicalKey == LogicalKeyboardKey.enter ||
-                    event.logicalKey == LogicalKeyboardKey.numpadEnter ||
-                    event.logicalKey == LogicalKeyboardKey.space) {
-                  widget.onFill();
-                  return KeyEventResult.handled;
-                }
-              }
-              return KeyEventResult.ignored;
-            },
-            child: MouseRegion(
-              onEnter: (_) => setState(() => _isButtonHovered = true),
-              onExit: (_) => setState(() => _isButtonHovered = false),
-              child: GestureDetector(
-                onTap: widget.onFill,
-                behavior: HitTestBehavior.opaque,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeInOut,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isButtonHighlighted
-                        ? buttonHighlightBg
-                        : Colors.transparent,
-                    borderRadius: const BorderRadius.only(
-                      topRight: Radius.circular(11),
-                      bottomRight: Radius.circular(11),
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.north_west_rounded,
-                    color: isButtonHighlighted
-                        ? highlightColor
-                        : buttonIconColor,
-                    size: 20,
-                  ),
-                ),
-              ),
-            ),
           ),
         ],
       ),

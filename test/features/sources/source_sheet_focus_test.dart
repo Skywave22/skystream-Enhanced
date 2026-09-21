@@ -152,11 +152,7 @@ void main() {
 
     expect(
       tester.getSemantics(find.text('Download now')),
-      isSemantics(
-        isButton: true,
-        hasEnabledState: true,
-        isEnabled: false,
-      ),
+      isSemantics(isButton: true, hasEnabledState: true, isEnabled: false),
     );
     handle.dispose();
   });
@@ -237,6 +233,7 @@ class _SourceCardState extends State<_SourceCard> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Focus(
       focusNode: _cardFocusNode,
       autofocus: widget.autofocus,
@@ -263,11 +260,19 @@ class _SourceCardState extends State<_SourceCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Row(
+                Row(
                   children: [
-                    SourceTag(text: '1080p', color: Colors.blue),
-                    SizedBox(width: 6),
-                    SourceTag(text: 'HDR', color: Colors.purple),
+                    SourceTag(
+                      text: '1080p',
+                      container: cs.primaryContainer,
+                      onContainer: cs.onPrimaryContainer,
+                    ),
+                    const SizedBox(width: 6),
+                    SourceTag(
+                      text: 'HDR',
+                      container: cs.tertiaryContainer,
+                      onContainer: cs.onTertiaryContainer,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 6),

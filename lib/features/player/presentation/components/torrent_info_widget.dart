@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../../l10n/generated/app_localizations.dart';
 import '../../../../core/models/torrent_status.dart';
 import '../../../../core/widgets/marquee_widget.dart';

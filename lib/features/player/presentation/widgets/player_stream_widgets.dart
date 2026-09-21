@@ -1,4 +1,7 @@
 import 'dart:async';
+
+import 'package:flutter/gestures.dart'
+    show GestureBinding, PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,8 +11,13 @@ import '../../../settings/presentation/player_settings_provider.dart';
 import 'hotstar_player_style.dart';
 import '../../../skip/data/skip_service.dart';
 
-/// The scrubber row — time label above, seek bar below — driven entirely by
-/// plain values.
+/// The seek bar row, driven entirely by plain values.
+///
+/// The elapsed/total clock used to sit above the track here. It is in the
+/// transport row now, on every form factor — see [PlayerTimeLabel] — which is
+/// where a viewer looks for it and which gives this widget's row back to the
+/// video. The caller places it, because the buttons it sits beside are not
+/// this widget's children.
 ///
 /// Extracted so a second engine renders *the same widget* rather than a
 /// lookalike. Phase 5b's "no visual diff" criterion is then satisfied by
@@ -23,13 +31,14 @@ import '../../../skip/data/skip_service.dart';
 /// preferences rather than engine state. It is read here rather than passed
 /// down because this widget is already a [ConsumerWidget]: the seek step then
 /// cannot drift from the setting by way of a caller that forgot to thread it.
-/// Horizontal inset that aligns the time label with the seek bar's track.
-const double _kSliderTrackInset = 24;
-
 /// Height of the seek bar row. The television one is taller because the bar is
 /// the primary seek surface there and is read from across a room.
-const double _kBarHeight = 36;
-const double _kTvBarHeight = 48;
+///
+/// Sized to the track and its thumb and no more. It used to carry 14 dp of
+/// dead space under an 8 dp track, which read as a gap between the scrubber
+/// and the control row rather than as part of either.
+const double _kBarHeight = 26;
+const double _kTvBarHeight = 38;
 
 String _formatClock(Duration duration) {
   final abs = duration.abs();
@@ -110,7 +119,6 @@ class PlayerScrubber extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _timeHeader(context, ref),
         SizedBox(
           height: isTv ? _kTvBarHeight : _kBarHeight,
           child: PlayerSeekBar(
@@ -134,8 +142,42 @@ class PlayerScrubber extends ConsumerWidget {
       ],
     );
   }
+}
 
-  Widget _timeHeader(BuildContext context, WidgetRef ref) {
+/// The elapsed/total clock — `12:04 / 48:31` — or the LIVE badge that stands in
+/// for it on a feed with no end to count towards.
+///
+/// Its own widget because it has two homes. Above the track on touch and on a
+/// television, where the bar is the thing being read; and beside the transport
+/// buttons on desktop, where the layout follows the convention every desktop
+/// player in the world uses. One implementation, so the tap that swaps elapsed
+/// for remaining, the tabular figures and the live case cannot drift apart
+/// between the two placements.
+///
+/// Driven by plain values, like everything else in this file: what it does
+/// *not* know is which position is the truth at this instant — the finger's,
+/// a seek the engine has not honoured yet, or the engine's. That is the seek
+/// bar's judgement, and the caller passes the answer in.
+class PlayerTimeLabel extends ConsumerWidget {
+  const PlayerTimeLabel({
+    required this.position,
+    required this.duration,
+    this.hasDuration = true,
+    this.isLive = false,
+    super.key,
+  });
+
+  final Duration position;
+  final Duration duration;
+
+  /// Whether [duration] is known. The total reads `--:--` until it is, rather
+  /// than `0:00`, which would say the media has no length.
+  final bool hasDuration;
+
+  final bool isLive;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     if (isLive) return const _LivePill();
 
     final showRemaining =
@@ -150,32 +192,24 @@ class PlayerScrubber extends ConsumerWidget {
         ? '${_formatRemainingClock(duration, position)} / $total'
         : '${_formatClock(position)} / $total';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: _kSliderTrackInset),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => ref
-                .read(playerSettingsProvider.notifier)
-                .setShowRemainingTime(!showRemaining),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: Text(
-                label,
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.clip,
-                style: const TextStyle(
-                  color: HotstarPlayerStyle.primaryText,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
-              ),
-            ),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => ref
+            .read(playerSettingsProvider.notifier)
+            .setShowRemainingTime(!showRemaining),
+        child: Text(
+          label,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.clip,
+          style: const TextStyle(
+            color: HotstarPlayerStyle.primaryText,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            // So the clock does not jitter as the digits tick over.
+            fontFeatures: [FontFeature.tabularFigures()],
           ),
         ),
       ),
@@ -183,44 +217,44 @@ class PlayerScrubber extends ConsumerWidget {
   }
 }
 
-/// The red LIVE badge shown instead of a time label on a live stream.
+/// The red LIVE badge shown instead of the clock on a live stream.
+///
+/// No padding and no [Align] of its own: it stands exactly where the clock it
+/// replaces stands, and the transport row places both.
 class _LivePill extends StatelessWidget {
   const _LivePill();
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: _kSliderTrackInset),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Container(
-          height: 22,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: Colors.red.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(
-              color: Colors.red.withValues(alpha: 0.45),
-              width: 1,
+    return Container(
+      height: 22,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        // The token, not `Colors.red`. They are three points apart and the
+        // token is the one with the contrast behind it; this pill was the only
+        // thing in the player still reaching past it for the Material swatch.
+        color: HotstarPlayerStyle.liveRed.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: HotstarPlayerStyle.liveRed.withValues(alpha: 0.45),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.circle, color: HotstarPlayerStyle.liveRed, size: 7),
+          const SizedBox(width: 5),
+          Text(
+            AppLocalizations.of(context)!.live,
+            style: const TextStyle(
+              color: HotstarPlayerStyle.liveRed,
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+              letterSpacing: 0.5,
             ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.circle, color: Colors.red, size: 7),
-              const SizedBox(width: 5),
-              Text(
-                AppLocalizations.of(context)!.live,
-                style: const TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 11,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -389,6 +423,27 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
     }
   }
 
+  /// One wheel notch over the bar: a step in the direction it was spun.
+  ///
+  /// The step is the viewer's configured seek duration, the same one the D-pad
+  /// takes, so a wheel and an arrow move the same distance.
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (resolved) {
+      if (resolved is! PointerScrollEvent || !widget.canSeek) return;
+      final Offset delta = resolved.scrollDelta;
+      final bool horizontal = delta.dx.abs() > delta.dy.abs();
+      final double primary = horizontal ? delta.dx : delta.dy;
+      if (primary == 0) return;
+      // Up and right are both forward, matching the overlay's own wheel.
+      final next = _stepped(
+        (horizontal ? primary > 0 : primary < 0) ? widget.step : -widget.step,
+      );
+      if (next == null) return;
+      _handleDpadSeek(next);
+    });
+  }
+
   String _formatDuration(double ms) {
     if (ms.isNaN || ms.isInfinite) return '0:00';
     final duration = Duration(milliseconds: ms.toInt());
@@ -453,413 +508,450 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
         // in the chrome's traversal group) while the key still bubbles.
         return KeyEventResult.ignored;
       },
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          border: _isFocused
-              ? Border.all(color: HotstarPlayerStyle.accent, width: 2)
-              : Border.all(color: Colors.transparent, width: 2),
-        ),
-        padding: EdgeInsets.symmetric(
-          horizontal: _isFocused ? 6.0 : 8.0,
-          vertical: _isFocused ? 2.0 : 4.0,
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final trackWidth = constraints.maxWidth;
-            final double ratio = (widget.max > widget.min)
-                ? (widget.value - widget.min) / (widget.max - widget.min)
-                : 0.0;
-            final double progressWidth = (ratio * trackWidth).clamp(
-              0.0,
-              trackWidth,
-            );
-
-            // Calculate track intervals based on skip segments
-            final List<_TrackInterval> intervals = [];
-            if (widget.max <= widget.min || widget.skipSegments.isEmpty) {
-              intervals.add(
-                _TrackInterval(
-                  start: 0.0,
-                  end: trackWidth,
-                  isSkipSegment: false,
-                ),
+      // No focus ring. The bar already says it has the remote in the one place
+      // a viewer is looking: the thumb swells from 10 dp to 14, or to 20 on a
+      // television - see the thumb block below. A rounded rule around the
+      // whole width on top of that was a second, larger answer to a question
+      // the first one had already answered, and on a ten-foot bar it drew a
+      // 1200 dp box around a 20 dp cursor.
+      //
+      // The optical insets live in [HotstarPlayerStyle] because the floating
+      // overlays answer to the same two lines; see `trackInset`. They are the
+      // whole inset now that no border is taking part of it, so the track does
+      // not move by the ring's width when focus arrives or leaves.
+      // The inset either side of the track is *paint*, not target: a press in
+      // that band still belongs to the bar rather than falling through to the
+      // video behind it.
+      //
+      // The focus ring used to provide this by accident - RenderDecoratedBox
+      // hit-tests itself, so the ring's box caught the padding band - and
+      // taking the ring away took the bar's outer 16 dp with it.
+      // next_episode_countdown_test caught it: a finger at the end of the bar
+      // reached the page behind it instead.
+      // An empty [BoxDecoration] paints nothing and hit-tests everything:
+      // `BoxDecoration.hitTest` answers for any point inside a rectangular
+      // shape, whatever it was given to draw. That is the whole reason it is
+      // here rather than a bare [Padding].
+      child: DecoratedBox(
+        decoration: const BoxDecoration(),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            HotstarPlayerStyle.trackInset,
+            2,
+            HotstarPlayerStyle.trackEndInset,
+            2,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final trackWidth = constraints.maxWidth;
+              final double ratio = (widget.max > widget.min)
+                  ? (widget.value - widget.min) / (widget.max - widget.min)
+                  : 0.0;
+              final double progressWidth = (ratio * trackWidth).clamp(
+                0.0,
+                trackWidth,
               );
-            } else {
-              final List<_TrackInterval> rawIntervals = [];
-              for (final seg in widget.skipSegments) {
-                final double startMs = seg.startTime * 1000.0;
-                final double endMs = seg.endTime * 1000.0;
-                final double startRatio = (startMs / (widget.max - widget.min))
-                    .clamp(0.0, 1.0);
-                final double endRatio = (endMs / (widget.max - widget.min))
-                    .clamp(0.0, 1.0);
-                if (startRatio < endRatio) {
-                  rawIntervals.add(
-                    _TrackInterval(
-                      start: startRatio * trackWidth,
-                      end: endRatio * trackWidth,
-                      isSkipSegment: true,
-                    ),
-                  );
-                }
-              }
 
-              rawIntervals.sort((a, b) => a.start.compareTo(b.start));
-
-              double currentX = 0.0;
-              for (final seg in rawIntervals) {
-                if (seg.start > currentX) {
-                  intervals.add(
-                    _TrackInterval(
-                      start: currentX,
-                      end: seg.start,
-                      isSkipSegment: false,
-                    ),
-                  );
-                }
-                final double segStart = seg.start.clamp(currentX, trackWidth);
-                final double segEnd = seg.end.clamp(segStart, trackWidth);
-                if (segStart < segEnd) {
-                  intervals.add(
-                    _TrackInterval(
-                      start: segStart,
-                      end: segEnd,
-                      isSkipSegment: true,
-                    ),
-                  );
-                  currentX = segEnd;
-                }
-              }
-              if (currentX < trackWidth) {
+              // Calculate track intervals based on skip segments
+              final List<_TrackInterval> intervals = [];
+              if (widget.max <= widget.min || widget.skipSegments.isEmpty) {
                 intervals.add(
                   _TrackInterval(
-                    start: currentX,
+                    start: 0.0,
                     end: trackWidth,
                     isSkipSegment: false,
                   ),
                 );
-              }
-            }
+              } else {
+                final List<_TrackInterval> rawIntervals = [];
+                for (final seg in widget.skipSegments) {
+                  final double startMs = seg.startTime * 1000.0;
+                  final double endMs = seg.endTime * 1000.0;
+                  final double startRatio =
+                      (startMs / (widget.max - widget.min)).clamp(0.0, 1.0);
+                  final double endRatio = (endMs / (widget.max - widget.min))
+                      .clamp(0.0, 1.0);
+                  if (startRatio < endRatio) {
+                    rawIntervals.add(
+                      _TrackInterval(
+                        start: startRatio * trackWidth,
+                        end: endRatio * trackWidth,
+                        isSkipSegment: true,
+                      ),
+                    );
+                  }
+                }
 
-            // Adjust intervals to introduce a 2px visual gap (seam)
-            final List<_TrackInterval> visualIntervals = [];
-            for (final interval in intervals) {
-              double start = interval.start;
-              double end = interval.end;
-              if (start > 0.0) {
-                start += 1.0;
+                rawIntervals.sort((a, b) => a.start.compareTo(b.start));
+
+                double currentX = 0.0;
+                for (final seg in rawIntervals) {
+                  if (seg.start > currentX) {
+                    intervals.add(
+                      _TrackInterval(
+                        start: currentX,
+                        end: seg.start,
+                        isSkipSegment: false,
+                      ),
+                    );
+                  }
+                  final double segStart = seg.start.clamp(currentX, trackWidth);
+                  final double segEnd = seg.end.clamp(segStart, trackWidth);
+                  if (segStart < segEnd) {
+                    intervals.add(
+                      _TrackInterval(
+                        start: segStart,
+                        end: segEnd,
+                        isSkipSegment: true,
+                      ),
+                    );
+                    currentX = segEnd;
+                  }
+                }
+                if (currentX < trackWidth) {
+                  intervals.add(
+                    _TrackInterval(
+                      start: currentX,
+                      end: trackWidth,
+                      isSkipSegment: false,
+                    ),
+                  );
+                }
               }
-              if (end < trackWidth) {
-                end -= 1.0;
+
+              // Adjust intervals to introduce a 2px visual gap (seam)
+              final List<_TrackInterval> visualIntervals = [];
+              for (final interval in intervals) {
+                double start = interval.start;
+                double end = interval.end;
+                if (start > 0.0) {
+                  start += 1.0;
+                }
+                if (end < trackWidth) {
+                  end -= 1.0;
+                }
+                if (start < end) {
+                  visualIntervals.add(
+                    _TrackInterval(
+                      start: start,
+                      end: end,
+                      isSkipSegment: interval.isSkipSegment,
+                    ),
+                  );
+                }
               }
-              if (start < end) {
-                visualIntervals.add(
-                  _TrackInterval(
-                    start: start,
-                    end: end,
-                    isSkipSegment: interval.isSkipSegment,
-                  ),
+
+              // Precompute heights for each interval depending on hover position
+              final int hoveredIntervalIndex = _intervalIndexAt(
+                _hoverX.value,
+                visualIntervals,
+              );
+              final double trackHeight = widget.isTv ? 10.0 : 8.0;
+              final List<double> intervalHeights = [];
+              for (int i = 0; i < visualIntervals.length; i++) {
+                final bool isIntervalHovered =
+                    (_isTrackHovered || _isDragging) &&
+                    i == hoveredIntervalIndex;
+                intervalHeights.add(
+                  isIntervalHovered ? trackHeight + 4.0 : trackHeight,
                 );
               }
-            }
 
-            // Precompute heights for each interval depending on hover position
-            final int hoveredIntervalIndex = _intervalIndexAt(
-              _hoverX.value,
-              visualIntervals,
-            );
-            final double trackHeight = widget.isTv ? 10.0 : 8.0;
-            final List<double> intervalHeights = [];
-            for (int i = 0; i < visualIntervals.length; i++) {
-              final bool isIntervalHovered =
-                  (_isTrackHovered || _isDragging) && i == hoveredIntervalIndex;
-              intervalHeights.add(
-                isIntervalHovered ? trackHeight + 4.0 : trackHeight,
-              );
-            }
+              // Thumb morphs if hovering anywhere on track or actively dragging
+              final bool isMorphed = _isDragging || _isTrackHovered;
 
-            // Thumb morphs if hovering anywhere on track or actively dragging
-            final bool isMorphed = _isDragging || _isTrackHovered;
+              final double thumbWidth;
+              final double thumbHeight;
+              final double thumbRadius;
+              final double thumbOpacity;
 
-            final double thumbWidth;
-            final double thumbHeight;
-            final double thumbRadius;
-            final double thumbOpacity;
+              if (isMorphed) {
+                thumbWidth = 3.0;
+                thumbHeight = 18.0;
+                thumbRadius = 2.0; // rounded-sm ≈ 2px
+                thumbOpacity = 1.0;
+              } else if (_isFocused) {
+                // The focused thumb is the D-pad's cursor, so it is the one
+                // state that has to read from across a room.
+                thumbWidth = widget.isTv ? 20.0 : 14.0;
+                thumbHeight = widget.isTv ? 20.0 : 14.0;
+                thumbRadius = thumbWidth / 2;
+                thumbOpacity = 1.0;
+              } else {
+                thumbWidth = 10.0;
+                thumbHeight = 10.0;
+                thumbRadius = 5.0;
+                thumbOpacity = 0.9;
+              }
 
-            if (isMorphed) {
-              thumbWidth = 3.0;
-              thumbHeight = 18.0;
-              thumbRadius = 2.0; // rounded-sm ≈ 2px
-              thumbOpacity = 1.0;
-            } else if (_isFocused) {
-              // The focused thumb is the D-pad's cursor, so it is the one
-              // state that has to read from across a room.
-              thumbWidth = widget.isTv ? 20.0 : 14.0;
-              thumbHeight = widget.isTv ? 20.0 : 14.0;
-              thumbRadius = thumbWidth / 2;
-              thumbOpacity = 1.0;
-            } else {
-              thumbWidth = 10.0;
-              thumbHeight = 10.0;
-              thumbRadius = 5.0;
-              thumbOpacity = 0.9;
-            }
-
-            return MouseRegion(
-              onEnter: (_) {
-                if (widget.canSeek) {
-                  setState(() => _isTrackHovered = true);
-                }
-              },
-              onExit: (_) {
-                _hoverX.value = 0.0;
-                setState(() => _isTrackHovered = false);
-              },
-              onHover: (event) {
-                if (widget.canSeek) {
-                  _moveHover(event.localPosition.dx, visualIntervals);
-                }
-              },
-              cursor: widget.canSeek
-                  ? SystemMouseCursors.click
-                  : SystemMouseCursors.basic,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onHorizontalDragStart: widget.canSeek
-                    ? (details) {
-                        _hoverX.value = details.localPosition.dx;
-                        setState(() => _isDragging = true);
-                        final val = _getValueFromOffset(
-                          details.localPosition.dx,
-                          trackWidth,
-                        );
-                        _lastDragValue = val;
-                        widget.onChangeStart?.call(val);
-                      }
-                    : null,
-                onHorizontalDragUpdate: widget.canSeek
-                    ? (details) {
-                        _moveHover(details.localPosition.dx, visualIntervals);
-                        final val = _getValueFromOffset(
-                          details.localPosition.dx,
-                          trackWidth,
-                        );
-                        _lastDragValue = val;
-                        widget.onChanged?.call(val);
-                      }
-                    : null,
-                onHorizontalDragEnd: widget.canSeek
-                    ? (details) {
-                        setState(() {
-                          _isDragging = false;
-                        });
-                        widget.onChangeEnd?.call(
-                          _lastDragValue ?? widget.value,
-                        );
-                      }
-                    : null,
-                onTapDown: widget.canSeek
-                    ? (details) {
-                        final val = _getValueFromOffset(
-                          details.localPosition.dx,
-                          trackWidth,
-                        );
-                        widget.onChangeStart?.call(val);
-                        widget.onChanged?.call(val);
-                        widget.onChangeEnd?.call(val);
-                      }
-                    : null,
-                child: Container(
-                  height: widget.isTv ? _kTvBarHeight : _kBarHeight,
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12.0),
-                  child: Stack(
-                    alignment: Alignment.centerLeft,
-                    clipBehavior: Clip.none,
-                    children: [
-                      // 1. Track Background segments
-                      for (int i = 0; i < visualIntervals.length; i++)
-                        Positioned(
-                          left: visualIntervals[i].start,
-                          width:
-                              visualIntervals[i].end - visualIntervals[i].start,
-                          child: Align(
-                            alignment: Alignment.center,
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
-                              curve: const Cubic(0.4, 0.0, 0.2, 1.0),
-                              height: intervalHeights[i],
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(4.0),
-                                color: visualIntervals[i].isSkipSegment
-                                    ? HotstarPlayerStyle.skipSegment.withValues(
-                                        alpha: 0.35,
-                                      )
-                                    : const Color(
-                                        0x4DCFDEF6,
-                                      ), // rgba(207, 222, 246, 0.30)
-                              ),
-                            ),
-                          ),
-                        ),
-
-                      // 2. Buffer progress segments
-                      if (widget.bufferRatio > 0.0)
-                        for (int i = 0; i < visualIntervals.length; i++)
-                          _buildIntervalBuffer(
-                            visualIntervals[i],
-                            trackWidth,
-                            intervalHeights[i],
-                          ),
-
-                      // 3. Played progress segments
-                      for (int i = 0; i < visualIntervals.length; i++)
-                        _buildIntervalProgress(
-                          visualIntervals[i],
-                          progressWidth,
-                          intervalHeights[i],
-                        ),
-
-                      // 3.5 Hover Vertical Line (only when hovered and not dragging).
-                      // Moved by a paint-only translate inside its own boundary
-                      // rather than by re-positioning within the Stack, which
-                      // would relayout and repaint the whole track every frame.
-                      if (_isTrackHovered && !_isDragging)
-                        Positioned(
-                          left: 0.0,
-                          child: RepaintBoundary(
-                            child: ValueListenableBuilder<double>(
-                              valueListenable: _hoverX,
-                              builder: (context, hoverX, child) {
-                                return Transform.translate(
-                                  offset: Offset(hoverX, 0.0),
-                                  child: child,
-                                );
-                              },
-                              child: FractionalTranslation(
-                                translation: const Offset(-0.5, 0.0),
-                                child: Align(
-                                  alignment: Alignment.center,
-                                  child: Container(
-                                    width: 1.5,
-                                    height: hoveredIntervalIndex != -1
-                                        ? intervalHeights[hoveredIntervalIndex]
-                                        : trackHeight,
-                                    color: Colors.white,
+              return Listener(
+                // A wheel over the bar seeks, which is what it does over a
+                // timeline in every desktop player. Through the resolver so the
+                // innermost widget wins: without it the overlay's own handler
+                // would take the same notch and change the volume instead.
+                //
+                // Routed into [_handleDpadSeek], so a spin coalesces the way a
+                // held D-pad does - one seek at the end of the burst rather than
+                // one per notch, which would leave the engine chasing a value
+                // the wheel had already moved past.
+                onPointerSignal: widget.canSeek ? _onPointerSignal : null,
+                child: MouseRegion(
+                  onEnter: (_) {
+                    if (widget.canSeek) {
+                      setState(() => _isTrackHovered = true);
+                    }
+                  },
+                  onExit: (_) {
+                    _hoverX.value = 0.0;
+                    setState(() => _isTrackHovered = false);
+                  },
+                  onHover: (event) {
+                    if (widget.canSeek) {
+                      _moveHover(event.localPosition.dx, visualIntervals);
+                    }
+                  },
+                  cursor: widget.canSeek
+                      ? SystemMouseCursors.click
+                      : SystemMouseCursors.basic,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onHorizontalDragStart: widget.canSeek
+                        ? (details) {
+                            _hoverX.value = details.localPosition.dx;
+                            setState(() => _isDragging = true);
+                            final val = _getValueFromOffset(
+                              details.localPosition.dx,
+                              trackWidth,
+                            );
+                            _lastDragValue = val;
+                            widget.onChangeStart?.call(val);
+                          }
+                        : null,
+                    onHorizontalDragUpdate: widget.canSeek
+                        ? (details) {
+                            _moveHover(
+                              details.localPosition.dx,
+                              visualIntervals,
+                            );
+                            final val = _getValueFromOffset(
+                              details.localPosition.dx,
+                              trackWidth,
+                            );
+                            _lastDragValue = val;
+                            widget.onChanged?.call(val);
+                          }
+                        : null,
+                    onHorizontalDragEnd: widget.canSeek
+                        ? (details) {
+                            setState(() {
+                              _isDragging = false;
+                            });
+                            widget.onChangeEnd?.call(
+                              _lastDragValue ?? widget.value,
+                            );
+                          }
+                        : null,
+                    onTapDown: widget.canSeek
+                        ? (details) {
+                            final val = _getValueFromOffset(
+                              details.localPosition.dx,
+                              trackWidth,
+                            );
+                            widget.onChangeStart?.call(val);
+                            widget.onChanged?.call(val);
+                            widget.onChangeEnd?.call(val);
+                          }
+                        : null,
+                    child: Container(
+                      height: widget.isTv ? _kTvBarHeight : _kBarHeight,
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12.0),
+                      child: Stack(
+                        alignment: Alignment.centerLeft,
+                        clipBehavior: Clip.none,
+                        children: [
+                          // 1. Track Background segments
+                          for (int i = 0; i < visualIntervals.length; i++)
+                            Positioned(
+                              left: visualIntervals[i].start,
+                              width:
+                                  visualIntervals[i].end -
+                                  visualIntervals[i].start,
+                              child: Align(
+                                alignment: Alignment.center,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  curve: const Cubic(0.4, 0.0, 0.2, 1.0),
+                                  height: intervalHeights[i],
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(4.0),
+                                    color: visualIntervals[i].isSkipSegment
+                                        ? HotstarPlayerStyle.skipSegment
+                                              .withValues(alpha: 0.35)
+                                        : const Color(
+                                            0x4DCFDEF6,
+                                          ), // rgba(207, 222, 246, 0.30)
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        ),
 
-                      // 3.6 Hover/Drag Timestamp Tooltip (visible on hover and during active drag)
-                      if (_isTrackHovered || _isDragging)
-                        Positioned(
-                          left: 0.0,
-                          top: -38.0, // Float higher above the seek bar
-                          child: RepaintBoundary(
-                            child: ValueListenableBuilder<double>(
-                              valueListenable: _hoverX,
-                              builder: (context, hoverX, _) {
-                                final double tooltipPositionX =
-                                    (_isDragging && hoverX == 0.0)
-                                    ? progressWidth
-                                    : hoverX;
+                          // 2. Buffer progress segments
+                          if (widget.bufferRatio > 0.0)
+                            for (int i = 0; i < visualIntervals.length; i++)
+                              _buildIntervalBuffer(
+                                visualIntervals[i],
+                                trackWidth,
+                                intervalHeights[i],
+                              ),
 
-                                return Transform.translate(
-                                  offset: Offset(
-                                    tooltipPositionX.clamp(
-                                      20.0,
-                                      trackWidth - 20.0,
-                                    ),
-                                    0.0,
-                                  ),
+                          // 3. Played progress segments
+                          for (int i = 0; i < visualIntervals.length; i++)
+                            _buildIntervalProgress(
+                              visualIntervals[i],
+                              progressWidth,
+                              intervalHeights[i],
+                            ),
+
+                          // 3.5 Hover Vertical Line (only when hovered and not dragging).
+                          // Moved by a paint-only translate inside its own boundary
+                          // rather than by re-positioning within the Stack, which
+                          // would relayout and repaint the whole track every frame.
+                          if (_isTrackHovered && !_isDragging)
+                            Positioned(
+                              left: 0.0,
+                              child: RepaintBoundary(
+                                child: ValueListenableBuilder<double>(
+                                  valueListenable: _hoverX,
+                                  builder: (context, hoverX, child) {
+                                    return Transform.translate(
+                                      offset: Offset(hoverX, 0.0),
+                                      child: child,
+                                    );
+                                  },
                                   child: FractionalTranslation(
                                     translation: const Offset(-0.5, 0.0),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10.0,
-                                        vertical: 5.0,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(
-                                          0xE61A1A1A,
-                                        ), // rgba(26, 26, 26, 0.9) - dark grey
-                                        borderRadius: BorderRadius.circular(
-                                          16.0,
-                                        ), // Pill shape
-                                        border: Border.all(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.15,
-                                          ),
-                                          width: 0.5,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(
-                                              alpha: 0.25,
-                                            ),
-                                            blurRadius: 4.0,
-                                            offset: const Offset(0.0, 2.0),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Text(
-                                        _formatDuration(
-                                          _getValueFromOffset(
-                                            tooltipPositionX,
-                                            trackWidth,
-                                          ),
-                                        ),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 11.0,
-                                          fontWeight: FontWeight.w700,
-                                          fontFeatures: [
-                                            FontFeature.tabularFigures(),
-                                          ], // Tabular/monospace figures
-                                          height: 1.0,
-                                        ),
+                                    child: Align(
+                                      alignment: Alignment.center,
+                                      child: Container(
+                                        width: 1.5,
+                                        height: hoveredIntervalIndex != -1
+                                            ? intervalHeights[hoveredIntervalIndex]
+                                            : trackHeight,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-
-                      // 4. Scrubber Thumb (centered horizontally at progressWidth)
-                      if (widget.canSeek)
-                        Positioned(
-                          left: progressWidth,
-                          child: FractionalTranslation(
-                            translation: const Offset(-0.5, 0.0),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
-                              curve: const Cubic(0.4, 0.0, 0.2, 1.0),
-                              width: thumbWidth,
-                              height: thumbHeight,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(
-                                  alpha: thumbOpacity,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  thumbRadius,
                                 ),
                               ),
                             ),
-                          ),
-                        ),
-                    ],
+
+                          // 3.6 Hover/Drag Timestamp Tooltip (visible on hover and during active drag)
+                          if (_isTrackHovered || _isDragging)
+                            Positioned(
+                              left: 0.0,
+                              top: -38.0, // Float higher above the seek bar
+                              child: RepaintBoundary(
+                                child: ValueListenableBuilder<double>(
+                                  valueListenable: _hoverX,
+                                  builder: (context, hoverX, _) {
+                                    final double tooltipPositionX =
+                                        (_isDragging && hoverX == 0.0)
+                                        ? progressWidth
+                                        : hoverX;
+
+                                    return Transform.translate(
+                                      offset: Offset(
+                                        tooltipPositionX.clamp(
+                                          20.0,
+                                          trackWidth - 20.0,
+                                        ),
+                                        0.0,
+                                      ),
+                                      child: FractionalTranslation(
+                                        translation: const Offset(-0.5, 0.0),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10.0,
+                                            vertical: 5.0,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xE61A1A1A), // rgba(26, 26, 26, 0.9) - dark grey
+                                            borderRadius: BorderRadius.circular(
+                                              16.0,
+                                            ), // Pill shape
+                                            border: Border.all(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.15,
+                                              ),
+                                              width: 0.5,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.25,
+                                                ),
+                                                blurRadius: 4.0,
+                                                offset: const Offset(0.0, 2.0),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Text(
+                                            _formatDuration(
+                                              _getValueFromOffset(
+                                                tooltipPositionX,
+                                                trackWidth,
+                                              ),
+                                            ),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11.0,
+                                              fontWeight: FontWeight.w700,
+                                              fontFeatures: [
+                                                FontFeature.tabularFigures(),
+                                              ], // Tabular/monospace figures
+                                              height: 1.0,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+
+                          // 4. Scrubber Thumb (centered horizontally at progressWidth)
+                          if (widget.canSeek)
+                            Positioned(
+                              left: progressWidth,
+                              child: FractionalTranslation(
+                                translation: const Offset(-0.5, 0.0),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  curve: const Cubic(0.4, 0.0, 0.2, 1.0),
+                                  width: thumbWidth,
+                                  height: thumbHeight,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(
+                                      alpha: thumbOpacity,
+                                    ),
+                                    borderRadius: BorderRadius.circular(
+                                      thumbRadius,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );

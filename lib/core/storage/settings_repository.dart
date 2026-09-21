@@ -124,6 +124,14 @@ class SettingsRepository {
     return _storageService.isWatchHistoryEnabled();
   }
 
+  Future<void> setSearchHistory(List<String> queries) async {
+    await _storageService.setSearchHistory(queries);
+  }
+
+  List<String> getSearchHistory() {
+    return _storageService.getSearchHistory();
+  }
+
   Future<void> setAlwaysOnTop(bool enabled) async {
     await _storageService.setAlwaysOnTop(enabled);
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../../../core/utils/layout_constants.dart';
 import '../../../core/theme/theme_provider.dart';
 
@@ -12,6 +13,7 @@ import 'general_settings_provider.dart';
 import 'app_version_provider.dart';
 
 import 'package:skystream/l10n/generated/app_localizations.dart';
+
 import '../../../core/providers/locale_provider.dart';
 import '../../../core/router/app_router.dart';
 import 'cache_provider.dart';
@@ -29,9 +31,7 @@ class SettingsScreen extends ConsumerWidget {
     final generalSettings = ref.watch(generalSettingsProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.settings),
-      ),
+      appBar: AppBar(title: Text(l10n.settings)),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 800),
@@ -46,48 +46,48 @@ class SettingsScreen extends ConsumerWidget {
                 vertical: LayoutConstants.spacingSm,
               ).copyWith(bottom: 100),
               children: [
-              _buildGeneralSettingsGroup(
-                context,
-                ref,
-                l10n,
-                themeMode,
-                generalSettings,
-              ),
-              const SizedBox(height: LayoutConstants.spacingLg),
-              SettingsGroup(
-                title: l10n.extensions,
-                children: [
-                  SettingsTile(
-                    icon: Icons.extension_rounded,
-                    title: 'SkyStream Providers',
-                    subtitle: l10n.installRemoveProviders,
-                    onTap: () => const ExtensionsRoute().go(context),
-                  ),
-                  SettingsTile(
-                    icon: Icons.hub_rounded,
-                    title: 'Nuvio Plugins',
-                    subtitle: 'Manage and configure Nuvio scrapers',
-                    onTap: () => const NuvioPluginsRoute().go(context),
-                  ),
-                  SettingsTile(
-                    icon: Icons.dashboard_customize_rounded,
-                    title: 'Stremio Add-ons',
-                    subtitle: 'Manage and discover installed add-ons',
-                    isLast: true,
-                    onTap: () => const AddonsRoute().go(context),
-                  ),
-                ],
-              ),
-              const SizedBox(height: LayoutConstants.spacingLg),
-              _buildAppDataSettingsGroup(context, ref, l10n),
-              const SizedBox(height: LayoutConstants.spacingLg),
-              _buildAboutSettingsGroup(context, l10n, versionAsync),
-            ],
+                _buildGeneralSettingsGroup(
+                  context,
+                  ref,
+                  l10n,
+                  themeMode,
+                  generalSettings,
+                ),
+                const SizedBox(height: LayoutConstants.spacingLg),
+                SettingsGroup(
+                  title: l10n.extensions,
+                  children: [
+                    SettingsTile(
+                      icon: Icons.extension_rounded,
+                      title: 'SkyStream Providers',
+                      subtitle: l10n.installRemoveProviders,
+                      onTap: () => const ExtensionsRoute().go(context),
+                    ),
+                    SettingsTile(
+                      icon: Icons.hub_rounded,
+                      title: 'Nuvio Plugins',
+                      subtitle: 'Manage and configure Nuvio scrapers',
+                      onTap: () => const NuvioPluginsRoute().go(context),
+                    ),
+                    SettingsTile(
+                      icon: Icons.dashboard_customize_rounded,
+                      title: 'Stremio Add-ons',
+                      subtitle: 'Manage and discover installed add-ons',
+                      isLast: true,
+                      onTap: () => const AddonsRoute().go(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: LayoutConstants.spacingLg),
+                _buildAppDataSettingsGroup(context, ref, l10n),
+                const SizedBox(height: LayoutConstants.spacingLg),
+                _buildAboutSettingsGroup(context, l10n, versionAsync),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
   }
 
   Widget _buildGeneralSettingsGroup(
@@ -278,7 +278,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 }
-
 
 String _formatBytes(int bytes) {
   if (bytes <= 0) return '0 B';

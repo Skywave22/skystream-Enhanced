@@ -1,8 +1,11 @@
 import 'dart:collection';
 
 import 'package:flutter/material.dart';
+
 import '../../../../core/router/app_router.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
+
 import '../../../../core/utils/layout_constants.dart';
 import '../../../../shared/widgets/cards_wrapper.dart';
 
@@ -230,9 +233,8 @@ class _MediaHorizontalListState extends State<MediaHorizontalList> {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.1),
+                      color: Theme.of(context).colorScheme.onSurface
+                          .withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
@@ -240,9 +242,8 @@ class _MediaHorizontalListState extends State<MediaHorizontalList> {
                         Text(
                           l10n.viewAll,
                           style: TextStyle(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.7),
+                            color: Theme.of(context).colorScheme.onSurface
+                                .withValues(alpha: 0.7),
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
                           ),
@@ -251,9 +252,8 @@ class _MediaHorizontalListState extends State<MediaHorizontalList> {
                         Icon(
                           Icons.arrow_forward_ios,
                           size: 10,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.7),
                         ),
                       ],
                     ),

@@ -10,6 +10,7 @@ import '../../../../shared/widgets/expandable_text.dart';
 import 'premium_details_widgets.dart';
 import 'details_layout_widgets.dart';
 import '../../../../core/services/notification_service.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 /// Immersive desktop/TV hero for non-TMDB details.

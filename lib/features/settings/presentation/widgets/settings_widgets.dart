@@ -1,11 +1,27 @@
 import 'package:flutter/material.dart';
+
 import '../../../../core/utils/layout_constants.dart';
 
 class SettingsGroup extends StatelessWidget {
   final String title;
   final List<Widget> children;
 
-  const SettingsGroup({super.key, required this.title, required this.children});
+  /// Whether the rows sit on a card of their own.
+  ///
+  /// True on the Settings page, where the card is what separates a group from
+  /// the scaffold behind it. False inside a dialog: the card fills with
+  /// [ColorScheme.surface], which the dark theme pins to pure black, so on a
+  /// dialog's own surface it reads as a black box floating in a grey panel
+  /// rather than as a group. The tiles keep their dividers either way, which
+  /// is what actually groups them.
+  final bool filled;
+
+  const SettingsGroup({
+    super.key,
+    required this.title,
+    required this.children,
+    this.filled = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -29,11 +45,13 @@ class SettingsGroup extends StatelessWidget {
           margin: const EdgeInsets.symmetric(
             horizontal: LayoutConstants.spacingMd,
           ),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Theme.of(context).dividerColor),
-          ),
+          decoration: filled
+              ? BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                )
+              : null,
           child: Column(children: children),
         ),
       ],
@@ -143,9 +161,8 @@ class _SettingsTileState extends State<SettingsTile> {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.2),
+                          color: Theme.of(context).colorScheme.primary
+                              .withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(

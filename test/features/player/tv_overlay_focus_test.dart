@@ -338,8 +338,8 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     }, variant: texturePlatform);
 
-    /// The other end of the same band, and the reason the card is held to
-    /// 304 dp: it shares its columns with the running title.
+    /// The other end of the same band, and the reason the card's height is
+    /// capped at all: it shares its columns with the running title.
     ///
     /// `PlayerTopBar` puts the title in an `Expanded` with `maxLines: 1` and
     /// an ellipsis, so a real series title fills to the overscan inset at
@@ -359,21 +359,32 @@ void main() {
             .first,
       );
       final topBar = tester.getRect(find.byType(PlayerTopBar));
-      // The slot, not the glyphs: this fixture's series is called "Show", so
-      // its paragraph is 89 dp wide, while the Expanded it sits in runs the
-      // full 138..912 that a real title ellipsises into. Measuring the slot is
-      // what makes this an overlap test rather than an accident of a short
-      // string.
+      // The slot, not the glyphs: a short fixture title paints a narrow
+      // paragraph, while the Expanded it sits in runs the full 138..912 that a
+      // real title ellipsises into. Measuring the slot is what makes this an
+      // overlap test rather than an accident of a short string.
+      //
+      // Found structurally rather than through the title's own text: the bar
+      // composes that out of the series, the numbering and the episode's name
+      // now, so there is no one string to anchor on.
       final titleSlot = tester.getRect(
         find
-            .ancestor(of: find.text('Show'), matching: find.byType(Expanded))
+            .descendant(
+              of: find.byType(PlayerTopBar),
+              matching: find.byType(Expanded),
+            )
             .first,
       );
 
       expect(
-        titleSlot.right,
         card.right,
-        reason: 'the two really do share their columns, both ending on 912',
+        lessThanOrEqualTo(titleSlot.right),
+        reason:
+            'the card ends at or inside the title it shares its columns with. '
+            'Not on the same number any more: the card answers to the trailing '
+            'line - the overscan inset plus the optical inset the track and '
+            'the utility row share - while the top bar\'s right edge is just '
+            'where the title ellipsises, with no glyph of its own to line up',
       );
       expect(
         card.overlaps(titleSlot),
@@ -381,7 +392,9 @@ void main() {
         reason: 'the card may not cover the title of what is playing',
       );
       expect(
-        card.overlaps(tester.getRect(find.text('Show'))),
+        card.overlaps(
+          tester.getRect(find.textContaining('Show').hitTestable().first),
+        ),
         isFalse,
         reason: 'nor the glyphs that are actually painted today',
       );
@@ -399,11 +412,19 @@ void main() {
       );
       expect(
         card,
-        const Rect.fromLTRB(612, 92, 912, 396),
+        const Rect.fromLTRB(
+          612 - HotstarPlayerStyle.trackEndInset,
+          92,
+          912 - HotstarPlayerStyle.trackEndInset,
+          540 - HotstarPlayerStyle.tvBottomChromeHeight - 12,
+        ),
         reason:
             'the whole ten-foot geometry in one line, through the real '
-            'screen: 300 x 304 between a 92 dp top bar and a bottom bar that '
-            'starts at 403',
+            'screen: 300 dp wide between a 92 dp top bar and the clearance '
+            'the ten-foot chrome token sets. Written against the token rather '
+            'than against the number it happened to produce, which is how '
+            'this drifted 5 dp *into* the television bar the last time the '
+            'token moved',
       );
       // The clearance is a constant the card holds unconditionally, not a
       // reaction to the bars being up - the card can be raised with the chrome

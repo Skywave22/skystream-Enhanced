@@ -11,6 +11,13 @@ import 'fake_vlc_engine.dart';
 
 /// LIVE is a verdict, not a missing length.
 ///
+/// The clock is no longer a child of the bar - it moved into the transport row
+/// on every form factor - so [pumpBar] renders the two halves the way
+/// `VlcPlayerControls` does: the bar publishes the position it is showing into
+/// a notifier, and a [PlayerTimeLabel] beside it reads that. Which means these
+/// tests also cover the seam between them, and a clock wired to the engine's
+/// own position instead of the bar's would fail here.
+///
 /// libVLC reports the duration a beat after it starts playing, and for a few
 /// hundred milliseconds every VOD item has `duration == 0`. The bar used to
 /// read that as live and flash the red pill over a fully painted track - the
@@ -39,12 +46,15 @@ void main() {
   Future<AppLocalizations> l10nFor(String locale) =>
       AppLocalizations.delegate.load(Locale(locale));
 
+  late ValueNotifier<Duration> clockPosition;
+
   Future<void> pumpBar(
     WidgetTester tester, {
     bool isLive = false,
     bool showRemaining = false,
     Locale? locale,
   }) {
+    clockPosition = ValueNotifier<Duration>(controller.value.position);
     return tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -61,7 +71,31 @@ void main() {
             body: Center(
               child: SizedBox(
                 width: 800,
-                child: VlcProgressBar(controller: controller, isLive: isLive),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    VlcProgressBar(
+                      controller: controller,
+                      isLive: isLive,
+                      displayPosition: clockPosition,
+                    ),
+                    // The transport row's clock, built the way
+                    // `VlcPlayerControls._clock` builds it.
+                    ValueListenableBuilder<VlcPlayerValue>(
+                      valueListenable: controller,
+                      builder: (context, value, _) =>
+                          ValueListenableBuilder<Duration>(
+                            valueListenable: clockPosition,
+                            builder: (context, position, _) => PlayerTimeLabel(
+                              position: position,
+                              duration: value.duration,
+                              hasDuration: value.duration > Duration.zero,
+                              isLive: isLive || value.isLive,
+                            ),
+                          ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

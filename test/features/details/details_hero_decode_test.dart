@@ -114,7 +114,10 @@ class _DensityClamp extends StatelessWidget {
   }
 }
 
-Future<void> _pumpDetails(WidgetTester tester, {bool clampDensity = false}) async {
+Future<void> _pumpDetails(
+  WidgetTester tester, {
+  bool clampDensity = false,
+}) async {
   tester.view.devicePixelRatio = _phoneDevicePixelRatio;
   tester.view.physicalSize = _phonePhysicalSize;
   addTearDown(tester.view.reset);
@@ -149,11 +152,12 @@ Future<void> _pumpDetails(WidgetTester tester, {bool clampDensity = false}) asyn
   await tester.pump();
 }
 
-CachedNetworkImage _hero(WidgetTester tester) => tester.widget<CachedNetworkImage>(
-  find.byWidgetPredicate(
-    (w) => w is CachedNetworkImage && w.imageUrl == _kBanner,
-  ),
-);
+CachedNetworkImage _hero(WidgetTester tester) =>
+    tester.widget<CachedNetworkImage>(
+      find.byWidgetPredicate(
+        (w) => w is CachedNetworkImage && w.imageUrl == _kBanner,
+      ),
+    );
 
 void main() {
   group('the details hero bounds its decode to what cover paints', () {

@@ -12,19 +12,48 @@ import '../../../core/utils/layout_constants.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/text_input_dialog.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../shared/widgets/custom_widgets.dart';
 import '../../settings/presentation/widgets/settings_widgets.dart';
 
-class PluginSettingsScreen extends ConsumerStatefulWidget {
+/// A plugin's own settings, in the app's dialog panel rather than on a route
+/// of its own.
+///
+/// It used to be a full page pushed over the extensions list, which on a
+/// television meant losing the list - and the gear button focus was on - to
+/// read three switches. The form is unchanged: the same [SettingsGroup] and
+/// [SettingsTile] the main Settings screen uses, so it traverses the same way.
+/// Width of the panel. Wide enough for a settings row - icon, title, subtitle
+/// and a trailing switch - without the subtitle wrapping on every line. The
+/// "Add Repository" dialog uses 480 for one text field; a form needs more.
+const double _kDialogWidth = 560;
+
+/// Horizontal inset of the content inside that width.
+///
+/// [SettingsGroup] already insets itself by [LayoutConstants.spacingMd], so
+/// this is the remainder that puts its titles on the same 24 dp gutter
+/// AlertDialog gives its own title.
+const double _kContentInset = 8;
+
+class PluginSettingsDialog extends ConsumerStatefulWidget {
   final ExtensionPlugin plugin;
 
-  const PluginSettingsScreen({super.key, required this.plugin});
+  const PluginSettingsDialog({super.key, required this.plugin});
+
+  static Future<void> open(BuildContext context, ExtensionPlugin plugin) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.65),
+      builder: (_) => PluginSettingsDialog(plugin: plugin),
+    );
+  }
 
   @override
-  ConsumerState<PluginSettingsScreen> createState() =>
-      _PluginSettingsScreenState();
+  ConsumerState<PluginSettingsDialog> createState() =>
+      _PluginSettingsDialogState();
 }
 
-class _PluginSettingsScreenState extends ConsumerState<PluginSettingsScreen> {
+class _PluginSettingsDialogState extends ConsumerState<PluginSettingsDialog> {
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -621,107 +650,88 @@ class _PluginSettingsScreenState extends ConsumerState<PluginSettingsScreen> {
   }
 
   Widget _buildContent(List<PluginDomain> domains, bool hasScriptBaseUrl) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: LayoutConstants.contentMaxWidth,
-        ),
-        child: FocusTraversalGroup(
-          policy: ReadingOrderTraversalPolicy(),
-          child: ListView(
-            padding: const EdgeInsets.only(bottom: LayoutConstants.spacingLg),
-            children: [
-            const SizedBox(height: LayoutConstants.spacingXs),
-            if (_definitions.isNotEmpty)
-              SettingsGroup(
-                title: 'Extension settings',
-                children: List.generate(
-                  _definitions.length,
-                  (index) => _buildSettingTile(
-                    _definitions[index],
-                    isLast: index == _definitions.length - 1,
-                  ),
-                ),
-              ),
-            if (_definitions.isNotEmpty &&
-                ((domains.isNotEmpty && !hasScriptBaseUrl) ||
-                    _providers.isNotEmpty))
-              const SizedBox(height: LayoutConstants.spacingLg),
-            if (domains.isNotEmpty && !hasScriptBaseUrl)
-              SettingsGroup(
-                title: 'Website address',
-                children: [
-                  SettingsTile(
-                    icon: Icons.language_rounded,
-                    title: 'Selected website',
-                    subtitle: _selectedDomainLabel(domains),
-                    onTap: _saving ? null : () => _showDomainDialog(domains),
-                    isLast: true,
-                  ),
-                ],
-              ),
-            if (domains.isNotEmpty &&
-                !hasScriptBaseUrl &&
-                _providers.isNotEmpty)
-              const SizedBox(height: LayoutConstants.spacingLg),
-            if (_providers.isNotEmpty)
-              SettingsGroup(
-                title: 'Providers',
-                children: List.generate(_providers.length, (index) {
-                  final provider = _providers[index];
-                  final enabled = _providerEnabled[provider.id] ?? true;
-
-                  return SettingsTile(
-                    icon: Icons.extension_rounded,
-                    title: provider.name,
-                    subtitle: provider.id,
-                    trailing: Switch(
-                      value: enabled,
-                      onChanged: _saving
-                          ? null
-                          : (value) {
-                              setState(() {
-                                _providerEnabled[provider.id] = value;
-                              });
-                            },
-                    ),
-                    onTap: _saving
-                        ? null
-                        : () {
-                            setState(() {
-                              _providerEnabled[provider.id] = !enabled;
-                            });
-                          },
-                    isLast: index == _providers.length - 1,
-                  );
-                }),
-              ),
-            const SizedBox(height: LayoutConstants.spacingLg),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: LayoutConstants.spacingMd,
-              ),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _saving ? null : _save,
-                  icon: _saving
-                      ? const AppLoadingIndicator(
-                          constraints: BoxConstraints.tightFor(
-                            width: 18,
-                            height: 18,
-                          ),
-                        )
-                      : const Icon(Icons.save_outlined),
-                  label: const Text('Save settings'),
+    // shrinkWrap, because this is a dialog and not a page: an unbounded
+    // ListView takes every pixel its parent will give it, which made the
+    // panel fill the whole screen and left a page of dead space under seven
+    // switches. It still scrolls once the content is taller than the room
+    // AlertDialog allows it.
+    return FocusTraversalGroup(
+      policy: ReadingOrderTraversalPolicy(),
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.only(bottom: LayoutConstants.spacingMd),
+        children: [
+          if (_definitions.isNotEmpty)
+            SettingsGroup(
+              filled: false,
+              title: 'Extension settings',
+              children: List.generate(
+                _definitions.length,
+                (index) => _buildSettingTile(
+                  _definitions[index],
+                  isLast: index == _definitions.length - 1,
                 ),
               ),
             ),
-          ],
-        ),
+          if (_definitions.isNotEmpty &&
+              ((domains.isNotEmpty && !hasScriptBaseUrl) ||
+                  _providers.isNotEmpty))
+            const SizedBox(height: LayoutConstants.spacingLg),
+          if (domains.isNotEmpty && !hasScriptBaseUrl)
+            SettingsGroup(
+              filled: false,
+              title: 'Website address',
+              children: [
+                SettingsTile(
+                  icon: Icons.language_rounded,
+                  title: 'Selected website',
+                  subtitle: _selectedDomainLabel(domains),
+                  onTap: _saving ? null : () => _showDomainDialog(domains),
+                  isLast: true,
+                ),
+              ],
+            ),
+          if (domains.isNotEmpty && !hasScriptBaseUrl && _providers.isNotEmpty)
+            const SizedBox(height: LayoutConstants.spacingLg),
+          if (_providers.isNotEmpty)
+            SettingsGroup(
+              filled: false,
+              title: 'Providers',
+              children: List.generate(_providers.length, (index) {
+                final provider = _providers[index];
+                final enabled = _providerEnabled[provider.id] ?? true;
+
+                return SettingsTile(
+                  icon: Icons.extension_rounded,
+                  title: provider.name,
+                  subtitle: provider.id,
+                  trailing: Switch(
+                    value: enabled,
+                    onChanged: _saving
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _providerEnabled[provider.id] = value;
+                            });
+                          },
+                  ),
+                  onTap: _saving
+                      ? null
+                      : () {
+                          setState(() {
+                            _providerEnabled[provider.id] = !enabled;
+                          });
+                        },
+                  isLast: index == _providers.length - 1,
+                );
+              }),
+            ),
+          // No save button here: as a page this was the only way to
+          // commit, but a dialog has an action bar and two of them is one
+          // too many.
+        ],
       ),
-    ),
-  );
+    );
   }
 
   @override
@@ -736,54 +746,85 @@ class _PluginSettingsScreenState extends ConsumerState<PluginSettingsScreen> {
         _providers.isNotEmpty ||
         (domains.isNotEmpty && !hasScriptBaseUrl);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.pluginSettings(widget.plugin.name)),
-        actions: [
-          IconButton(
-            tooltip: 'Save',
-            onPressed: _loading || _saving ? null : _save,
-            icon: _saving
-                ? const AppLoadingIndicator(
-                    constraints: BoxConstraints.tightFor(width: 20, height: 20),
-                  )
-                : const Icon(Icons.save_outlined),
-          ),
-        ],
+    final theme = Theme.of(context);
+    final Widget body;
+    if (_loading) {
+      body = const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: AppLoadingIndicator(),
+        ),
+      );
+    } else if (_error != null) {
+      body = Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: theme.colorScheme.error),
+            ),
+            const SizedBox(height: 12),
+            CustomButton(
+              isPrimary: true,
+              onPressed: _load,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    } else if (!hasContent) {
+      body = Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          'This extension does not define configurable settings.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+        ),
+      );
+    } else {
+      body = _buildContent(domains, hasScriptBaseUrl);
+    }
+
+    // The same AlertDialog every other dialog in the app uses - the one "Add
+    // Repository" opens - rather than the glass panel the source sheets are
+    // drawn in. This is a form, not a source list.
+    return AlertDialog(
+      surfaceTintColor: Colors.transparent,
+      title: Text(l10n.pluginSettings(widget.plugin.name)),
+      // 4 down, because the group's own 12 dp of title padding follows it -
+      // 16 between the two titles rather than the 36 that a full content
+      // inset, a leading spacer and that 12 used to add up to.
+      contentPadding: const EdgeInsets.fromLTRB(
+        _kContentInset,
+        4,
+        _kContentInset,
+        0,
       ),
-      body: _loading
-          ? const Center(child: AppLoadingIndicator())
-          : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton(onPressed: _load, child: const Text('Retry')),
-                  ],
-                ),
-              ),
-            )
-          : !hasContent
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text(
-                  'This extension does not define configurable settings.',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            )
-          : _buildContent(domains, hasScriptBaseUrl),
+      // Less the inset, so [_kDialogWidth] is the width of the PANEL rather
+      // than of the box inside it.
+      content: SizedBox(width: _kDialogWidth - _kContentInset * 2, child: body),
+      actions: [
+        CustomButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            l10n.close,
+            style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+        const SizedBox(width: 8),
+        CustomButton(
+          isPrimary: true,
+          onPressed: _loading || _saving ? null : _save,
+          child: _saving
+              ? const AppLoadingIndicator(
+                  constraints: BoxConstraints.tightFor(width: 20, height: 20),
+                )
+              : const Text('Save'),
+        ),
+      ],
     );
   }
 }

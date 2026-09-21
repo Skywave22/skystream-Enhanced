@@ -217,9 +217,7 @@ class AnimeSkipService implements SkipService {
         if (skippableTypes.contains(typeName)) {
           final start = (current['at'] as num).toDouble();
 
-          double end =
-              start +
-              85.0; // Default fallback duration (85s) for anime if no next timestamp
+          double end = start + 85.0; // Default fallback duration (85s) for anime if no next timestamp
 
           if (i + 1 < timestamps.length) {
             end = (timestamps[i + 1]['at'] as num).toDouble();

@@ -1,4 +1,5 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../../../core/domain/entity/multimedia_item.dart';
 import 'anilist_repository.dart';
 import 'explore_filter_provider.dart';

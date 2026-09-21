@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:background_downloader/background_downloader.dart';
+
 import '../../../../core/services/download_service.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 class DownloadProgressDialog extends ConsumerWidget {
@@ -44,9 +46,8 @@ class DownloadProgressDialog extends ConsumerWidget {
                 data.status == TaskStatus.paused
                     ? l10n.downloadPaused
                     : l10n.downloading,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text(
@@ -177,9 +178,8 @@ class DownloadProgressDialog extends ConsumerWidget {
         const SizedBox(height: 4),
         Text(
           value,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+          style: Theme.of(context).textTheme.bodyLarge
+              ?.copyWith(fontWeight: FontWeight.w600),
         ),
       ],
     );

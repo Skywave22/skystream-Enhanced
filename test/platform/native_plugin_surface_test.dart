@@ -53,6 +53,19 @@ const Map<String, Set<String>> _expected = <String, Set<String>>{
     'device_info_plus',
     'dynamic_color',
     'flutter_displaymode',
+    // Read before adding, per this file's rule. `onAttachedToEngine` sets up a
+    // method channel, an event channel and an `AudioManager` wrapper, and
+    // reads or writes nothing. The one global side effect is in the stream
+    // handler, not the registrar: while a listener is attached it points the
+    // Activity's `volumeControlStream` at STREAM_MUSIC, so the hardware rocker
+    // moves media volume rather than the ringer. `onCancel` puts it back to
+    // USE_DEFAULT_STREAM_TYPE, and the player cancels on dispose, so it does
+    // not outlive the screen the way screen_brightness_windows' write did.
+    'flutter_volume_controller',
+    // Transitive, from flutter_volume_controller: the first-party helper that
+    // hands a plugin the Activity's lifecycle. Registers an observer and
+    // nothing else.
+    'flutter_plugin_android_lifecycle',
     'flutter_inappwebview_android',
     'flutter_js_ng',
     'flutter_secure_storage',
@@ -84,6 +97,13 @@ const Map<String, Set<String>> _expected = <String, Set<String>>{
     'open_file_ios',
     'package_info_plus',
     'permission_handler_apple',
+    // See the Android note. On iOS `register` wires two channels and
+    // constructs an off-screen `MPVolumeView`, which is the documented way to
+    // set the system volume and does nothing until used. The side effect is
+    // again in the listener rather than the registrar: `onListen` sets an
+    // `AVAudioSession` category. The player only ever starts that listener on
+    // a handset, and never on desktop, where the routing is libVLC's own gain.
+    'flutter_volume_controller',
     'screen_brightness_ios',
     'share_plus',
     'shared_preferences_foundation',
@@ -93,6 +113,10 @@ const Map<String, Set<String>> _expected = <String, Set<String>>{
     'wakelock_plus',
   },
   'macos': {
+    // Channels only at `register`; the AVAudioSession work is in the
+    // listener, which the player never starts on a desktop - see
+    // volume_routing.dart, where desktop is `engineOnly`.
+    'flutter_volume_controller',
     'connectivity_plus',
     'device_info_plus',
     'dynamic_color',
@@ -116,6 +140,9 @@ const Map<String, Set<String>> _expected = <String, Set<String>>{
     'window_manager',
   },
   'linux': {
+    // Channels only at `register_with_registrar`. ALSA is not touched until a
+    // method call, and the player makes none on a desktop.
+    'flutter_volume_controller',
     'dynamic_color',
     'flutter_js_ng',
     'flutter_secure_storage_linux',
@@ -132,6 +159,26 @@ const Map<String, Set<String>> _expected = <String, Set<String>>{
     // Decide in the PR, not on release day.
   },
   'windows': {
+    // THE ONE TO WATCH. Unlike the other four platforms, the Windows plugin's
+    // constructor runs at `RegisterWithRegistrar` and does real work:
+    // `CoInitialize(NULL)`, then `IMMDeviceEnumerator` ->
+    // `GetDefaultAudioEndpoint(eRender, eConsole)` -> `Activate
+    // (IAudioEndpointVolume)`, held until the plugin is destroyed.
+    //
+    // It is not the screen_brightness_windows bug: that one *wrote* to the
+    // monitor at its registrar and again on WM_CLOSE, and leaked a handle per
+    // failed probe. This reads and holds, writes nothing, and releases in its
+    // destructor. But it is COM initialisation and an endpoint activation at
+    // startup for a feature Windows never uses - the player's desktop routing
+    // is libVLC's own gain and calls none of this.
+    //
+    // Left in rather than stubbed because the package is not federated, so
+    // there is no per-platform implementation to override the way
+    // packages/screen_brightness_windows overrides one. If this ever needs to
+    // go, the move is to put the Android and iOS side into packages/
+    // vlc_player instead, which already registers on both and would add no new
+    // surface here at all.
+    'flutter_volume_controller',
     'connectivity_plus',
     'dynamic_color',
     // The D3D11 device at registration. Kept on purpose: Windows Cloudflare

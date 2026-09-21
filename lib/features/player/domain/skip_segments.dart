@@ -79,8 +79,7 @@ Future<List<SkipSegment>> fetchSkipSegments({
 int? _anilistId(MultimediaItem item) {
   final sync = item.syncData;
   if (sync == null) return null;
-  final raw =
-      sync['anilist'] ?? sync['anilistId'] ?? sync['anilist_id'];
+  final raw = sync['anilist'] ?? sync['anilistId'] ?? sync['anilist_id'];
   return raw == null ? null : int.tryParse(raw.toString());
 }
 

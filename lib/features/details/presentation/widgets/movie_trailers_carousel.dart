@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../shared/widgets/cards_wrapper.dart';
 import '../../../../shared/widgets/desktop_scroll_wrapper.dart';
@@ -99,9 +100,8 @@ class _MovieTrailersCarouselState extends State<MovieTrailersCarousel> {
                 ),
                 decoration: BoxDecoration(
                   border: Border.all(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.3),
+                    color: Theme.of(context).colorScheme.onSurface
+                        .withValues(alpha: 0.3),
                   ),
                   borderRadius: BorderRadius.circular(20),
                 ),

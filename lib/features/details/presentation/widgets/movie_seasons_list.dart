@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+
 import '../../../../core/utils/image_fallbacks.dart';
 import '../../../../shared/widgets/cards_wrapper.dart';
 import '../../../../shared/widgets/shimmer_placeholder.dart';
@@ -10,10 +11,12 @@ import '../../../../shared/widgets/desktop_scroll_wrapper.dart';
 import '../../../../core/utils/responsive_breakpoints.dart';
 import '../../../../core/models/tmdb_details.dart';
 import '../tmdb_details_controller.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
+
 import '../../../../shared/widgets/loading_indicator.dart';
-import '../../../../core/domain/entity/multimedia_item.dart';
-import '../../../sources/presentation/plugin_sources_sheet.dart';
+
+import 'package:skystream/core/services/notification_service.dart';
 
 class MovieSeasonsList extends ConsumerStatefulWidget {
   final int movieId;
@@ -145,9 +148,9 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                                   ),
                                 )
                                 .selectedSeason,
-                            dropdownColor: Theme.of(
-                              context,
-                            ).colorScheme.surfaceContainer,
+                            dropdownColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainer,
                             style: TextStyle(color: widget.textColor),
                             icon: Icon(
                               Icons.arrow_drop_down,
@@ -161,9 +164,8 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                               return DropdownMenuItem(
                                 value: num,
                                 child: Text(
-                                  AppLocalizations.of(
-                                    context,
-                                  )!.seasonWithEpisodes(num, count),
+                                  AppLocalizations.of(context)!
+                                      .seasonWithEpisodes(num, count),
                                 ),
                               );
                             }).toList(),
@@ -289,9 +291,8 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                               ),
                             ),
                             Text(
-                              AppLocalizations.of(
-                                context,
-                              )!.episodeCountOnly(season.episodeCount),
+                              AppLocalizations.of(context)!
+                                  .episodeCountOnly(season.episodeCount),
                               style: TextStyle(
                                 color: widget.textColor?.withValues(alpha: 0.7),
                                 fontSize: 12,
@@ -376,37 +377,18 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                         : '${minutes}m';
 
                     return CardsWrapper(
+                      // Tapping an episode used to open the Nuvio sources
+                      // sheet directly. That handed one of the two plugin
+                      // systems a route into playback that the other never
+                      // had, from a list that belongs to neither. Both are
+                      // reached from the source cards at the top of the page
+                      // now, and this says so.
                       onTap: () {
-                        final controller = ref.read(
-                          tmdbDetailsControllerProvider(
-                            widget.movieId,
-                            source: widget.source,
-                          ),
-                        );
-                        final target = MultimediaItem(
-                          title: widget.title,
-                          url: '',
-                          posterUrl: widget.posterUrl ?? '',
-                          bannerUrl: widget.bannerUrl,
-                          description: widget.overview,
-                          contentType: MultimediaContentType.series,
-                          year: int.tryParse(
-                            (widget.releaseDateFull ?? '').split('-').first,
-                          ),
-                          tmdbId: widget.movieId,
-                          imdbId: widget.imdbId,
-                        );
-                        final episode = Episode(
-                          name: (ep['name'] as String?) ?? 'Episode',
-                          url: '',
-                          season: controller.selectedSeason,
-                          episode: (ep['episode_number'] as int?) ?? 0,
-                        );
-                        PluginSourcesSheet.open(
-                          context,
-                          target,
-                          episode: episode,
-                        );
+                        ref
+                            .read(notificationServiceProvider)
+                            .showInfo(
+                              AppLocalizations.of(context)!.selectSourceToPlay,
+                            );
                       },
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
@@ -450,9 +432,9 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onSurface,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
@@ -464,9 +446,9 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                                       Text(
                                         voteAverage.toStringAsFixed(1),
                                         style: TextStyle(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurface,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface,
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
                                         ),
@@ -589,15 +571,15 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainer,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainer,
                               borderRadius: BorderRadius.circular(8),
                               border: isFocused
                                   ? Border.all(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary,
                                       width: 2,
                                     )
                                   : null,
@@ -606,20 +588,20 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                               child: DropdownButton<int>(
                                 focusNode: _rangeDropdownFocusNode,
                                 value: _selectedRangeIndex,
-                                dropdownColor: Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainer,
+                                dropdownColor: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainer,
                                 style: TextStyle(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurface,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface,
                                   fontWeight: FontWeight.bold,
                                 ),
                                 icon: Icon(
                                   Icons.keyboard_arrow_down_rounded,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                 ),
                                 items: List.generate(batchCount, (index) {
                                   final rangeStart = index * batchSize + 1;
@@ -667,37 +649,18 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                         : '${minutes}m';
 
                     return CardsWrapper(
+                      // Tapping an episode used to open the Nuvio sources
+                      // sheet directly. That handed one of the two plugin
+                      // systems a route into playback that the other never
+                      // had, from a list that belongs to neither. Both are
+                      // reached from the source cards at the top of the page
+                      // now, and this says so.
                       onTap: () {
-                        final controller = ref.read(
-                          tmdbDetailsControllerProvider(
-                            widget.movieId,
-                            source: widget.source,
-                          ),
-                        );
-                        final target = MultimediaItem(
-                          title: widget.title,
-                          url: '',
-                          posterUrl: widget.posterUrl ?? '',
-                          bannerUrl: widget.bannerUrl,
-                          description: widget.overview,
-                          contentType: MultimediaContentType.series,
-                          year: int.tryParse(
-                            (widget.releaseDateFull ?? '').split('-').first,
-                          ),
-                          tmdbId: widget.movieId,
-                          imdbId: widget.imdbId,
-                        );
-                        final episode = Episode(
-                          name: (ep['name'] as String?) ?? 'Episode',
-                          url: '',
-                          season: controller.selectedSeason,
-                          episode: (ep['episode_number'] as int?) ?? 0,
-                        );
-                        PluginSourcesSheet.open(
-                          context,
-                          target,
-                          episode: episode,
-                        );
+                        ref
+                            .read(notificationServiceProvider)
+                            .showInfo(
+                              AppLocalizations.of(context)!.selectSourceToPlay,
+                            );
                       },
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
@@ -730,9 +693,9 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                                     "${ep['episode_number']}. ${ep['name']}",
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onSurface,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
                                       fontSize: 14,
                                     ),
                                   ),
@@ -744,9 +707,9 @@ class _MovieSeasonsListState extends ConsumerState<MovieSeasonsList> {
                                       Text(
                                         voteAverage.toStringAsFixed(1),
                                         style: TextStyle(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurface,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface,
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
                                         ),

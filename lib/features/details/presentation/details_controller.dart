@@ -4,13 +4,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:collection/collection.dart';
+
 import '../../../../core/domain/entity/multimedia_item.dart';
 import '../../../core/extensions/base_provider.dart';
 import '../../../core/extensions/extension_manager.dart';
 import '../../../../core/storage/library_repository.dart';
 import '../../../../core/storage/history_repository.dart';
+
 import 'package:skystream/core/storage/episode_watch_repository.dart';
 import 'package:skystream/core/storage/storage_service.dart';
+
 import '../../library/presentation/library_provider.dart';
 import '../../library/presentation/history_provider.dart';
 import 'playback_launcher.dart';

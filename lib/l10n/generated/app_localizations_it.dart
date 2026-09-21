@@ -282,6 +282,14 @@ class AppLocalizationsIt extends AppLocalizations {
   String get pressSearchOrEnter => 'Premi Cerca o Invio per iniziare';
 
   @override
+  String get recentSearches => 'Recent searches';
+
+  @override
+  String removeFromSearchHistory(String query) {
+    return 'Remove $query from search history';
+  }
+
+  @override
   String get noResultsFound => 'Nessun risultato trovato.';
 
   @override
@@ -901,6 +909,12 @@ class AppLocalizationsIt extends AppLocalizations {
   String get volume => 'Volume';
 
   @override
+  String get decrease => 'Decrease';
+
+  @override
+  String get increase => 'Increase';
+
+  @override
   String get brightness => 'Luminosità';
 
   @override
@@ -1044,6 +1058,9 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get next => 'Successivo';
+
+  @override
+  String get previous => 'Previous';
 
   @override
   String get pip => 'PiP';
@@ -1713,4 +1730,46 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get playerSourceUnplayable => 'Unplayable';
+
+  @override
+  String get nuvioPlugins => 'Nuvio plugins';
+
+  @override
+  String get nuvioSearchForStreams => 'Search for streams';
+
+  @override
+  String get nuvioChooseEpisode => 'Choose an episode';
+
+  @override
+  String nuvioScraperCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count scrapers',
+      one: '1 scraper',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get stremioAddons => 'Stremio add-ons';
+
+  @override
+  String get stremioSearchAddons => 'Search Stremio add-ons';
+
+  @override
+  String stremioSearchAddonsForEpisode(int season, int episode) {
+    return 'Search add-ons: S$season E$episode';
+  }
+
+  @override
+  String stremioAddonCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count add-ons',
+      one: '1 add-on',
+    );
+    return '$_temp0';
+  }
 }

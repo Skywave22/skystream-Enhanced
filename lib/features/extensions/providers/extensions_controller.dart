@@ -7,7 +7,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../../../core/extensions/models/extension_plugin.dart';
 import '../../../../core/extensions/models/extension_repository.dart';
 import '../../../../core/extensions/extension_manager.dart';
@@ -193,14 +195,15 @@ class ExtensionsController extends _$ExtensionsController {
   /// Fetches one repository and its plugin lists, or null if it is
   /// unreachable or malformed. A bad repository must not take the others down
   /// with it, which is why the catch is here rather than around [Future.wait].
-  Future<({ExtensionRepository repo, List<ExtensionPlugin> plugins})?> _loadRepo(
-    String url,
-    RepositoryService repositoryService,
-  ) async {
+  Future<({ExtensionRepository repo, List<ExtensionPlugin> plugins})?>
+  _loadRepo(String url, RepositoryService repositoryService) async {
     try {
       final repo = await repositoryService.fetchRepository(url);
       if (repo == null) return null;
-      return (repo: repo, plugins: await repositoryService.getRepoPlugins(repo));
+      return (
+        repo: repo,
+        plugins: await repositoryService.getRepoPlugins(repo),
+      );
     } catch (e) {
       if (kDebugMode) debugPrint("Failed to load persisted repo $url: $e");
       return null;

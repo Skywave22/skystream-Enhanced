@@ -39,6 +39,7 @@ import 'core/config/tmdb_config.dart';
 import 'core/providers/bootstrap_provider.dart' show quietDesktopBrightness;
 import 'core/providers/device_info_provider.dart';
 import 'shared/widgets/loading_indicator.dart';
+import 'shared/widgets/tv_logical_scale.dart';
 import 'core/widgets/m3_toast_overlay.dart';
 import 'features/settings/presentation/general_settings_provider.dart';
 import 'features/settings/presentation/full_screen_mode_provider.dart';
@@ -446,21 +447,22 @@ class _MyAppState extends ConsumerState<MyApp> {
           ],
           supportedLocales: AppLocalizations.supportedLocales,
           builder: (context, child) {
-            final mq = MediaQuery.of(context);
             Widget result = child!;
 
-            // Phase 1: Density override for TV devices
-            // Android TV often reports inflated pixel density; we clamp to 1.0 for standard scaling.
+            // A television reports about 960 dp of width whatever its panel
+            // is, so the same layout that breathes on a laptop is drawn at
+            // twice the relative size on a set. [TvLogicalScale] hands the
+            // tree more logical pixels and scales the result back up to fill
+            // the screen; it steps aside on the player, whose video is a
+            // platform view and has to be laid out at the panel's own
+            // resolution. See that file for what this replaced and why the
+            // old `devicePixelRatio: 1.0` never did it.
             final profile = profileAsync.asData?.value;
-            if (profile?.isTv == true) {
-              result = MediaQuery(
-                data: mq.copyWith(
-                  devicePixelRatio: 1.0,
-                  textScaler: TextScaler.noScaling,
-                ),
-                child: result,
-              );
-            }
+            result = TvLogicalScale(
+              enabled: profile?.isTv == true,
+              router: appRouter,
+              child: result,
+            );
 
             if (!kIsWeb &&
                 (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {

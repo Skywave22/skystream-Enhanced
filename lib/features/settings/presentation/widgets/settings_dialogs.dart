@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+
 import '../../../../shared/widgets/custom_widgets.dart';
 import '../../../../core/services/external_player_service.dart';
 import '../../../../core/config/tmdb_config.dart';
@@ -23,7 +24,9 @@ import '../general_settings_provider.dart';
 import '../../../../core/providers/device_info_provider.dart';
 import '../../../../core/providers/locale_provider.dart';
 import '../../../player/presentation/player_platform_service.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
+
 import '../../../../core/services/notification_service.dart';
 import '../cache_provider.dart';
 
@@ -444,9 +447,8 @@ void showDownloadConcurrencyDialog(
             children: [
               Text(
                 '$concurrency simultaneous download${concurrency > 1 ? 's' : ''}',
-                style: Theme.of(ctx).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(ctx).textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               CustomSlider(
@@ -514,9 +516,8 @@ void showDownloadChunksDialog(
                 chunks == 1
                     ? 'Single connection (Off)'
                     : '$chunks parallel segments',
-                style: Theme.of(ctx).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(ctx).textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               CustomSlider(
@@ -1561,10 +1562,8 @@ void showDeveloperDialog(BuildContext context) {
             // Name and Title
             Text(
               'Akash',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.5,
-              ),
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.5),
             ),
             const SizedBox(height: 24),
             // Social Links
@@ -1574,8 +1573,7 @@ void showDeveloperDialog(BuildContext context) {
               runSpacing: 12,
               children: [
                 _SocialButton(
-                  svgUrl:
-                      'https://raw.githubusercontent.com/simple-icons/simple-icons/11.10.0/icons/github.svg',
+                  svgUrl: 'https://raw.githubusercontent.com/simple-icons/simple-icons/11.10.0/icons/github.svg',
                   color: const Color(
                     0xFF909692,
                   ), // GitHub Official Black/Dark Grey
@@ -1585,8 +1583,7 @@ void showDeveloperDialog(BuildContext context) {
                   ),
                 ),
                 _SocialButton(
-                  svgUrl:
-                      'https://raw.githubusercontent.com/simple-icons/simple-icons/11.10.0/icons/linkedin.svg',
+                  svgUrl: 'https://raw.githubusercontent.com/simple-icons/simple-icons/11.10.0/icons/linkedin.svg',
                   color: const Color(0xFF2d65bc), // LinkedIn Official Blue
                   onTap: () => launchUrl(
                     Uri.parse('https://www.linkedin.com/in/akashdh11'),
@@ -1594,8 +1591,7 @@ void showDeveloperDialog(BuildContext context) {
                   ),
                 ),
                 _SocialButton(
-                  svgUrl:
-                      'https://raw.githubusercontent.com/simple-icons/simple-icons/11.10.0/icons/discord.svg',
+                  svgUrl: 'https://raw.githubusercontent.com/simple-icons/simple-icons/11.10.0/icons/discord.svg',
                   color: const Color(0xFF5865F2), // Discord Blurple
                   onTap: () => launchUrl(
                     Uri.parse('https://discord.gg/73XGA8Mxn9'),
@@ -1603,8 +1599,7 @@ void showDeveloperDialog(BuildContext context) {
                   ),
                 ),
                 _SocialButton(
-                  svgUrl:
-                      'https://raw.githubusercontent.com/simple-icons/simple-icons/11.10.0/icons/telegram.svg',
+                  svgUrl: 'https://raw.githubusercontent.com/simple-icons/simple-icons/11.10.0/icons/telegram.svg',
                   color: const Color(0xFF5baae3), // Telegram Official Blue
                   onTap: () => launchUrl(
                     Uri.parse('https://t.me/+Ez5Vsv2pUUFjZmNl'),
@@ -2717,9 +2712,8 @@ void showMaxVolumeDialog(
             children: [
               Text(
                 '${value.round()}%',
-                style: Theme.of(ctx).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(ctx).textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               CustomSlider(
                 value: value,

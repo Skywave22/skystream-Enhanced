@@ -2,16 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/utils/layout_constants.dart';
 import '../../../core/extensions/models/extension_plugin.dart';
 import '../../../core/extensions/models/extension_repository.dart';
 import '../../../core/extensions/extension_manager.dart';
 import '../providers/extensions_controller.dart';
-import 'plugin_settings_screen.dart';
+import 'plugin_settings_dialog.dart';
 import '../../../shared/widgets/cards_wrapper.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/text_input_dialog.dart';
 import '../../../core/router/app_router.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 class ExtensionsScreen extends ConsumerStatefulWidget {
@@ -74,22 +76,15 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
       controller: _tabController,
       indicatorSize: TabBarIndicatorSize.label,
       indicatorWeight: 3,
-      labelStyle: const TextStyle(
-        fontWeight: FontWeight.bold,
-        fontSize: 15,
-      ),
+      labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
       unselectedLabelStyle: const TextStyle(
         fontWeight: FontWeight.w500,
         fontSize: 15,
       ),
       labelColor: Theme.of(context).colorScheme.primary,
-      unselectedLabelColor: Theme.of(
-        context,
-      ).colorScheme.onSurfaceVariant,
+      unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
       indicatorColor: Theme.of(context).colorScheme.primary,
-      dividerColor: Theme.of(
-        context,
-      ).dividerColor.withValues(alpha: 0.2),
+      dividerColor: Theme.of(context).dividerColor.withValues(alpha: 0.2),
       tabs: [
         Tab(text: l10n.installed),
         Tab(text: l10n.repositories),
@@ -227,9 +222,8 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
                   const SizedBox(height: LayoutConstants.spacingMd),
                   Text(
                     l10n.noExtensionsInstalled,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: LayoutConstants.spacingSm),
@@ -307,9 +301,8 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
                   const SizedBox(height: LayoutConstants.spacingMd),
                   Text(
                     l10n.noReposFound,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: LayoutConstants.spacingSm),
@@ -356,16 +349,14 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
           ),
           child: _FocusableCard(
             margin: EdgeInsets.zero,
-            borderColor: Theme.of(
-              context,
-            ).colorScheme.primary.withValues(alpha: 0.3),
+            borderColor: Theme.of(context).colorScheme.primary
+                .withValues(alpha: 0.3),
             // A card holding one row still hands the focus affordance to the
             // row, so this is marked like every other row in the list.
             child: _FocusableRow(
               child: ListTile(
-                focusColor: Theme.of(
-                  context,
-                ).colorScheme.primary.withValues(alpha: 0.15),
+                focusColor: Theme.of(context).colorScheme.primary
+                    .withValues(alpha: 0.15),
                 leading: Icon(
                   Icons.add_circle_outline,
                   color: Theme.of(context).colorScheme.primary,
@@ -524,9 +515,8 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
         horizontal: LayoutConstants.spacingMd,
         vertical: LayoutConstants.spacingXs,
       ),
-      borderColor: Theme.of(
-        context,
-      ).colorScheme.tertiary.withValues(alpha: 0.5),
+      borderColor: Theme.of(context).colorScheme.tertiary
+          .withValues(alpha: 0.5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -708,9 +698,8 @@ class _ExtensionsScreenState extends ConsumerState<ExtensionsScreen>
                     height: 1,
                     indent: 56,
                     endIndent: 16,
-                    color: Theme.of(
-                      context,
-                    ).dividerColor.withValues(alpha: 0.5),
+                    color: Theme.of(context).dividerColor
+                        .withValues(alpha: 0.5),
                   ),
               ],
             );
@@ -822,9 +811,8 @@ class _PluginTileState extends ConsumerState<_PluginTile> {
         leading: Container(
           padding: const EdgeInsets.all(LayoutConstants.spacingXs),
           decoration: BoxDecoration(
-            color: Theme.of(
-              context,
-            ).colorScheme.tertiary.withValues(alpha: 0.1),
+            color: Theme.of(context).colorScheme.tertiary
+                .withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(
@@ -891,9 +879,8 @@ class _PluginTileState extends ConsumerState<_PluginTile> {
         height: 44,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: Theme.of(
-            context,
-          ).colorScheme.primaryContainer.withValues(alpha: 0.5),
+          color: Theme.of(context).colorScheme.primaryContainer
+              .withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(
@@ -904,9 +891,8 @@ class _PluginTileState extends ConsumerState<_PluginTile> {
       ),
       title: Text(
         widget.plugin.name,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        style: Theme.of(context).textTheme.titleMedium
+            ?.copyWith(fontWeight: FontWeight.w600),
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: _buildSubtitle(context, isInstalled, installedPlugin),
@@ -985,12 +971,12 @@ class _PluginTileState extends ConsumerState<_PluginTile> {
                         icon: const Icon(Icons.settings_outlined),
                         tooltip: l10n.settings,
                         onPressed: () async {
-                          await Navigator.of(context).push<void>(
-                            MaterialPageRoute<void>(
-                              builder: (context) =>
-                                  PluginSettingsScreen(plugin: installedPlugin),
-                            ),
+                          await PluginSettingsDialog.open(
+                            context,
+                            installedPlugin,
                           );
+                          // Back to the gear it came from, so a remote does
+                          // not have to walk the list again.
                           if (context.mounted) {
                             _settingsFocusNode.requestFocus();
                           }

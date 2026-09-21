@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'package:skystream/core/storage/history_repository.dart';
 import 'package:skystream/core/storage/episode_watch_repository.dart';
 import 'package:skystream/core/services/download_service.dart';
 import 'package:skystream/core/utils/layout_constants.dart';
+
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../library/presentation/history_provider.dart';
 import '../details_controller.dart';
@@ -372,9 +374,8 @@ class EpisodeCard extends HookConsumerWidget {
                   child: Text(
                     episode.description!,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant
+                          .withValues(alpha: 0.8),
                       height: 1.4,
                     ),
                     maxLines: 3,
@@ -577,9 +578,8 @@ class EpisodeCard extends HookConsumerWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.primary.withValues(alpha: 0.9),
+                color: Theme.of(context).colorScheme.primary
+                    .withValues(alpha: 0.9),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(

@@ -1,4 +1,5 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../../../core/config/tmdb_config.dart';
 import '../../../core/storage/settings_repository.dart';
 

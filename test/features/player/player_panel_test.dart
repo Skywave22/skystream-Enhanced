@@ -195,6 +195,27 @@ List<StreamResult> _sources() => <StreamResult>[
   ),
 ];
 
+/// Three sources over two tiers, with titles that are not their own badges:
+/// `1080p` is a pill, a badge and part of a row label at once, and only a
+/// distinct title lets a finder say which of the three it meant.
+List<StreamResult> _tieredSources() => <StreamResult>[
+  const StreamResult(
+    url: 'https://a.test/alpha',
+    source: 'Alpha 1080p',
+    providerName: 'Torrentio',
+  ),
+  const StreamResult(
+    url: 'https://b.test/bravo',
+    source: 'Bravo 720p',
+    providerName: 'Vidsrc',
+  ),
+  const StreamResult(
+    url: 'https://c.test/charlie',
+    source: 'Charlie 1080p',
+    providerName: 'Upcloud',
+  ),
+];
+
 Episode _episode(int number) => Episode(
   name: 'Episode $number',
   url: 'https://series.test/$number',
@@ -913,51 +934,413 @@ void main() {
     });
   });
 
-  group('shape', () {
-    test('a television and a wide window get the drawer', () {
-      expect(
-        playerPanelShapeFor(const Size(2560, 1440), isTv: true),
-        PlayerPanelShape.drawer,
-      );
-      expect(
-        playerPanelShapeFor(const Size(1280, 800), isTv: false),
-        PlayerPanelShape.drawer,
-      );
-    });
 
-    test('a phone held upright gets the sheet', () {
-      expect(
-        playerPanelShapeFor(const Size(390, 844), isTv: false),
-        PlayerPanelShape.sheet,
-      );
-    });
+  group('quality filter on a remote', () {
+    /// What holds primary focus, as a pill label / row label / other.
+    String? focused() {
+      final row = _focusedRow();
+      if (row != null) return 'row:$row';
+      return _focusedSemanticsLabel();
+    }
 
-    testWidgets('the drawer leaves the video visible beside it', (
+    Future<void> press(WidgetTester tester, LogicalKeyboardKey key) async {
+      await tester.sendKeyEvent(key);
+      await tester.pumpAndSettle();
+    }
+
+    /// Walks the strip to the pill called [label] and leaves focus there.
+    ///
+    /// Which pill one press UP lands on is geometry - whichever sits nearest
+    /// the row below - so a test that wants a particular one has to travel to
+    /// it the way a viewer would, rather than assume an entry point.
+    Future<void> focusPill(WidgetTester tester, String label) async {
+      await press(tester, LogicalKeyboardKey.arrowUp);
+      for (var i = 0; i < 8 && focused() != label; i++) {
+        await press(tester, LogicalKeyboardKey.arrowLeft);
+      }
+      for (var i = 0; i < 8 && focused() != label; i++) {
+        await press(tester, LogicalKeyboardKey.arrowRight);
+      }
+      expect(focused(), label, reason: 'the strip walks to $label');
+    }
+
+    testWidgets('UP from the list lands on the strip, not past it', (
       tester,
     ) async {
+      // The strip sits between the rows and the tab bar, so one press UP has
+      // to stop on it. Skipping it to the tabs would make the filter a
+      // pointer-only control on the one device that has no pointer.
+      await pumpPanel(tester, size: _googleTv, sources: _tieredSources());
+      expect(_focusedRow(), 'Alpha 1080p', reason: 'opens on the playing row');
+
+      await press(tester, LogicalKeyboardKey.arrowUp);
+
+      expect(focused(), anyOf('1080p', '720p'));
+    });
+
+    testWidgets('every pill is reachable, wrapped onto two runs or not', (
+      tester,
+    ) async {
+      // All six tiers at once. Whether they fit one run depends on the font
+      // and the ramp - in the test font they do not - so what is pinned here
+      // is not the shape of the strip but the property that survives either
+      // shape: a remote can reach every pill. A run the D-pad cannot get to
+      // is a filter that does not exist.
+      const tiers = <String>['4K', '2K', '1080p', '720p', '480p', '360p'];
+      await pumpPanel(
+        tester,
+        size: _googleTv,
+        sources: <StreamResult>[
+          for (final tier in tiers)
+            StreamResult(
+              url: 'https://x.test/$tier',
+              source: 'Src $tier',
+              providerName: 'P',
+            ),
+        ],
+      );
+
+      final seen = <String>{};
+      void record() {
+        final label = focused();
+        if (label != null && tiers.contains(label)) seen.add(label);
+      }
+
+      // Into the strip, up through its runs, then along each of them.
+      await press(tester, LogicalKeyboardKey.arrowUp);
+      record();
+      await press(tester, LogicalKeyboardKey.arrowUp);
+      record();
+      for (var i = 0; i < tiers.length + 2; i++) {
+        await press(tester, LogicalKeyboardKey.arrowRight);
+        record();
+      }
+
+      expect(
+        seen,
+        tiers.toSet(),
+        reason: 'a pill no arrow reaches is a filter a remote cannot apply',
+      );
+    });
+
+    testWidgets('the pill keeps focus when it narrows the list', (
+      tester,
+    ) async {
+      // Otherwise the list, which autofocuses its anchor row on a television,
+      // takes the remote away on the first press and choosing a second filter
+      // means navigating back up to the strip every time.
+      await pumpPanel(tester, size: _googleTv, sources: _tieredSources());
+      await press(tester, LogicalKeyboardKey.arrowUp);
+      final pill = focused();
+      expect(pill, isNotNull);
+
+      await press(tester, LogicalKeyboardKey.select);
+      expect(focused(), pill, reason: 'applying a filter does not move focus');
+
+      await press(tester, LogicalKeyboardKey.select);
+      expect(focused(), pill, reason: 'and neither does clearing it');
+    });
+
+    testWidgets('a filter whose tier stops existing lets go of the list', (
+      tester,
+    ) async {
+      // The data is live. When the last source of the filtered tier goes, so
+      // does its pill - and a filter with no pill to undo it is an empty list
+      // a remote cannot escape.
+      final harness = await pumpPanel(
+        tester,
+        size: _googleTv,
+        sources: _tieredSources(),
+      );
+      await focusPill(tester, '720p');
+      await press(tester, LogicalKeyboardKey.select);
+      expect(find.text('Alpha 1080p'), findsNothing, reason: 'filtered to 720p');
+
+      harness.data.value = const PanelData(
+        sources: <StreamResult>[
+          StreamResult(
+            url: 'https://a.test/alpha',
+            source: 'Alpha 1080p',
+            providerName: 'Torrentio',
+          ),
+          StreamResult(
+            url: 'https://c.test/charlie',
+            source: 'Charlie 1080p',
+            providerName: 'Upcloud',
+          ),
+        ],
+        currentSourceIndex: 0,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Alpha 1080p'),
+        findsOneWidget,
+        reason: 'the filter let go rather than hiding everything',
+      );
+      expect(find.text('Charlie 1080p'), findsOneWidget);
+      expect(_focusedRow(), isNotNull, reason: 'and the remote is on a row');
+    });
+
+    testWidgets('the tab strip walks to the close button and stops', (
+      tester,
+    ) async {
+      await pumpPanel(tester, size: _googleTv, sources: _tieredSources());
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      final close = MaterialLocalizations.of(
+        tester.element(find.byType(PlayerPanel)),
+      ).closeButtonTooltip;
+
+      // Rows -> strip -> tabs, then along the header and back.
+      await press(tester, LogicalKeyboardKey.arrowUp);
+      await press(tester, LogicalKeyboardKey.arrowUp);
+      final trail = <String?>[focused()];
+      for (var i = 0; i < 3; i++) {
+        await press(tester, LogicalKeyboardKey.arrowRight);
+        trail.add(focused());
+      }
+      expect(trail.last, close, reason: 'close is the end of the header');
+      for (var i = 0; i < 4; i++) {
+        await press(tester, LogicalKeyboardKey.arrowLeft);
+      }
+      expect(
+        focused(),
+        l10n.sources,
+        reason: 'and the far end is the first tab, not a wrap-around',
+      );
+    });
+  });
+
+  group('quality filter', () {
+    /// A pill, as opposed to the badge of the same name on the row below it.
+    Finder pill(String tier) => find.descendant(
+      of: find.byKey(kQualityFilterStripKey),
+      matching: find.text(tier),
+    );
+
+    testWidgets('one pill per tier present, highest first', (tester) async {
+      await pumpPanel(tester, sources: _tieredSources());
+
+      // Two tiers over three sources, in _kTierOrder and not in the order the
+      // resolver ranked them.
+      final pills = tester
+          .widgetList<Text>(
+            find.descendant(
+              of: find.byKey(kQualityFilterStripKey),
+              matching: find.byType(Text),
+            ),
+          )
+          .map((text) => text.data)
+          .toList();
+      expect(pills, <String>['1080p', '720p']);
+    });
+
+    testWidgets('a source of unknown quality gets no pill of its own', (
+      tester,
+    ) async {
+      // `Server 3` parses as Auto, which is not a tier: it is in the list and
+      // it is not in the strip.
       await pumpPanel(tester);
 
-      // A television, so the drawer is held off all three edges it touches by
-      // the overscan inset every other player surface already honours. These
-      // numbers moved deliberately: they used to be 2560 / 0 / 1440, flush
-      // into the band a consumer set clips.
+      expect(pill('1080p'), findsOneWidget);
+      expect(pill('720p'), findsOneWidget);
+      expect(find.text('Server 3'), findsOneWidget);
+    });
+
+    testWidgets('one tier is not a choice, so there is no strip', (
+      tester,
+    ) async {
+      await pumpPanel(tester, sources: _manySources(3));
+
+      expect(find.byKey(kQualityFilterStripKey), findsNothing);
+    });
+
+    testWidgets('a pill narrows the list and pressing it again restores it', (
+      tester,
+    ) async {
+      await pumpPanel(tester, sources: _tieredSources());
+
+      expect(find.text('Bravo 720p'), findsOneWidget);
+
+      await tester.tap(pill('1080p'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alpha 1080p'), findsOneWidget);
+      expect(find.text('Charlie 1080p'), findsOneWidget);
+      expect(
+        find.text('Bravo 720p'),
+        findsNothing,
+        reason: 'the tier that was not asked for is gone',
+      );
+
+      await tester.tap(pill('1080p'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Bravo 720p'),
+        findsOneWidget,
+        reason: 'a filter is a toggle: the pill in force clears it',
+      );
+    });
+
+    testWidgets('a filtered row still reports its own index', (tester) async {
+      // The one thing the filter must not do. Every other input this tab
+      // takes is keyed by position in the *unfiltered* list, so a row that
+      // reported its position in the narrowed one would change the wrong
+      // stream.
+      final picked = <int>[];
+      await pumpPanel(
+        tester,
+        sources: _tieredSources(),
+        onPickSource: picked.add,
+      );
+
+      await tester.tap(pill('720p'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bravo 720p'));
+      await tester.pumpAndSettle();
+
+      expect(picked, <int>[1], reason: 'Bravo is index 1 of the whole list');
+    });
+
+    testWidgets('the tick follows the filter rather than the position', (
+      tester,
+    ) async {
+      // Charlie is index 2 and the only row left once 1080p is asked for that
+      // is not Alpha; under a filter it is at position 1, and reading the tick
+      // off the position would move it onto Alpha.
+      await pumpPanel(
+        tester,
+        sources: _tieredSources(),
+        currentSourceIndex: 2,
+      );
+
+      await tester.tap(pill('1080p'));
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      final ticked = find.ancestor(
+        of: find.text(l10n.playerNowPlaying),
+        matching: find.byType(PanelRow),
+      );
+      expect(
+        find.descendant(of: ticked, matching: find.text('Charlie 1080p')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the fallback banner goes once the viewer filters by hand', (
+      tester,
+    ) async {
+      // The banner explains the list the resolver handed over. A list the
+      // viewer has narrowed themselves is not that list.
+      await pumpPanel(
+        tester,
+        sources: _tieredSources(),
+        qualityFilteredFallback: true,
+      );
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      expect(find.text(l10n.playerQualityFilterDropped), findsOneWidget);
+
+      await tester.tap(pill('720p'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.playerQualityFilterDropped), findsNothing);
+    });
+  });
+
+  group('tab strip', () {
+    testWidgets('three tabs take an equal share of the strip', (tester) async {
+      await pumpPanel(tester);
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      final centres = <double>[
+        tester.getCenter(find.text(l10n.sources)).dx,
+        tester.getCenter(find.text(l10n.audio)).dx,
+        tester.getCenter(find.text(l10n.subtitles)).dx,
+      ];
+      expect(
+        centres[1] - centres[0],
+        closeTo(centres[2] - centres[1], 0.5),
+        reason: 'equal columns, so the gaps between their centres are equal',
+      );
+    });
+  });
+
+  group('shape', () {
+    test('a wide window sizes the drawer off the room beside it', () {
+      // 34 % of what is left, floored and capped by the ramp. A television
+      // pins to the floor; a 1280 dp window does not.
+      expect(
+        playerPanelWidthFor(
+          const Size(2560, 1440),
+          PlayerPanelMetrics.tv,
+          edgeInset: PlayerPanelMetrics.tv.drawerEdgeInset,
+        ),
+        PlayerPanelMetrics.tv.drawerMaxWidth,
+      );
+      expect(
+        playerPanelWidthFor(
+          const Size(1280, 800),
+          PlayerPanelMetrics.touch,
+          edgeInset: 0,
+        ),
+        (1280 * 0.34).clamp(360.0, 480.0),
+      );
+    });
+
+    test('a phone held upright still gets a drawer, sized off its width', () {
+      // Not the sheet it used to get, and not 34 % either: a third of a 390 dp
+      // handset is 133 dp, which would pin every phone to the ramp floor and
+      // leave the proportion doing nothing.
+      expect(
+        playerPanelWidthFor(
+          const Size(390, 844),
+          PlayerPanelMetrics.touch,
+          edgeInset: 0,
+        ),
+        390 * 0.8,
+      );
+      // And the narrow branch has a cap of its own, so a 600 dp tablet held
+      // upright does not hand over 480 dp of picture.
+      expect(
+        playerPanelWidthFor(
+          const Size(600, 960),
+          PlayerPanelMetrics.touch,
+          edgeInset: 0,
+        ),
+        380.0,
+      );
+    });
+
+    testWidgets('the drawer is attached to the edge, and its contents are '
+        'what clear the overscan band', (tester) async {
+      await pumpPanel(tester);
+
+      // A television. The surface reaches the screen's edges - a drawer held
+      // off them is a drawer floating in the middle of the picture, with
+      // video down both sides of it, which is what the inset used to produce
+      // when it was applied to the panel instead of to its contents.
       const edge = HotstarPlayerStyle.tvEdgeInset;
       final panel = tester.getRect(find.byKey(kPlayerPanelSurfaceKey));
-      expect(
-        panel.right,
-        _tv.width - edge,
-        reason: 'anchored to the right edge, inside the overscan band',
-      );
-      expect(panel.top, PlayerPanelMetrics.tv.drawerVerticalInset);
-      expect(
-        panel.bottom,
-        _tv.height - PlayerPanelMetrics.tv.drawerVerticalInset,
-        reason: 'full height less the inset',
-      );
+      expect(panel.right, _tv.width, reason: 'flush to the right edge');
+      expect(panel.top, 0, reason: 'and to the top');
+      expect(panel.bottom, _tv.height, reason: 'and to the bottom');
       expect(
         panel.width,
         lessThan(_tv.width / 2),
         reason: 'the picture it is describing stays on screen',
+      );
+
+      // What the set actually clips is the outer few per cent, so that is
+      // where nothing a viewer needs may sit. The close button is the
+      // right-most thing in the panel and the first to go.
+      final close = tester.getRect(find.byTooltip('Close'));
+      expect(
+        _tv.width - close.right,
+        greaterThanOrEqualTo(edge),
+        reason: 'the close button stays out of the band a set clips',
       );
     });
 
@@ -979,15 +1362,20 @@ void main() {
       );
     });
 
-    testWidgets('the sheet sits at the bottom of a narrow window', (
+    testWidgets('a narrow window gets the drawer too, not a sheet', (
       tester,
     ) async {
       await pumpPanel(tester, size: _phone, isTv: false);
 
       final panel = tester.getRect(find.byKey(kPlayerPanelSurfaceKey));
-      expect(panel.bottom, _phone.height);
-      expect(panel.width, _phone.width);
-      expect(panel.top, greaterThan(0), reason: 'not the whole screen');
+      expect(panel.right, _phone.width, reason: 'anchored right');
+      expect(panel.top, 0);
+      expect(panel.bottom, _phone.height, reason: 'full height, not 66 % of it');
+      expect(
+        panel.width,
+        _phone.width * 0.8,
+        reason: 'and the picture is still visible beside it',
+      );
     });
   });
 
@@ -1016,26 +1404,34 @@ void main() {
       tester,
     ) async {
       // 960x540 dp is what a 1080p set at dp 2.0 reports, and it is the size
-      // where this is worst: the drawer is at its floor, so nothing about the
-      // window is giving it room. Measured against MediaQuery, not against a
-      // literal, so the assertion says "48 dp of screen", not "912".
+      // where this is worst: the reading column is at its floor, so nothing
+      // about the window is giving it room. Measured against MediaQuery, not
+      // against a literal, so the assertion says "48 dp of screen".
       await pumpPanel(tester, size: _googleTv);
       final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+      const edge = HotstarPlayerStyle.tvEdgeInset;
 
       final panel = tester.getRect(find.byKey(kPlayerPanelSurfaceKey));
       expect(
-        screen.width - panel.right,
-        HotstarPlayerStyle.tvEdgeInset,
-        reason:
-            'the close button and every row of badges live against this edge; '
-            'a set that clips ~5% clips them first',
+        panel.right,
+        screen.width,
+        reason: 'the surface is attached to the edge, not floating off it',
       );
-      expect(panel.top, greaterThanOrEqualTo(1));
-      expect(screen.height - panel.bottom, greaterThanOrEqualTo(1));
+      expect(panel.top, 0);
+      expect(panel.bottom, screen.height);
       expect(
         panel.width,
-        PlayerPanelMetrics.tv.drawerMinWidth,
-        reason: 'at the floor, and the floor is the ten-foot one',
+        PlayerPanelMetrics.tv.drawerMinWidth + edge,
+        reason:
+            'the reading column at its ten-foot floor, plus the band it holds '
+            'clear inside itself - so the column is as wide as it ever was',
+      );
+
+      // And what the band is for: the close button and the badges against
+      // that edge are what a set clipping ~5 % takes first.
+      expect(
+        screen.width - tester.getRect(find.byTooltip('Close')).right,
+        greaterThanOrEqualTo(edge),
       );
     });
 

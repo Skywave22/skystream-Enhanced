@@ -4,6 +4,7 @@ import 'package:skystream/core/utils/responsive_breakpoints.dart';
 import 'package:skystream/core/router/app_router.dart';
 import 'package:skystream/core/utils/image_fallbacks.dart';
 import 'package:skystream/core/utils/layout_constants.dart';
+
 import '../../../../core/domain/entity/multimedia_item.dart';
 import '../../../../shared/widgets/desktop_scroll_wrapper.dart';
 import '../../../../shared/widgets/multimedia_card.dart';
@@ -42,9 +43,8 @@ class _HomeSectionState extends ConsumerState<HomeSection> {
           child: Text(
             widget.title,
             style: isLarge
-                ? Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  )
+                ? Theme.of(context).textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.bold)
                 : Theme.of(context).textTheme.titleLarge,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -85,9 +85,9 @@ class _HomeSectionState extends ConsumerState<HomeSection> {
                             '',
                         title: item.title,
                         heroTag: 'home_${item.url}_$index',
-                        onTap: () => DetailsRoute(
-                          $extra: DetailsRouteExtra(item: item),
-                        ).push<void>(context),
+                        onTap: () =>
+                            DetailsRoute($extra: DetailsRouteExtra(item: item))
+                                .push<void>(context),
                       ),
                     );
                   },

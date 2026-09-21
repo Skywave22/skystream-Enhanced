@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../data/anilist_explore_provider.dart';
 import 'widgets/explore_carousel.dart';
 import 'widgets/media_horizontal_list.dart';
@@ -62,9 +63,8 @@ class _AnilistExploreScreenState extends ConsumerState<AnilistExploreScreen> {
                   bottom: LayoutConstants.spacingLg,
                 ),
                 decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Center(

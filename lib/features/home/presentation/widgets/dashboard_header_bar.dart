@@ -7,6 +7,7 @@ import 'package:skystream/shared/widgets/cards_wrapper.dart';
 import 'package:skystream/features/home/presentation/delegates/home_search_delegate.dart';
 import 'package:skystream/features/home/presentation/home_provider.dart';
 import 'package:skystream/features/explore/presentation/widgets/hover_border_gradient.dart';
+
 import 'dart:async';
 
 /// A custom header bar for the widescreen dashboard layout.

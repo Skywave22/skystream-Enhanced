@@ -19,6 +19,7 @@ import '../../explore/presentation/widgets/explore_carousel.dart';
 import '../../explore/presentation/widgets/media_horizontal_list.dart';
 
 import 'package:skystream/l10n/generated/app_localizations.dart';
+
 import '../../../shared/widgets/loading_indicator.dart';
 
 /// Stremio Add-ons settings destination — management and discovery.
@@ -50,12 +51,7 @@ class AddonsScreen extends ConsumerWidget {
               ],
             ),
             const Expanded(
-              child: TabBarView(
-                children: [
-                  AddonManageView(),
-                  _DiscoverTab(),
-                ],
-              ),
+              child: TabBarView(children: [AddonManageView(), _DiscoverTab()]),
             ),
           ],
         ),
@@ -118,13 +114,12 @@ class AddonsScreen extends ConsumerWidget {
                       fontSize: 15,
                     ),
                     labelColor: Theme.of(tabContext).colorScheme.primary,
-                    unselectedLabelColor: Theme.of(
-                      tabContext,
-                    ).colorScheme.onSurfaceVariant,
+                    unselectedLabelColor: Theme.of(tabContext)
+                        .colorScheme
+                        .onSurfaceVariant,
                     indicatorColor: Theme.of(tabContext).colorScheme.primary,
-                    dividerColor: Theme.of(
-                      tabContext,
-                    ).dividerColor.withValues(alpha: 0.2),
+                    dividerColor: Theme.of(tabContext).dividerColor
+                        .withValues(alpha: 0.2),
                     tabs: [
                       Tab(text: l10n.installed),
                       const Tab(text: 'Discover'),

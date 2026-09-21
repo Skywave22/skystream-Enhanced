@@ -6,7 +6,9 @@ import '../../player/domain/network_buffer.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/utils/layout_constants.dart';
 import '../../../core/utils/stream_quality_sorter.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
+
 import 'player_settings_provider.dart';
 import 'widgets/settings_dialogs.dart';
 import 'widgets/settings_widgets.dart';
@@ -33,7 +35,6 @@ class PlayerSettingsScreen extends ConsumerWidget {
       playerSettings.networkBufferMb,
       profile?.tier ?? DeviceTier.standard,
     );
-
 
     // Whether this device has a touchscreen, which is the only thing the four
     // gesture rows below depend on: a swipe, a drag and a double-tap are the
@@ -207,12 +208,11 @@ class PlayerSettingsScreen extends ConsumerWidget {
                             .read(playerSettingsProvider.notifier)
                             .setHardwareDecoding(val),
                       ),
-                      onTap: () =>
-                          ref
-                              .read(playerSettingsProvider.notifier)
-                              .setHardwareDecoding(
-                                !playerSettings.hardwareDecoding,
-                              ),
+                      onTap: () => ref
+                          .read(playerSettingsProvider.notifier)
+                          .setHardwareDecoding(
+                            !playerSettings.hardwareDecoding,
+                          ),
                     ),
                   SettingsTile(
                     icon: Icons.volume_up_rounded,

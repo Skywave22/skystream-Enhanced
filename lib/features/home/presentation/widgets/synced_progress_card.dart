@@ -59,9 +59,8 @@ class SyncedProgressCard extends ConsumerWidget {
                       ref
                           .read(notificationServiceProvider)
                           .showSuccess(
-                            AppLocalizations.of(
-                              context,
-                            )!.removedFromHistory(item.title),
+                            AppLocalizations.of(context)!
+                                .removedFromHistory(item.title),
                             title: 'Watch Progress',
                             icon: Icons.history_rounded,
                           );
@@ -143,9 +142,9 @@ class SyncedProgressCard extends ConsumerWidget {
                               ),
                               margin: const EdgeInsets.only(right: 8),
                               decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primaryContainer,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primaryContainer,
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Row(
@@ -154,18 +153,18 @@ class SyncedProgressCard extends ConsumerWidget {
                                   Icon(
                                     Icons.cloud_sync,
                                     size: 10,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onPrimaryContainer,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onPrimaryContainer,
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
                                     "SYNCED",
                                     style: TextStyle(
                                       fontSize: 10,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onPrimaryContainer,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onPrimaryContainer,
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
@@ -178,18 +177,18 @@ class SyncedProgressCard extends ConsumerWidget {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainerHighest,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 item.type.name.toUpperCase(),
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -208,9 +207,9 @@ class SyncedProgressCard extends ConsumerWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -224,9 +223,9 @@ class SyncedProgressCard extends ConsumerWidget {
                               1.0,
                             ),
                             minHeight: 4,
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.surfaceContainerHighest,
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
                             valueColor: AlwaysStoppedAnimation<Color>(
                               Theme.of(context).colorScheme.primary,
                             ),
@@ -271,9 +270,8 @@ class SyncedProgressCard extends ConsumerWidget {
                         ref
                             .read(notificationServiceProvider)
                             .showSuccess(
-                              AppLocalizations.of(
-                                context,
-                              )!.removedFromHistory(item.title),
+                              AppLocalizations.of(context)!
+                                  .removedFromHistory(item.title),
                               title: 'Watch Progress',
                               icon: Icons.history_rounded,
                             );

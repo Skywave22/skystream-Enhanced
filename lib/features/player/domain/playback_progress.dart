@@ -29,7 +29,6 @@ import '../../tracking/data/sync_manager.dart';
 import '../../tracking/domain/sync_progress_item.dart';
 import 'stream_resolver.dart' show ProviderReader;
 
-
 /// Shorter than this and there is nothing worth resuming — and a value this
 /// small usually means the engine has not determined the real duration yet.
 const Duration kMinResumableDuration = Duration(seconds: 30);
@@ -195,9 +194,8 @@ Future<ResumePoint?> resolveResumePoint({
     // services sets a Dio timeout - so on a flaky connection this sat in front
     // of setMedia indefinitely, showing a spinner instead of the video. A
     // resume point is a convenience; the local one is already in hand.
-    synced = await read(
-      syncedProgressProvider.future,
-    ).timeout(_kSyncedResumeBudget, onTimeout: () => const []);
+    synced = await read(syncedProgressProvider.future)
+        .timeout(_kSyncedResumeBudget, onTimeout: () => const []);
   } catch (e) {
     // Trackers are optional and the pull is a network call. A tracker being
     // down must not cost the viewer the position this device already knows.
@@ -255,7 +253,8 @@ SyncProgressItem? _syncedMatch(
         ? MultimediaContentType.series
         : MultimediaContentType.movie;
     if (p.type != wantType) return false;
-    if (isSeries && (p.season != episode?.season || p.episode != episode?.episode)) {
+    if (isSeries &&
+        (p.season != episode?.season || p.episode != episode?.episode)) {
       return false;
     }
     if (tmdb != null && p.tmdbId != null) return p.tmdbId == tmdb;
@@ -376,7 +375,11 @@ class PlaybackProgressRecorder {
   /// change, where this is the last chance to write.
   ///
   /// Returns true when a write was dispatched.
-  bool record(ProgressSample sample, {String? lastStreamUrl, bool force = false}) {
+  bool record(
+    ProgressSample sample, {
+    String? lastStreamUrl,
+    bool force = false,
+  }) {
     if (sample.token != token) return false;
     if (item.contentType == MultimediaContentType.livestream) return false;
     if (!sample.isWritable) return false;

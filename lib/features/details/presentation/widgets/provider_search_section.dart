@@ -1,19 +1,25 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+
 import '../../../../core/router/app_router.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:skystream/core/domain/entity/multimedia_item.dart';
 import 'package:skystream/core/extensions/extension_manager.dart';
 import 'package:skystream/core/utils/image_fallbacks.dart';
 import 'package:skystream/features/search/presentation/search_provider.dart';
+
 import '../../../../shared/widgets/cards_wrapper.dart';
 
 import '../../../../core/utils/layout_constants.dart';
 import '../../../../shared/widgets/shimmer_placeholder.dart';
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
+
+import 'source_section_card.dart';
 
 part 'provider_search_section.g.dart';
 
@@ -37,6 +43,37 @@ Stream<SearchAggregateState> providerSearch(Ref ref, String query) {
 }
 
 class ProviderSearchSection extends ConsumerStatefulWidget {
+  /// Height of the poster cards themselves.
+  static const double cardHeight = 140;
+
+  /// Room above and below the cards for a card's hover and focus growth.
+  ///
+  /// [CardsWrapper] scales a card to 1.03 when a pointer is over it and paints
+  /// its focus ring OUTSIDE the card's own box, and the rail's viewport clips -
+  /// so with the viewport sized to the cards exactly, the top and bottom of a
+  /// hovered card were sliced off. 8 dp is the figure the app's other rails
+  /// reserve for this, and the one [CardFocusAffordance]'s glow blur is tuned
+  /// against.
+  static const double growthHeadroom = 8;
+
+  /// Strip reserved beneath the cards for the scrollbar track, so it stops
+  /// painting over the artwork it describes.
+  static const double scrollbarGutter = 12;
+
+  /// Space the rail already leaves below the last pixel of its cards.
+  ///
+  /// A caller spacing this section from the next group subtracts this, or the
+  /// gap the eye sees here comes out this much larger than everywhere else -
+  /// which is exactly how the page ended up with 32, 36 and 24 between three
+  /// groups that were all meant to be the same.
+  static const double bottomInset = growthHeadroom + scrollbarGutter;
+
+  /// Viewport height: cards, the growth headroom on both sides, and the strip.
+  /// Every state of this block uses it, including the empty and loading ones,
+  /// so the section does not change height as results arrive.
+  static const double railHeight =
+      cardHeight + growthHeadroom * 2 + scrollbarGutter;
+
   final String query;
   final bool compact;
   final bool showHeader;
@@ -68,7 +105,8 @@ class _ProviderSearchSectionState extends ConsumerState<ProviderSearchSection> {
     super.initState();
     _scrollController = ScrollController();
     _scrollController.addListener(() {
-      final canRight = _scrollController.hasClients &&
+      final canRight =
+          _scrollController.hasClients &&
           _scrollController.position.extentAfter > 10;
       if (canRight != _canScrollRight) {
         setState(() => _canScrollRight = canRight);
@@ -105,7 +143,7 @@ class _ProviderSearchSectionState extends ConsumerState<ProviderSearchSection> {
     Widget content;
     if (plugins.isEmpty) {
       content = Container(
-        height: 140,
+        height: ProviderSearchSection.railHeight,
         alignment: Alignment.center,
         padding: const EdgeInsets.all(LayoutConstants.spacingMd),
         child: Text(
@@ -133,7 +171,7 @@ class _ProviderSearchSectionState extends ConsumerState<ProviderSearchSection> {
           if (allItems.isEmpty) {
             if (state.isLoading) {
               return const SizedBox(
-                height: 140,
+                height: ProviderSearchSection.railHeight,
                 child: Center(
                   child: AppLoadingIndicator(
                     constraints: BoxConstraints(
@@ -147,7 +185,7 @@ class _ProviderSearchSectionState extends ConsumerState<ProviderSearchSection> {
               );
             }
             return Container(
-              height: 140,
+              height: ProviderSearchSection.railHeight,
               alignment: Alignment.center,
               padding: const EdgeInsets.all(LayoutConstants.spacingMd),
               child: Text(
@@ -163,7 +201,7 @@ class _ProviderSearchSectionState extends ConsumerState<ProviderSearchSection> {
 
           return RepaintBoundary(
             child: SizedBox(
-              height: 140,
+              height: ProviderSearchSection.railHeight,
               child: NotificationListener<ScrollMetricsNotification>(
                 onNotification: (notification) {
                   if (notification.metrics.axis == Axis.horizontal) {
@@ -175,152 +213,161 @@ class _ProviderSearchSectionState extends ConsumerState<ProviderSearchSection> {
                   return false;
                 },
                 child: ShaderMask(
-                shaderCallback: (Rect bounds) {
-                  if (!_canScrollRight) {
+                  shaderCallback: (Rect bounds) {
+                    if (!_canScrollRight) {
+                      return const LinearGradient(
+                        colors: [Colors.black, Colors.black],
+                      ).createShader(bounds);
+                    }
                     return const LinearGradient(
-                      colors: [Colors.black, Colors.black],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [Colors.black, Colors.black, Colors.transparent],
+                      stops: [0.0, 0.88, 1.0],
                     ).createShader(bounds);
-                  }
-                  return const LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      Colors.black,
-                      Colors.black,
-                      Colors.transparent,
-                    ],
-                    stops: [0.0, 0.88, 1.0],
-                  ).createShader(bounds);
-                },
-                blendMode: BlendMode.dstIn,
-                child: Scrollbar(
-                  controller: _scrollController,
-                  child: ListView.separated(
+                  },
+                  blendMode: BlendMode.dstIn,
+                  child: Scrollbar(
                     controller: _scrollController,
-                    clipBehavior: Clip.hardEdge,
-                    scrollDirection: Axis.horizontal,
-                    padding: widget.compact
-                        ? EdgeInsets.zero
-                        : const EdgeInsets.symmetric(
-                            horizontal: LayoutConstants.spacingMd,
-                          ),
-                    itemCount: allItems.length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(width: LayoutConstants.spacingSm),
-                    itemBuilder: (context, index) {
-                      final data = allItems[index];
-                      final item = data['item'] as MultimediaItem;
-                      final providerName = data['providerName'] as String;
-
-                      return CardsWrapper(
-                        onTap: () {
-                          // Enrich item with provider, content type, and metadata IDs before navigation
-                          final enrichedItem = item.copyWith(
-                            provider: providerName,
-                            contentType: widget.parentMediaType != null
-                                ? MultimediaItem.parseContentType(
-                                    widget.parentMediaType,
-                                  )
-                                : item.contentType,
-                            tmdbId: widget.tmdbId ?? item.tmdbId,
-                            imdbId: widget.imdbId ?? item.imdbId,
-                          );
-                          DetailsRoute(
-                            $extra: DetailsRouteExtra(item: enrichedItem),
-                          ).push<void>(context);
-                        },
-                        child: SizedBox(
-                          width: 220,
-                          child: Card(
-                            elevation: 0,
-                            margin: EdgeInsets.zero,
-                            color: Theme.of(context).colorScheme.surface,
-                            clipBehavior: Clip.antiAlias,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: BorderSide(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.3),
-                              ),
+                    child: ListView.separated(
+                      controller: _scrollController,
+                      clipBehavior: Clip.hardEdge,
+                      scrollDirection: Axis.horizontal,
+                      // `top` and `bottom` on a HORIZONTAL list inset the
+                      // CROSS axis: the cards keep _cardHeight, sit clear of
+                      // both edges by ProviderSearchSection.growthHeadroom so hovering one does not
+                      // crop it, and the scrollbar track gets the strip below.
+                      padding: widget.compact
+                          ? const EdgeInsets.fromLTRB(
+                              0,
+                              ProviderSearchSection.growthHeadroom,
+                              0,
+                              ProviderSearchSection.growthHeadroom +
+                                  ProviderSearchSection.scrollbarGutter,
+                            )
+                          : const EdgeInsets.fromLTRB(
+                              LayoutConstants.spacingMd,
+                              ProviderSearchSection.growthHeadroom,
+                              LayoutConstants.spacingMd,
+                              ProviderSearchSection.growthHeadroom +
+                                  ProviderSearchSection.scrollbarGutter,
                             ),
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 90,
-                                  height: double.infinity,
-                                  child: CachedNetworkImage(
-                                    imageUrl:
-                                        AppImageFallbacks.poster(
-                                          item.posterUrl,
-                                          label: item.title,
-                                        ) ??
-                                        '',
-                                    fit: BoxFit.cover,
-                                    placeholder: (_, _) =>
-                                        ShimmerPlaceholder(borderRadius: 8),
-                                    errorWidget: (_, _, _) =>
-                                        const ThumbnailErrorPlaceholder(),
-                                  ),
+                      itemCount: allItems.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(width: LayoutConstants.spacingSm),
+                      itemBuilder: (context, index) {
+                        final data = allItems[index];
+                        final item = data['item'] as MultimediaItem;
+                        final providerName = data['providerName'] as String;
+
+                        return CardsWrapper(
+                          onTap: () {
+                            // Enrich item with provider, content type, and metadata IDs before navigation
+                            final enrichedItem = item.copyWith(
+                              provider: providerName,
+                              contentType: widget.parentMediaType != null
+                                  ? MultimediaItem.parseContentType(
+                                      widget.parentMediaType,
+                                    )
+                                  : item.contentType,
+                              tmdbId: widget.tmdbId ?? item.tmdbId,
+                              imdbId: widget.imdbId ?? item.imdbId,
+                            );
+                            DetailsRoute(
+                              $extra: DetailsRouteExtra(item: enrichedItem),
+                            ).push<void>(context);
+                          },
+                          child: SizedBox(
+                            width: 220,
+                            child: Card(
+                              elevation: 0,
+                              margin: EdgeInsets.zero,
+                              color: Theme.of(context).colorScheme.surface,
+                              clipBehavior: Clip.antiAlias,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: Theme.of(context).colorScheme.onSurface
+                                      .withValues(alpha: 0.3),
                                 ),
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(10.0),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          item.title,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.bold,
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSurface,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primaryContainer,
-                                            borderRadius: BorderRadius.circular(
-                                              4,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            providerName,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.onPrimaryContainer,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
+                              ),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 90,
+                                    height: double.infinity,
+                                    child: CachedNetworkImage(
+                                      imageUrl:
+                                          AppImageFallbacks.poster(
+                                            item.posterUrl,
+                                            label: item.title,
+                                          ) ??
+                                          '',
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, _) =>
+                                          ShimmerPlaceholder(borderRadius: 8),
+                                      errorWidget: (_, _, _) =>
+                                          const ThumbnailErrorPlaceholder(),
                                     ),
                                   ),
-                                ),
-                              ],
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(10.0),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            item.title,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primaryContainer,
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              providerName,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onPrimaryContainer,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    }),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -328,7 +375,7 @@ class _ProviderSearchSectionState extends ConsumerState<ProviderSearchSection> {
           );
         },
         loading: () => const SizedBox(
-          height: 140,
+          height: ProviderSearchSection.railHeight,
           child: Center(
             child: AppLoadingIndicator(
               constraints: BoxConstraints(
@@ -349,113 +396,27 @@ class _ProviderSearchSectionState extends ConsumerState<ProviderSearchSection> {
       );
     }
 
-    if (widget.compact) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return SourceSectionCard(
+      icon: Icons.extension,
+      title: AppLocalizations.of(context)!.availableSources,
+      compact: widget.compact,
+      showHeader: widget.showHeader,
+      minHeight: widget.compact ? null : 180,
+      trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (widget.showHeader) ...[
-            _buildHeader(context),
-            const SizedBox(height: 12),
-          ],
-          ClipRect(child: content),
-        ],
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 180),
-      clipBehavior: Clip.hardEdge,
-      decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: LayoutConstants.spacingMd),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (widget.showHeader) ...[
-            _buildHeader(context),
-            const SizedBox(height: LayoutConstants.spacingSm),
-          ],
-          ClipRect(child: content),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
-    final padding = widget.compact
-        ? EdgeInsets.zero
-        : const EdgeInsets.symmetric(horizontal: LayoutConstants.spacingMd);
-
-    return Padding(
-      padding: padding,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.extension,
-                size: widget.compact ? 20 : 18,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                l10n.availableSources,
-                style: TextStyle(
-                  fontSize: widget.compact ? 18 : 14,
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 4,
-                  vertical: 2,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  "BETA",
-                  style: TextStyle(
-                    color: theme.colorScheme.primary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
+          _HeaderArrowButton(
+            icon: Icons.arrow_back_ios_new,
+            onTap: () => _scrollBy(-300),
           ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _HeaderArrowButton(
-                icon: Icons.arrow_back_ios_new,
-                onTap: () => _scrollBy(-300),
-              ),
-              const SizedBox(width: 4),
-              _HeaderArrowButton(
-                icon: Icons.arrow_forward_ios,
-                onTap: () => _scrollBy(300),
-              ),
-            ],
+          const SizedBox(width: 4),
+          _HeaderArrowButton(
+            icon: Icons.arrow_forward_ios,
+            onTap: () => _scrollBy(300),
           ),
         ],
       ),
+      child: content,
     );
   }
 }

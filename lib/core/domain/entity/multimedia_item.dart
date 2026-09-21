@@ -160,6 +160,10 @@ class MultimediaItem {
         (json['type'] as String?) ?? (json['contentType'] as String?);
     final MultimediaContentType type = MultimediaItem.parseContentType(typeStr);
 
+    final Map<String, String>? syncData = json['syncData'] != null
+        ? Map<String, String>.from(json['syncData'] as Map)
+        : null;
+
     return MultimediaItem(
       title: title,
       url: (json['url'] as String?) ?? '',
@@ -222,9 +226,7 @@ class MultimediaItem {
                 )
                 .toList()
           : null,
-      syncData: json['syncData'] != null
-          ? Map<String, String>.from(json['syncData'] as Map)
-          : null,
+      syncData: syncData,
       playbackPolicy:
           (json['playbackPolicy'] as String?) ?? (json['vpnStatus'] as String?),
       isAdult: (json['isAdult'] as bool?) ?? false,
@@ -233,10 +235,55 @@ class MultimediaItem {
               Map<String, dynamic>.from(json['nextAiring'] as Map),
             )
           : null,
-      tmdbId: json['tmdbId'] as int?,
-      imdbId: json['imdbId'] as String?,
+      // Top level first, then `syncData`.
+      //
+      // `syncData` is the DOCUMENTED way for a plugin to report external ids
+      // - the developer guide specifies `{ mal: "123", tmdb: "456" }` and
+      // describes no top-level id field at all - and every plugin in the
+      // catalogue that carries ids follows it. Nothing here read them, so the
+      // app behaved as though those plugins had sent nothing, went off to
+      // TMDB to guess a title it had already been told the answer for, and
+      // could land on a different film entirely.
+      //
+      // The top-level keys are kept ahead of it because items built inside
+      // the app (from TMDB, from a details route) set them directly.
+      tmdbId: (json['tmdbId'] as int?) ?? _syncTmdbId(syncData),
+      imdbId: (json['imdbId'] as String?) ?? _syncImdbId(syncData),
       source: json['source'] as String?,
     );
+  }
+
+  /// The TMDB id a plugin filed under `syncData`, or null.
+  ///
+  /// Plugins send it as a string; anything that is not a plain number is
+  /// ignored rather than guessed at.
+  static int? _syncTmdbId(Map<String, String>? syncData) {
+    if (syncData == null) return null;
+    for (final key in const ['tmdb', 'tmdbId', 'tmdb_id', 'themoviedb']) {
+      final raw = syncData[key];
+      if (raw == null || raw.isEmpty) continue;
+      final parsed = int.tryParse(raw.trim());
+      if (parsed != null && parsed > 0) return parsed;
+    }
+    return null;
+  }
+
+  /// The IMDb id a plugin filed under `syncData`, or null.
+  ///
+  /// Only a well-formed `tt` id is accepted: a malformed one would be
+  /// promoted to authoritative and sent to the source scrapers and the
+  /// tracking services, where a wrong id is worse than no id at all.
+  static String? _syncImdbId(Map<String, String>? syncData) {
+    if (syncData == null) return null;
+    for (final key in const ['imdb', 'imdbId', 'imdb_id']) {
+      final raw = syncData[key]?.trim();
+      if (raw == null || raw.isEmpty) continue;
+      // Stremio-style ids can carry a season and episode - `tt1234567:1:2` -
+      // and the title's own id is the head of that. Same rule AddonMeta uses.
+      final head = raw.split(':').first;
+      if (RegExp(r'^tt\d{6,}$').hasMatch(head)) return head;
+    }
+    return null;
   }
 
   factory MultimediaItem.fromTmdbJson(Map<String, dynamic> json) {

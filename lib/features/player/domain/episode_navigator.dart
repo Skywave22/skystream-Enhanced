@@ -1,4 +1,4 @@
-/// Which episode plays after this one.
+/// Which episode plays after this one, and which played before it.
 ///
 /// A pure function of the item and the current episode — no engine, no
 /// storage, no providers.
@@ -20,9 +20,7 @@ import '../../../core/domain/entity/multimedia_item.dart';
 class NextEpisodeLookup {
   const NextEpisodeLookup._({required this.next, required this.currentFound});
 
-  const NextEpisodeLookup.notApplicable()
-    : next = null,
-      currentFound = false;
+  const NextEpisodeLookup.notApplicable() : next = null, currentFound = false;
 
   /// The episode to play next, or null when there is none to play.
   final Episode? next;
@@ -75,6 +73,46 @@ NextEpisodeLookup nextEpisodeFor({
   final episodes = effectiveEpisodes(item, current);
   if (episodes.isEmpty) return const NextEpisodeLookup.notApplicable();
 
+  final index = _indexOf(episodes, current, videoUrl);
+
+  if (index == -1) {
+    // Current episode not located: the honest answer is "unknown".
+    return const NextEpisodeLookup.notApplicable();
+  }
+  if (index >= episodes.length - 1) {
+    return const NextEpisodeLookup._(next: null, currentFound: true);
+  }
+  return NextEpisodeLookup._(next: episodes[index + 1], currentFound: true);
+}
+
+/// The episode before [current], or null when there is none to play.
+///
+/// Deliberately not a [NextEpisodeLookup]. That type exists to keep "the
+/// series ended" apart from "the current episode could not be located",
+/// because conflating them deletes a series from history. Nothing follows
+/// from not finding a previous episode except that the button is absent, so
+/// the two answers can be the same null.
+Episode? previousEpisodeFor({
+  required MultimediaItem item,
+  required Episode? current,
+  required String videoUrl,
+}) {
+  if (!_isSeries(item)) return null;
+
+  final episodes = effectiveEpisodes(item, current);
+  if (episodes.isEmpty) return null;
+
+  final index = _indexOf(episodes, current, videoUrl);
+  if (index <= 0) return null;
+  return episodes[index - 1];
+}
+
+/// Where [current] sits in [episodes], or -1 when it cannot be placed.
+///
+/// Shared by both directions so they can never disagree about which episode is
+/// playing - a previous button that located it differently from the advance
+/// would walk a different list.
+int _indexOf(List<Episode> episodes, Episode? current, String videoUrl) {
   var index = -1;
   if (current != null) {
     index = episodes.indexWhere((e) => e.url == current.url);
@@ -90,15 +128,7 @@ NextEpisodeLookup nextEpisodeFor({
   if (index == -1) {
     index = episodes.indexWhere((e) => e.url == videoUrl);
   }
-
-  if (index == -1) {
-    // Current episode not located: the honest answer is "unknown".
-    return const NextEpisodeLookup.notApplicable();
-  }
-  if (index >= episodes.length - 1) {
-    return const NextEpisodeLookup._(next: null, currentFound: true);
-  }
-  return NextEpisodeLookup._(next: episodes[index + 1], currentFound: true);
+  return index;
 }
 
 bool _isSeries(MultimediaItem item) =>

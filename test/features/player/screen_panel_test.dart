@@ -23,6 +23,9 @@ import 'package:skystream/features/player/presentation/vlc/panel/player_tracks_t
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 import 'fake_vlc_engine.dart';
+import 'package:skystream/features/player/domain/network_buffer.dart';
+import 'package:skystream/features/settings/presentation/player_settings_provider.dart';
+
 import 'vlc_screen_harness.dart';
 
 /// The panel as the screen drives it: the bottom bar opens the tab it names,
@@ -479,6 +482,41 @@ void main() {
   );
 
   testWidgets(
+    'the torrent server gets the buffer the viewer chose, split to keep some '
+    'of it behind the playhead',
+    variant: texturePlatform,
+    (tester) async {
+      // One number for both engines. libVLC takes it as a prefetch window and
+      // TorrServer as its piece cache; the cache used to be a hard-coded
+      // 64 MB, so the setting moved one engine and not the other.
+      final torrents = _FakeTorrents();
+      await pumpPlayer(
+        tester,
+        settings: const PlayerSettings(networkBufferMb: 256),
+        overrides: [torrentServiceProvider.overrideWithValue(torrents)],
+      );
+      await sendFirstFrame(tester);
+
+      expect(torrents.cacheMb, 256, reason: 'the chosen size, not a constant');
+      expect(
+        torrents.readAheadPercent,
+        torrentReadAheadPercent(256),
+        reason: 'and the split that leaves a backward window behind it',
+      );
+      // The remainder is the only backward buffer this player has anywhere:
+      // libVLC 3's prefetch filter takes a size and decides the rest itself.
+      final behindMb = 256 * (100 - torrents.readAheadPercent!) / 100;
+      expect(
+        behindMb,
+        greaterThanOrEqualTo(8),
+        reason: 'enough for the ten second step the seek controls take',
+      );
+
+      await sendEvent(tester, snapshot(state: 'paused'));
+    },
+  );
+
+  testWidgets(
     'a hand-picked pack file drops season and episode from the subtitle '
     'search target',
     variant: texturePlatform,
@@ -890,6 +928,20 @@ class _FakeExtensions extends ExtensionManager {
 /// Implemented rather than extended: the real service is a singleton with a
 /// private constructor, and standing one up would start a real server.
 class _FakeTorrents implements TorrentService {
+  /// What the player asked the server to hold, so a test can check that the
+  /// viewer's buffer setting reaches both engines rather than just libVLC.
+  int? cacheMb;
+  int? readAheadPercent;
+
+  @override
+  Future<void> applyBufferSettings({
+    required int cacheMb,
+    required int readAheadPercent,
+  }) async {
+    this.cacheMb = cacheMb;
+    this.readAheadPercent = readAheadPercent;
+  }
+
   @override
   Future<TorrentStatus?> getCurrentStatus() async =>
       TorrentStatus.fromMap(<dynamic, dynamic>{

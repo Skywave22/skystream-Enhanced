@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../l10n/generated/app_localizations.dart';
 import '../../../../core/domain/entity/multimedia_item.dart';
 import '../../../../core/providers/device_info_provider.dart';
@@ -150,9 +151,8 @@ class _BookmarksTabState extends ConsumerState<BookmarksTab>
   /// The await is the mechanism: `push` completes when the details page is
   /// popped, which is the moment the viewer is looking at this grid again.
   Future<void> _openDetails(MultimediaItem item) async {
-    await DetailsRoute(
-      $extra: DetailsRouteExtra(item: item),
-    ).push<void>(context);
+    await DetailsRoute($extra: DetailsRouteExtra(item: item))
+        .push<void>(context);
     if (!mounted) return;
     if (!_restoresFocus) return;
     _focusReturn.restoreTo(item.url);

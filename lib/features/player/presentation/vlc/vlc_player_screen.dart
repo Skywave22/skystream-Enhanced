@@ -49,6 +49,7 @@ import 'ended_card.dart';
 import 'next_episode_countdown.dart';
 import 'player_startup_view.dart';
 import 'panel/player_panel.dart';
+import 'panel/player_panel_labels.dart' show sourceFactsOf;
 import 'player_value_selector.dart';
 import 'resume_hint.dart';
 import 'torrent_file_sheet.dart';
@@ -411,13 +412,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// Deltas from here are what [videoHealthFor] reads, so the ragged first
   /// seconds after an open are the baseline rather than the evidence. Null
   /// until the first sample of an attempt lands.
-  ({
-    int displayed,
-    int lost,
-    int corrupted,
-    int discontinuity,
-    int decoded,
-  })?
+  ({int displayed, int lost, int corrupted, int discontinuity, int decoded})?
   _videoBaseline;
 
   /// The last smoothness verdict logged, so a steady state is reported once
@@ -688,6 +683,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       ),
     );
 
+    // The same buffer to the other engine. Here rather than at torrent setup
+    // because this is the one place that has the settings and the device tier
+    // in hand, and the server may be started later by a source resolver that
+    // has neither.
+    _applyTorrentBuffer();
     _controller = VlcPlayerController(
       autoPlay: true,
       // Native events are not throttled by default and position ticks are not
@@ -713,13 +713,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
           // Read-ahead, which is the knob the caching one was mistaken for:
           // it buys resilience and cheap seeks without delaying a stream that
           // starts mid-playback. KiB is libVLC's unit.
-          prefetchBufferKiB:
-              resolveNetworkBufferMb(
-                settings.networkBufferMb,
-                ref.read(deviceProfileProvider).asData?.value.tier ??
-                    DeviceTier.standard,
-              ) *
-              1024,
+          prefetchBufferKiB: _bufferMb * 1024,
           userAgent: kDefaultBrowserUserAgent,
           // libVLC does adapt, but its estimator starts pessimistic and can
           // sit on a low rendition for a long stretch, so pin the highest.
@@ -1496,18 +1490,20 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
 
     _markFailed(_attemptIndex);
     // [jumpTo] is a source already proven, which beats the next in line.
-    final next = jumpTo ?? nextFailoverIndex(
-      from: _attemptIndex,
-      total: resolved.streams.length,
-      tried: _tried,
-      // Known dead before anything opened them, and a dead source that hangs
-      // rather than erroring costs the whole stall deadline. Walked last, not
-      // dropped: the probe is wrong about slow hosts.
-      unreachable: <int>{
-        for (final entry in _probes.entries)
-          if (entry.value == ProbeOutcome.unhealthy) entry.key,
-      },
-    );
+    final next =
+        jumpTo ??
+        nextFailoverIndex(
+          from: _attemptIndex,
+          total: resolved.streams.length,
+          tried: _tried,
+          // Known dead before anything opened them, and a dead source that hangs
+          // rather than erroring costs the whole stall deadline. Walked last, not
+          // dropped: the probe is wrong about slow hosts.
+          unreachable: <int>{
+            for (final entry in _probes.entries)
+              if (entry.value == ProbeOutcome.unhealthy) entry.key,
+          },
+        );
     if (next == null) {
       // Say what actually went wrong: a single-source channel refused for DRM
       // should name the scheme rather than just count to one.
@@ -1761,13 +1757,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// [videoHealthFor] and the rendition step-down.
   void _reportSmoothness(
     VlcMediaStats stats,
-    ({
-      int displayed,
-      int lost,
-      int corrupted,
-      int discontinuity,
-      int decoded,
-    })
+    ({int displayed, int lost, int corrupted, int discontinuity, int decoded})
     baseline,
   ) {
     final displayed = stats.displayedPictures - baseline.displayed;
@@ -2083,6 +2073,61 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       ).next !=
       null;
 
+  /// What the top bar's title says.
+  ///
+  /// The whole of what is playing: the film's name, or the series with the
+  /// episode inside it. The bar gives the title one line and ellipsises it, so
+  /// the order is what survives a squeeze - the series first, because that is
+  /// what a viewer is checking they are in, then the numbering, then the
+  /// episode's own name, which is the part a phone loses and can afford to.
+  ///
+  /// A picked torrent file still wins outright: it is the one case where the
+  /// item's own title is not what is on screen.
+  String _chromeTitle(AppLocalizations l10n) {
+    final file = _torrentFileLabel;
+    if (file != null) return file;
+    final item = widget.item.title;
+    final episode = _currentEpisode;
+    if (episode == null) return item;
+
+    final parts = <String>[item];
+    // Numbering only where the plugin actually populated it; a great many hand
+    // back zeroes, and `S0 E0` is worse than nothing.
+    if (episode.season > 0 && episode.episode > 0) {
+      parts.add(
+        l10n.playerSeasonEpisode(episode.season, episode.episode),
+      );
+    }
+    final name = episode.name.trim();
+    // Dropped when it is the numbering again under another name, which is what
+    // a list with no real episode titles hands back.
+    if (name.isNotEmpty && name != item && !parts.contains(name)) {
+      parts.add(name);
+    }
+    return parts.join(' · ');
+  }
+
+  /// What the top bar's subtitle says: the source the picture is coming from.
+  ///
+  /// The one fact about a session that is otherwise only visible by opening
+  /// the panel, and the one a viewer wants when a stream is misbehaving. Null
+  /// where nothing is playing yet or the plugin named no provider, and the bar
+  /// then renders no second line at all rather than an empty one.
+  String? _chromeSubtitle() {
+    final data = _panelData.value;
+    final index = data.currentSourceIndex;
+    if (index < 0 || index >= data.sources.length) return null;
+    final stream = data.sources[index];
+    return sourceProvider(stream) ?? sourceFactsOf(stream).title;
+  }
+
+  /// The episode before this one, recomputed for the same reason.
+  Episode? get _previousEpisode => previousEpisodeFor(
+    item: widget.item,
+    current: _currentEpisode,
+    videoUrl: _videoUrl,
+  );
+
   /// Polls the torrent server while a torrent is playing.
   ///
   /// The status is only meaningful while the engine is seeding, so polling
@@ -2393,9 +2438,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     if (resolved == null || _disposed) return;
     if (picked.index == _torrentFileIndex) return;
 
-    final url = await _read(
-      torrentServiceProvider,
-    ).getStreamUrlForFileIndex(picked.index);
+    final url = await _read(torrentServiceProvider)
+        .getStreamUrlForFileIndex(picked.index);
     if (_disposed) return;
     if (url == null) {
       _notify(
@@ -2475,6 +2519,38 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
       rollForwardHistory(read: _read, item: widget.item, next: next);
       await _startEpisode(next);
       return _Advance.playing;
+    } finally {
+      _advancing = false;
+    }
+  }
+
+  /// Goes back one episode.
+  ///
+  /// The mirror of [_advance] with the two things that only make sense going
+  /// forwards left out: there is no ended card to raise, because the list
+  /// running out backwards simply means the button was not rendered, and
+  /// nothing is cleared from history - `clearFinishedFromHistory` is the
+  /// series finishing, which is not what stepping back is.
+  ///
+  /// It does take the same [_advancing] latch. The two directions move the
+  /// same engine to a different episode, and letting one start while the
+  /// other is in flight is how a viewer ends up two episodes from where they
+  /// pressed.
+  Future<void> _goToPreviousEpisode() async {
+    if (_disposed || _advancing) return;
+    final previous = _previousEpisode;
+    if (previous == null) return;
+    _advancing = true;
+    try {
+      // The outgoing episode's session ends first, exactly as an advance ends
+      // it: finish() emits its terminal tracking event while the tracker still
+      // describes the episode it belongs to.
+      _tracker?.finish();
+      // Despite the name this only points the history row at the episode about
+      // to play and reads back its own saved position, so it is the right call
+      // in either direction.
+      rollForwardHistory(read: _read, item: widget.item, next: previous);
+      await _startEpisode(previous);
     } finally {
       _advancing = false;
     }
@@ -2601,9 +2677,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     // does when it launches the first one.
     var nextUrl = next.url;
     try {
-      final local = await _read(
-        downloadServiceProvider,
-      ).getDownloadedFile(widget.item, episode: next);
+      final local = await _read(downloadServiceProvider)
+          .getDownloadedFile(widget.item, episode: next);
       if (local != null) nextUrl = local.path;
     } catch (_) {
       // The lookup is a convenience; fall back to streaming.
@@ -3254,6 +3329,33 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     super.dispose();
   }
 
+  /// The buffer the viewer asked for, in megabytes.
+  ///
+  /// One number for both engines. libVLC takes it as a prefetch window and
+  /// TorrServer as its piece cache: a viewer who chose 256 MB meant it for
+  /// whatever they are watching, and a torrent used to ignore them for a
+  /// hard-coded 64.
+  int get _bufferMb => resolveNetworkBufferMb(
+    ref.read(playerSettingsProvider).asData?.value.networkBufferMb,
+    ref.read(deviceProfileProvider).asData?.value.tier ?? DeviceTier.standard,
+  );
+
+  /// Hands the torrent server the same buffer, split so some of it stays
+  /// behind the playhead.
+  ///
+  /// Fire and forget: the server may not be up, may be about to be started by
+  /// a source resolver, or may not be involved at all on a direct stream. It
+  /// remembers either way, and nothing about playback waits on it.
+  void _applyTorrentBuffer() {
+    final mb = _bufferMb;
+    unawaited(
+      _read(torrentServiceProvider).applyBufferSettings(
+        cacheMb: mb,
+        readAheadPercent: torrentReadAheadPercent(mb),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -3340,8 +3442,8 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                   onFitChanged: (fit) {
                     if (mounted) setState(() => _fit = fit);
                   },
-                  title: _torrentFileLabel ?? widget.item.title,
-                  subtitle: _currentEpisode?.name,
+                  title: _chromeTitle(l10n),
+                  subtitle: _chromeSubtitle(),
                   onBack: () => _handleBack(fromChrome: true),
                   // Each is null unless the thing it does is actually
                   // available, so the overlay never renders a button that
@@ -3349,6 +3451,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                   onNextEpisode: _hasNextEpisode
                       ? () => unawaited(_advance())
                       : null,
+                  // Null on a film and on the first episode, so the bar has no
+                  // previous button to render rather than a dead one.
+                  onPreviousEpisode: _previousEpisode == null
+                      ? null
+                      : () => unawaited(_goToPreviousEpisode()),
                   // One panel, one callback: the controls render a button
                   // per tab in [panelTabs] and open the panel on it. The
                   // tabs come from the same helper the panel strip reads, so

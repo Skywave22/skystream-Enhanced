@@ -114,6 +114,7 @@ dependencies:
   # Platform keychain/keystore for OAuth tokens (Trakt/Simkl/MAL/AniList).
   # Falls back to encrypted Hive on Linux/Windows where libsecret is missing.
   flutter_secure_storage: ^11.0.0
+  flutter_volume_controller: ^2.0.2
 
 dependency_overrides:
   # Keeps the upstream screen_brightness_windows out of the Windows build.

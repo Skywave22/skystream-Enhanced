@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skystream/features/player/presentation/vlc/next_episode_countdown.dart';
+import 'package:skystream/features/player/presentation/widgets/hotstar_player_style.dart';
 import 'package:skystream/features/player/presentation/widgets/player_control_components.dart';
 import 'package:skystream/features/player/presentation/widgets/player_stream_widgets.dart';
 import 'package:skystream/l10n/generated/app_localizations.dart';
@@ -55,16 +56,33 @@ const Size _wide = Size(1280, 800);
 /// of exactly 600 dp.
 const Size _smallTablet = Size(1000, 600);
 
-/// The band the card holds clear of the scrubber wherever the bottom bar is
-/// one flat control row - which is everywhere but a handset held upright.
+/// The band the card holds clear of the scrubber, per form factor.
 ///
-/// `HotstarPlayerStyle.bottomChromeHeight + 12`. Measured through the real
-/// [PlayerBottomBar]: 123 dp on touch, tablet and desktop and 137 on TV, so
-/// 144 clears the taller of them by 7. Below
-/// [PlayerBottomBar.narrowTouchWidth] of inner width the bar puts its action
-/// strip on a run of its own and stands 171, and the card adds the same 48 dp
-/// back.
-const double _kClearance = 144;
+/// Derived rather than copied: this used to be the literal 144, which silently
+/// stopped matching the chrome the day the token behind it moved. The bar is
+/// one flat control row at every width now - the action strip scrolls instead
+/// of taking a run of its own, and the clock came off the scrubber into it -
+/// so the real numbers are 92 dp on a handset, 102 on a desktop window and 116
+/// on a television, and the two tokens are the ceilings over those.
+const double _kTouchClearance = HotstarPlayerStyle.bottomChromeHeight + 12;
+const double _kTvClearance = HotstarPlayerStyle.tvBottomChromeHeight + 12;
+
+/// The band the top bar occupies on a 960x540 television, measured through the
+/// real screen in tv_overlay_focus_test.
+const double _kTvTopBand = 92;
+
+/// What the ten-foot card has to lay itself out inside: the screen less the
+/// top bar above it and the clearance below.
+const double _kTvCardHeight = 540 - _kTvClearance - _kTvTopBand;
+
+/// The fixed part of the card - the panel's text, the actions and the ring.
+/// Everything left over goes to the still, which is the column's one
+/// [Flexible] child.
+const double _kTvPanelHeight = 226;
+
+/// So the still is what the panel does not take, and it moves with the
+/// clearance rather than being written down next to it.
+const double _kTvStillHeight = _kTvCardHeight - _kTvPanelHeight;
 
 /// Catalogue text longer than the card, which its height budget has to
 /// survive.
@@ -356,10 +374,9 @@ void main() {
   });
 
   group('NextEpisodeCountdown composition', () {
-    /// On 960x540 the card is held between the top bar's band (0..92, measured
-    /// through the real screen in tv_overlay_focus_test) and the scrubber
-    /// (132 + 12 dp of clearance, so its last pixel is 396), which is 304 dp:
-    /// 226 for the panel's text and the 78 that are left for the still.
+    /// On 960x540 the card is held between the top bar's band and the
+    /// scrubber's clearance - see [_kTvCardHeight] - and splits what is left
+    /// between [_kTvPanelHeight] of text and [_kTvStillHeight] of still.
     testWidgets('on a 960x540 television the still leads at full width', (
       tester,
     ) async {
@@ -384,11 +401,18 @@ void main() {
       final card = _cardRect(tester);
       expect(
         card,
-        const Rect.fromLTRB(612, 92, 912, 396),
+        const Rect.fromLTRB(
+          612 - HotstarPlayerStyle.trackEndInset,
+          92,
+          912 - HotstarPlayerStyle.trackEndInset,
+          540 - _kTvClearance,
+        ),
         reason:
-            'bottom on 540 - (132 chrome + 12), top on the 92 dp the top bar '
-            'occupies, right on the 48 dp overscan inset, and 300 dp wide - '
-            'the width the longest action label needs, not a height solve',
+            'bottom on the clearance the chrome token sets, top on the 92 dp '
+            'the top bar occupies, right on the trailing line - the overscan '
+            'inset plus the optical one the track and the last utility button '
+            'share - and 300 dp wide, the width the longest action label '
+            'needs rather than a height solve',
       );
       // There is no chrome in this host and the card still tops out on 92:
       // the clearance over the running title is unconditional, not a reaction
@@ -396,7 +420,7 @@ void main() {
       expect(find.byType(NextEpisodeCountdown), findsOneWidget);
       expect(
         card.bottom,
-        540 - (132 + 12),
+        540 - _kTvClearance,
         reason: 'the card still clears the bottom bar it is anchored above',
       );
 
@@ -410,12 +434,11 @@ void main() {
       );
       expect(
         still.height,
-        78,
+        _kTvStillHeight,
         reason:
             'the still is the column\'s one Flexible child, so it takes what '
-            'the panel leaves rather than forcing the card past its box: 304 '
-            '- 226 of panel. Below its 16:9 ideal of 168.75, so BoxFit.cover '
-            'crops it',
+            'the panel leaves rather than forcing the card past its box. Well '
+            'below its 16:9 ideal, so BoxFit.cover crops it',
       );
       expect(
         still.height,
@@ -602,8 +625,8 @@ void main() {
         96,
         reason:
             'the stacked shape does not fit here: forced down that branch at '
-            '300 dp the card lays out at 356 dp against the 318 dp a 390 dp '
-            'phone leaves above the chrome, a 38 dp RenderFlex overflow',
+            '300 dp the card lays out taller than the band a 390 dp phone '
+            'leaves above the chrome, and overflows it',
       );
       expect(
         still.right,
@@ -612,15 +635,15 @@ void main() {
       );
       expect(
         card.height,
-        lessThanOrEqualTo(390 - _kClearance),
+        lessThanOrEqualTo(390 - _kTouchClearance),
         reason: 'the card fits in the height a landscape phone has left',
       );
       expect(
         card.bottom,
-        390 - _kClearance,
+        390 - _kTouchClearance,
         reason:
-            'the same clearance the ten-foot card gets, because the bar it is '
-            'held above is the same bar: 123 dp on touch, 137 on TV',
+            'the same clearance the ten-foot card gets, because the bar it '
+            'is held above is the same bar',
       );
 
       // The actions are stacked here too: a 300 dp card split in half leaves
@@ -716,10 +739,10 @@ void main() {
       );
       expect(
         withStill.height - without.height,
-        78 - 40,
+        _kTvStillHeight - 40,
         reason:
-            'the 78 dp still is gone and the 40 dp badge row it used to carry '
-            'has arrived in the panel - nothing else moved',
+            'the still is gone and the 40 dp badge row it used to carry has '
+            'arrived in the panel - nothing else moved',
       );
       expect(
         tester.getRect(find.text('UP NEXT')).top,
@@ -772,7 +795,7 @@ void main() {
       }
       expect(
         _cardRect(tester).height,
-        304,
+        _kTvCardHeight,
         reason: 'catalogue text of any length leaves the card its budget',
       );
 
@@ -854,14 +877,14 @@ void main() {
         final card = _cardRect(tester);
         expect(
           card.height,
-          lessThanOrEqualTo(600 - (132 + 12) - 92),
+          lessThanOrEqualTo(600 - _kTouchClearance - _kTvTopBand),
           reason:
               'the card stays inside the band between the top bar and the '
               'scrubber at every scale it honours',
         );
         expect(
           card.bottom,
-          600 - (132 + 12),
+          600 - _kTouchClearance,
           reason: 'and stays anchored where it was',
         );
 
@@ -921,7 +944,7 @@ void main() {
               'the compact card does not move at all across the range it '
               'honours',
         );
-        expect(card.height, lessThanOrEqualTo(390 - _kClearance));
+        expect(card.height, lessThanOrEqualTo(390 - _kTouchClearance));
         final l10n = await _l10n('kn');
         for (final label in [l10n.playNow, l10n.cancel]) {
           final measured = _label(tester, label);
@@ -933,10 +956,15 @@ void main() {
     }
 
     /// Both clearances are preferences, and the order they are given up in is
-    /// the point. Held sideways a 360 dp phone leaves
-    /// `360 - 144 chrome - 92 title` = 124 dp for a compact card that measures
-    /// 218. The clearance over the running title goes first; only once that is
-    /// spent does the clearance over the scrubber start giving, a dp at a time.
+    /// the point. The clearance over the running title goes first; only once
+    /// that is spent does the clearance over the scrubber start giving, a dp
+    /// at a time — and it gives only as far as [_kMinCardHeight], which is
+    /// reserved out of the viewport before any of it is handed over.
+    ///
+    /// A 360 dp phone held sideways no longer has to give at all: the bar shed
+    /// a whole text row when the clock moved into it, so the preferred
+    /// clearance fits inside what the card floor leaves. Below that it still
+    /// gives, which is what the shorter two cover.
     for (final height in [360.0, 340.0, 320.0]) {
       testWidgets('a ${height.toInt()} dp phone gets the card, not a break', (
         tester,
@@ -968,11 +996,11 @@ void main() {
         // floor, so the card is never handed less room than it needs.
         expect(
           card.bottom,
-          height == 360.0 ? height - 136 : 224,
+          height == 360.0 ? height - _kTouchClearance : 224,
           reason:
               'the scrubber clearance is capped at what is left after the '
-              'card floor is reserved, so it is 136 at 360 dp and whatever '
-              'the viewport can spare below that',
+              'card floor is reserved: the full preference at 360 dp, and '
+              'whatever the viewport can spare below that',
         );
 
         await _teardown(tester);
@@ -1131,7 +1159,7 @@ void main() {
                   alignment: Alignment.bottomCenter,
                   child: PlayerBottomBar(
                     isTv: isTv,
-                    isTouch: !isTv,
+                    scrollingActions: !isTv,
                     progressBar: PlayerScrubber(
                       position: const Duration(minutes: 38),
                       duration: const Duration(minutes: 42),

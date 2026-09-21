@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../../../../core/router/app_router.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -9,6 +13,8 @@ import '../../../../shared/widgets/shimmer_placeholder.dart';
 import '../../../../shared/widgets/multimedia_card.dart';
 
 import '../controllers/explore_search_controller.dart';
+import '../../../search/presentation/search_history_provider.dart';
+import '../../../search/presentation/widgets/search_suggestion_row.dart';
 import '../../../../shared/widgets/loading_indicator.dart';
 import '../../../../core/utils/responsive_breakpoints.dart';
 import '../../../../core/domain/entity/multimedia_item.dart';
@@ -28,20 +34,26 @@ class ExploreSearchDelegate extends SearchDelegate<void> {
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
   }
 
+  /// Moves focus off the search field and into the list below it.
+  ///
+  /// Global rather than a key callback on the field, because the field
+  /// belongs to [SearchDelegate] and cannot be reached to have one attached -
+  /// and because an EditableText swallows arrow keys for its own caret, so
+  /// directional traversal never sees the press.
   bool _handleKeyEvent(KeyEvent event) {
-    if (event is KeyDownEvent &&
-        event.logicalKey == LogicalKeyboardKey.arrowDown) {
-      final currentFocusWidget =
-          FocusManager.instance.primaryFocus?.context?.widget;
-      if (currentFocusWidget is EditableText) {
-        if (_firstSuggestionFocusNode.canRequestFocus) {
-          _firstSuggestionFocusNode.requestFocus();
-          return true;
-        } else if (_firstResultFocusNode.canRequestFocus) {
-          _firstResultFocusNode.requestFocus();
-          return true;
-        }
-      }
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.arrowDown) {
+      return false;
+    }
+    if (!searchFieldHoldsFocus()) return false;
+
+    if (_firstSuggestionFocusNode.canRequestFocus) {
+      _firstSuggestionFocusNode.requestFocus();
+      return true;
+    }
+    if (_firstResultFocusNode.canRequestFocus) {
+      _firstResultFocusNode.requestFocus();
+      return true;
     }
     return false;
   }
@@ -118,20 +130,35 @@ class ExploreSearchDelegate extends SearchDelegate<void> {
 
   @override
   Widget buildSuggestions(BuildContext context) {
-    if (query.isEmpty) return const SizedBox.shrink();
-
+    // No empty-query guard: an empty field is precisely when the recent
+    // searches are the only thing there is to show.
     return _SearchSuggestionsList(
       query: query,
       firstItemFocusNode: _firstSuggestionFocusNode,
+      onSelectRecent: (val) {
+        query = val;
+        showResults(context);
+      },
     );
   }
 }
+
+/// Tall enough for the 76 dp poster plus its breathing room.
+const double kExploreSuggestionRowHeight = 92;
 
 class _SearchSuggestionsList extends ConsumerStatefulWidget {
   final String query;
   final FocusNode? firstItemFocusNode;
 
-  const _SearchSuggestionsList({required this.query, this.firstItemFocusNode});
+  /// Runs a recent search. Suggestions navigate straight to a title, but a
+  /// recent is a query, so it goes back through the results grid.
+  final void Function(String query) onSelectRecent;
+
+  const _SearchSuggestionsList({
+    required this.query,
+    required this.onSelectRecent,
+    this.firstItemFocusNode,
+  });
 
   @override
   ConsumerState<_SearchSuggestionsList> createState() =>
@@ -166,157 +193,167 @@ class _SearchSuggestionsListState
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(exploreSearchControllerProvider);
+    final history = ref.watch(searchHistoryProvider);
     final isLoading = searchState.isLoading;
     final suggestions = searchState.suggestions;
-    if (isLoading) {
-      return Center(
-        child: AppLoadingIndicator(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
-        ),
-      );
-    }
 
-    if (suggestions.isEmpty) {
+    final trimmed = widget.query.trim();
+    final recents = matchingSearchHistory(
+      history,
+      trimmed,
+      limit: trimmed.isEmpty
+          ? kSearchHistoryEmptyFieldLimit
+          : kSearchHistoryTypingLimit,
+    );
+    // With recents above them, the first suggestion is no longer the first
+    // thing a D-pad press down from the field should land on.
+    final hasRecents = recents.isNotEmpty;
+
+    if (!hasRecents && suggestions.isEmpty) {
+      if (isLoading) {
+        return Center(
+          child: AppLoadingIndicator(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+          ),
+        );
+      }
+      // Nothing typed and nothing searched before: the field's own hint is
+      // the whole message, so leave the sheet blank rather than reporting no
+      // results for a query the user has not made.
+      if (trimmed.isEmpty) return const SizedBox.shrink();
       return Center(
         child: Text(
           'No results found',
           style: TextStyle(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.5),
+            color: Theme.of(context).colorScheme.onSurface
+                .withValues(alpha: 0.5),
           ),
         ),
       );
     }
 
-    return ListView.builder(
+    // At most ten recents and ten suggestions, so building the list eagerly
+    // costs nothing - and it keeps the recents inside one Semantics group.
+    return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      itemCount: suggestions.length,
-      itemBuilder: (context, index) {
-        final item = suggestions[index];
-        final title = item.title;
-        final year = item.releaseDate.split('-').first;
-        final mediaType = item.mediaType;
-        final posterUrl = item.thumbnailImageUrl.isNotEmpty
-            ? item.thumbnailImageUrl
-            : item.posterImageUrl;
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: CardsWrapper(
-            focusNode: index == 0 ? widget.firstItemFocusNode : null,
-            scaleFactor: 1.02,
-            borderRadius: BorderRadius.circular(12),
-            onTap: () {
-              _navigateToItem(
-                context,
-                item,
-                heroTag: 'search_${item.url}',
-                isStremioMode:
-                    ref.read(exploreModeProvider) == ExploreModeType.stremio,
-              );
-            },
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
-              ),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: CachedNetworkImage(
-                      imageUrl: posterUrl,
-                      width: 52,
-                      height: 76,
-                      fit: BoxFit.cover,
-                      placeholder: (_, _) =>
-                          ShimmerPlaceholder(borderRadius: 8),
-                      errorWidget: (_, _, _) => Container(
-                        width: 52,
-                        height: 76,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.surfaceContainerHighest,
-                        alignment: Alignment.center,
-                        child: const Icon(Icons.movie_outlined, size: 24),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            if (mediaType.isNotEmpty) ...[
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .secondaryContainer
-                                      .withValues(alpha: 0.7),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  mediaType.toUpperCase(),
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSecondaryContainer,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                            ],
-                            if (year.isNotEmpty)
-                              Text(
-                                year,
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.onSurface
-                                      .withValues(alpha: 0.6),
-                                  fontSize: 13,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    size: 14,
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.4),
-                  ),
-                  const SizedBox(width: 6),
-                ],
+      children: [
+        SearchHistorySection(
+          queries: recents,
+          firstItemFocusNode: hasRecents ? widget.firstItemFocusNode : null,
+          onSelect: widget.onSelectRecent,
+          onRemove: (query) =>
+              ref.read(searchHistoryProvider.notifier).remove(query),
+        ),
+        for (final (index, item) in suggestions.indexed)
+          _buildSuggestionCard(
+            context,
+            item,
+            isFirst: index == 0 && !hasRecents,
+            focusNode: (index == 0 && !hasRecents)
+                ? widget.firstItemFocusNode
+                : null,
+          ),
+        // Kept below what is already on screen rather than replacing it: the
+        // recents should not flicker away on every keystroke.
+        if (isLoading)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: AppLoadingIndicator(
+                color: Theme.of(context).colorScheme.primary
+                    .withValues(alpha: 0.5),
               ),
             ),
           ),
+      ],
+    );
+  }
+
+  /// One suggestion, on the shared row face.
+  ///
+  /// Not a [CardsWrapper] any more. That scaled the whole row 2% on hover,
+  /// and a row spans the window - so the growth is a proportion of the
+  /// window's width (about 19 dp a side at 1920) while the list's gutter is
+  /// a fixed 12, and the wider the window the more of the row was cut off.
+  /// Zoom is a POSTER affordance: it works in a rail, where a small card has
+  /// room around it. A full-width row highlights instead, which is also what
+  /// every other search row in the app does.
+  Widget _buildSuggestionCard(
+    BuildContext context,
+    MultimediaItem item, {
+    FocusNode? focusNode,
+    bool isFirst = false,
+  }) {
+    final theme = Theme.of(context);
+    final year = item.releaseDate.split('-').first;
+    final mediaType = item.mediaType;
+    final posterUrl = item.thumbnailImageUrl.isNotEmpty
+        ? item.thumbnailImageUrl
+        : item.posterImageUrl;
+
+    return SearchSuggestionRow(
+      key: ValueKey('explore-suggestion-${item.url}'),
+      text: item.title,
+      icon: Icons.movie_outlined,
+      height: kExploreSuggestionRowHeight,
+      focusNode: focusNode,
+      isFirst: isFirst,
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: CachedNetworkImage(
+          imageUrl: posterUrl,
+          width: 52,
+          height: 76,
+          fit: BoxFit.cover,
+          placeholder: (_, _) => ShimmerPlaceholder(borderRadius: 8),
+          errorWidget: (_, _, _) => Container(
+            width: 52,
+            height: 76,
+            color: theme.colorScheme.surfaceContainerHighest,
+            alignment: Alignment.center,
+            child: const Icon(Icons.movie_outlined, size: 24),
+          ),
+        ),
+      ),
+      subtitle: Row(
+        children: [
+          if (mediaType.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondaryContainer.withValues(
+                  alpha: 0.7,
+                ),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                mediaType.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSecondaryContainer,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          if (year.isNotEmpty)
+            Text(
+              year,
+              style: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                fontSize: 13,
+              ),
+            ),
+        ],
+      ),
+      onTap: () {
+        _navigateToItem(
+          context,
+          item,
+          heroTag: 'search_${item.url}',
+          isStremioMode:
+              ref.read(exploreModeProvider) == ExploreModeType.stremio,
         );
       },
     );
@@ -394,6 +431,8 @@ class _SearchResultsGridState extends ConsumerState<_SearchResultsGrid> {
     super.initState();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _recordSearch();
       ref
           .read(exploreSearchControllerProvider.notifier)
           .fetchResults(widget.query);
@@ -406,11 +445,18 @@ class _SearchResultsGridState extends ConsumerState<_SearchResultsGrid> {
     if (oldWidget.query != widget.query) {
       Future.microtask(() {
         if (!context.mounted) return;
+        _recordSearch();
         ref
             .read(exploreSearchControllerProvider.notifier)
             .fetchResults(widget.query);
       });
     }
+  }
+
+  /// Recorded on the way into the search, not on the way out: a query that
+  /// returned nothing is still one the user made and may want back.
+  void _recordSearch() {
+    unawaited(ref.read(searchHistoryProvider.notifier).add(widget.query));
   }
 
   void _onScroll() {

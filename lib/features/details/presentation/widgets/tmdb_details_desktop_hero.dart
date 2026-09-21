@@ -2,10 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../core/models/tmdb_details.dart';
 import '../../../../core/storage/history_repository.dart';
 import 'provider_search_section.dart';
+
+/// Vertical gap between the content groups of a details page - genres to the
+/// sources card, one sources card to the other, the last of them to the
+/// sections below the hero.
+///
+/// One number, because three hand-picked ones is how the page came to have 32
+/// above the SkyStream card, 36 above the Nuvio card and 24 below it while
+/// looking like it meant all three to match. Where a group already carries
+/// space of its own at its foot, the caller takes that off this rather than
+/// picking a smaller number and leaving the reason unwritten.
+const double kDetailsGroupGap = 32;
 
 /// Desktop hero: backdrop, gradients, and first column (logo, metadata, overview, sources).
 /// [child] is the rest of the scroll content (seasons, cast, trailers, stats, etc.).
@@ -16,12 +28,22 @@ class TmdbDetailsDesktopHero extends ConsumerWidget {
     required this.isMovie,
     required this.child,
     this.source,
+    this.nuvioCard,
   });
 
   final TmdbDetails data;
   final bool isMovie;
   final Widget child;
   final String? source;
+
+  /// The Nuvio source card, rendered directly under the SkyStream one.
+  ///
+  /// It is injected rather than built here because opening it needs the
+  /// details screen's own `_openPluginSources`. The two cards are peers, so
+  /// they have to sit in the same column with the same gap between them -
+  /// putting Nuvio down in [child] instead would have left the hero's 60 dp
+  /// footer standing between them and made one look subordinate.
+  final Widget? nuvioCard;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -277,7 +299,7 @@ class TmdbDetailsDesktopHero extends ConsumerWidget {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: kDetailsGroupGap),
                       ProviderSearchSection(
                         query: title,
                         compact: true,
@@ -285,6 +307,16 @@ class TmdbDetailsDesktopHero extends ConsumerWidget {
                         tmdbId: data.tmdbId,
                         imdbId: data.imdbId,
                       ),
+                      // Less the foot the rail above already leaves, so the
+                      // gap that lands on screen is kDetailsGroupGap like the
+                      // others rather than that plus 20.
+                      if (nuvioCard != null)
+                        const SizedBox(
+                          height:
+                              kDetailsGroupGap -
+                              ProviderSearchSection.bottomInset,
+                        ),
+                      ?nuvioCard,
                     ],
                   ),
                 ),
@@ -381,9 +413,8 @@ class TmdbDetailsDesktopHero extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest
+            .withValues(alpha: 0.5),
         border: Border.all(color: color.withValues(alpha: 0.1)),
         borderRadius: BorderRadius.circular(4),
       ),

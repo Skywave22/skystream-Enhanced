@@ -1,4 +1,5 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../../../core/services/tmdb_service.dart';
 import 'explore_language_provider.dart';
 import 'explore_filter_provider.dart';
@@ -258,9 +259,10 @@ Future<List<MultimediaItem>> exploreHeroMovie(Ref ref) async {
 
         String? genresStr;
         if (details['genres'] != null) {
-          genresStr = List<Map<String, dynamic>>.from(
-            details['genres'] as List,
-          ).take(3).map((g) => g['name']).join(' • ');
+          genresStr = List<Map<String, dynamic>>.from(details['genres'] as List)
+              .take(3)
+              .map((g) => g['name'])
+              .join(' • ');
         }
 
         return movie.copyWith(

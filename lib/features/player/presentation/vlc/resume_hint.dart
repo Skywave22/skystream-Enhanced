@@ -129,14 +129,6 @@ class _ResumeHintState extends State<ResumeHint>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    // isTv first, compact only as the non-TV fallback - the same shape the
-    // up-next card and the ended card use. A 1080p television reports
-    // 960x540 dp (a Shield, Google TV and Fire TV all present 1920x1080 at
-    // devicePixelRatio 2), so a bare `shortestSide < 600` is TRUE on every
-    // set: the hint would float only 60 dp up, over the bottom bar's left
-    // group, instead of clearing the chrome it is anchored off.
-    final compact =
-        !widget.isTv && MediaQuery.sizeOf(context).shortestSide < 600;
     final padding = MediaQuery.viewPaddingOf(context);
     final edge = widget.isTv
         ? HotstarPlayerStyle.tvEdgeInset
@@ -146,24 +138,41 @@ class _ResumeHintState extends State<ResumeHint>
       alignment: Alignment.bottomLeft,
       child: Padding(
         padding: EdgeInsets.only(
-          left: widget.isTv ? edge : (padding.left > edge ? padding.left : edge),
+          // The bar's own left padding plus the optical inset the track and
+          // the first control are both held by: a hint flush to the chrome's
+          // padding sits a clear 16 dp outside the column everything else in
+          // the player lines up on. See `HotstarPlayerStyle.trackInset`.
+          left:
+              (widget.isTv
+                  ? edge
+                  : (padding.left > edge ? padding.left : edge)) +
+              HotstarPlayerStyle.trackInset,
           // Anchored off the same chrome token the bottom bar is sized by, so
           // the hint clears the scrubber instead of guessing at it. Left of
           // the next-episode card, which anchors bottom-right — the two are
           // never up together, but neither is ever in the other's way.
-          bottom: (compact ? 60.0 : HotstarPlayerStyle.bottomChromeHeight) +
+          //
+          // One number for every form factor. There used to be a second,
+          // `compact ? 60.0`, taken whenever the shortest side was under
+          // 600 dp - which is a phone in landscape, a small desktop window and
+          // every 960x540 television. The bar is 102 to 137 dp tall, so on all
+          // three the hint was anchored inside it and came up over the
+          // scrubber and the transport buttons.
+          bottom:
+              HotstarPlayerStyle.bottomChromeHeightFor(isTv: widget.isTv) +
               12 +
               padding.bottom,
         ),
         child: FadeTransition(
           opacity: _fade,
           child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.35),
-              end: Offset.zero,
-            ).animate(
-              CurvedAnimation(parent: _fade, curve: Curves.easeOutCubic),
-            ),
+            position:
+                Tween<Offset>(
+                  begin: const Offset(0, 0.35),
+                  end: Offset.zero,
+                ).animate(
+                  CurvedAnimation(parent: _fade, curve: Curves.easeOutCubic),
+                ),
             child: FocusTraversalGroup(
               child: Focus(
                 canRequestFocus: false,

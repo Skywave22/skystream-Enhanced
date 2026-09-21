@@ -190,11 +190,11 @@ class PlaybackTracker {
     final currentEpisode = episode;
     if (_isSeries && currentEpisode != null) {
       unawaited(
-        read(
-          episodeWatchRepositoryProvider,
-        ).setWatched(item.url, currentEpisode, true).catchError((Object e) {
-          talker.error('Failed to save local watched state', e);
-        }),
+        read(episodeWatchRepositoryProvider)
+            .setWatched(item.url, currentEpisode, true)
+            .catchError((Object e) {
+              talker.error('Failed to save local watched state', e);
+            }),
       );
     }
 
@@ -233,11 +233,11 @@ class PlaybackTracker {
     }
 
     unawaited(
-      read(
-        watchHistoryProvider.notifier,
-      ).removeFromHistory(item.url).catchError((Object e) {
-        talker.error('Failed to clear finished item from history', e);
-      }),
+      read(watchHistoryProvider.notifier)
+          .removeFromHistory(item.url)
+          .catchError((Object e) {
+            talker.error('Failed to clear finished item from history', e);
+          }),
     );
   }
 

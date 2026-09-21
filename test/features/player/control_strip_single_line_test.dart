@@ -30,7 +30,7 @@ void main() {
   Widget host({
     required double width,
     required bool isTv,
-    required bool isTouch,
+    required bool scrollingActions,
     int actions = _kActions,
   }) {
     return MaterialApp(
@@ -44,7 +44,7 @@ void main() {
             width: width,
             child: PlayerBottomBar(
               isTv: isTv,
-              isTouch: isTouch,
+              scrollingActions: scrollingActions,
               progressBar: const SizedBox(height: 8),
               leading: const [SizedBox(width: _kTransportWidth, height: 48)],
               actions: <Widget>[
@@ -67,14 +67,14 @@ void main() {
     WidgetTester tester, {
     required Size size,
     required bool isTv,
-    required bool isTouch,
+    required bool scrollingActions,
     int actions = _kActions,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      host(width: size.width, isTv: isTv, isTouch: isTouch, actions: actions),
+      host(width: size.width, isTv: isTv, scrollingActions: scrollingActions, actions: actions),
     );
     // The strip reports its scroll metrics in a microtask after layout and
     // shows or hides the edge hint on the frame after that.
@@ -123,7 +123,7 @@ void main() {
         tester,
         size: const Size(360, 800),
         isTv: false,
-        isTouch: true,
+        scrollingActions: true,
       );
 
       // The transport group counts as part of the row: a two-run bar puts the
@@ -178,7 +178,7 @@ void main() {
         tester,
         size: const Size(360, 800),
         isTv: false,
-        isTouch: true,
+        scrollingActions: true,
       );
 
       final Rect strip = tester.getRect(find.byType(PlayerActionStrip));
@@ -226,7 +226,7 @@ void main() {
         tester,
         size: const Size(844, 390),
         isTv: false,
-        isTouch: true,
+        scrollingActions: true,
       );
 
       expect(runCount(rowRects(tester)), 1);
@@ -255,7 +255,7 @@ void main() {
         tester,
         size: const Size(justUnder, 800),
         isTv: false,
-        isTouch: true,
+        scrollingActions: true,
       );
 
       expect(runCount(rowRects(tester)), 1);
@@ -272,7 +272,7 @@ void main() {
       ('a narrow 800x600 desktop window', const Size(800, 600), false),
     ]) {
       testWidgets('$name lays ten utilities on one run', (tester) async {
-        await pumpBar(tester, size: size, isTv: isTv, isTouch: false);
+        await pumpBar(tester, size: size, isTv: isTv, scrollingActions: false);
 
         expect(runCount(rowRects(tester)), 1);
         expect(tester.getSize(find.byType(PlayerBottomBar)).height, 64);
@@ -290,7 +290,7 @@ void main() {
           tester,
           size: size,
           isTv: isTv,
-          isTouch: false,
+          scrollingActions: false,
           actions: 16,
         );
 

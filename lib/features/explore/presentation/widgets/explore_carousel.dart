@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
+
 import '../../../../core/router/app_router.dart';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:visibility_detector/visibility_detector.dart';
+
 import '../../../../core/utils/image_utils.dart';
 import '../../../../core/utils/layout_constants.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';

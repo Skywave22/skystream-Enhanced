@@ -32,6 +32,7 @@ class VlcProgressBar extends StatefulWidget {
     this.isTv = false,
     this.isLive = false,
     this.skipSegments = const <SkipSegment>[],
+    this.displayPosition,
     this.focusNode,
     this.onSeekStart,
     this.onSeekEnd,
@@ -61,6 +62,20 @@ class VlcProgressBar extends StatefulWidget {
 
   /// Painted as bands on the track so the viewer can see an intro coming.
   final List<SkipSegment> skipSegments;
+
+  /// Where this bar publishes the position it is *showing*, for a clock drawn
+  /// outside it.
+  ///
+  /// Not the engine's position: the whole point of the latch below is that
+  /// those two disagree for the length of a drag and for a round trip after
+  /// it. A desktop clock reading the controller directly would sit at the old
+  /// time while the thumb stood at the new one, which is exactly what a viewer
+  /// reads as a seek that did not take.
+  ///
+  /// Owned by the caller and written here, the way the screen owns the lock
+  /// notifier the controls write. Null where nothing outside draws a clock.
+  final ValueNotifier<Duration>? displayPosition;
+
   final FocusNode? focusNode;
 
   /// Called when a drag begins, so the overlay can hold its chrome open.
@@ -115,6 +130,36 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
   void initState() {
     super.initState();
     widget.controller.addListener(_onControllerValue);
+    // The clock's own seed covers the frame this runs after; this is what
+    // corrects it if the bar was handed a notifier another controller filled.
+    _publishAfterFrame();
+  }
+
+  /// The position this bar is showing: the finger, then a seek the engine has
+  /// not caught up with, then the engine. The one rule, so [build] and
+  /// [VlcProgressBar.displayPosition] cannot answer differently.
+  Duration get _shown =>
+      _dragTo ?? _pendingSeek ?? widget.controller.value.position;
+
+  /// Hands the current answer to the outside clock.
+  ///
+  /// Called from every place that changes one of the three inputs, and all of
+  /// them are outside a build - a gesture callback, the controller's
+  /// notification, a timer - so notifying listeners here can never be a write
+  /// during build.
+  void _publish() {
+    if (!mounted) return;
+    widget.displayPosition?.value = _shown;
+  }
+
+  /// [_publish], for the callers that run inside a build.
+  ///
+  /// A notifier written during a build rebuilds its listeners during that same
+  /// build, and the clock is one of them. [didUpdateWidget] is the only such
+  /// caller, and a frame of the outgoing engine's position on the way into a
+  /// new one costs nothing.
+  void _publishAfterFrame() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _publish());
   }
 
   @override
@@ -127,6 +172,7 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
     // one. The build that follows this call already reads the cleared state.
     _clearLatch();
     _endSeek(null);
+    _publishAfterFrame();
   }
 
   @override
@@ -163,6 +209,7 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
       if (!mounted) return;
       if (_dragTo != null) setState(() => _dragTo = null);
       _endSeek(null);
+      _publish();
     });
   }
 
@@ -174,13 +221,19 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
     _pendingTimeout = Timer(_latchTimeout, _releaseLatch);
     widget.controller.seekTo(target);
     setState(() => _dragTo = null);
+    _publish();
   }
 
   /// Evaluated on every published value while a seek is latched.
   void _onControllerValue() {
     final target = _pendingSeek;
     final from = _pendingFrom;
-    if (target == null || from == null) return;
+    if (target == null || from == null) {
+      // No latch, so the engine's position is the one being shown and every
+      // tick moves the clock.
+      _publish();
+      return;
+    }
     final value = widget.controller.value;
     if (_seekHonoured(value, target: target, from: from) ||
         !_stillPlayable(value)) {
@@ -234,6 +287,9 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
       return;
     }
     setState(_clearLatch);
+    // After the clear, so the clock picks up the engine rather than the target
+    // it has just let go of.
+    _publish();
   }
 
   void _clearLatch() {
@@ -259,43 +315,47 @@ class _VlcProgressBarState extends State<VlcProgressBar> {
   }
 
   Widget _body(VlcPlayerValue value, double buffered) {
-        final duration = value.duration;
-        final hasDuration = duration > Duration.zero;
-        // Live is a verdict - the app's or the engine's, which every native
-        // computes as playing/paused && no length && not seekable. A length
-        // that has not arrived yet is not a verdict: seekable media with an
-        // unknown duration keeps its scrubber until the engine reports one.
-        final isLive = widget.isLive || value.isLive;
-        // Drag, track tap and D-pad steps on the bar need a scale.
-        final canSeek = !isLive && value.isSeekable && hasDuration;
-        if (!canSeek && _seeking) _abandonSeek();
+    final duration = value.duration;
+    final hasDuration = duration > Duration.zero;
+    // Live is a verdict - the app's or the engine's, which every native
+    // computes as playing/paused && no length && not seekable. A length
+    // that has not arrived yet is not a verdict: seekable media with an
+    // unknown duration keeps its scrubber until the engine reports one.
+    final isLive = widget.isLive || value.isLive;
+    // Drag, track tap and D-pad steps on the bar need a scale.
+    final canSeek = !isLive && value.isSeekable && hasDuration;
+    if (!canSeek && _seeking) _abandonSeek();
 
-        return PlayerScrubber(
-          // The finger, then the seek the engine has not caught up with, then
-          // the engine. The clock reads the same value, so it follows too.
-          position: _dragTo ?? _pendingSeek ?? value.position,
-          duration: duration,
-          hasDuration: hasDuration,
-          // libVLC reports buffering as a 0..100 percentage of the current
-          // fill operation, not of the media, and it sits at 100 during steady
-          // playback, so the band stays empty until there is a real figure.
-          bufferRatio: buffered,
-          canSeek: canSeek,
-          isLive: isLive,
-          skipSegments: widget.skipSegments,
-          isTv: widget.isTv,
-          focusNode: widget.focusNode,
-          onChangeStart: (ms) {
-            _beginSeek();
-            setState(() => _dragTo = Duration(milliseconds: ms.round()));
-          },
-          onChanged: (ms) =>
-              setState(() => _dragTo = Duration(milliseconds: ms.round())),
-          onChangeEnd: (ms) {
-            final target = Duration(milliseconds: ms.round());
-            _commitSeek(target);
-            _endSeek(target);
-          },
-        );
+    return PlayerScrubber(
+      // The finger, then the seek the engine has not caught up with, then
+      // the engine. The clock reads the same value, so it follows too -
+      // wherever it is drawn. See [_shown].
+      position: _shown,
+      duration: duration,
+      hasDuration: hasDuration,
+      // libVLC reports buffering as a 0..100 percentage of the current
+      // fill operation, not of the media, and it sits at 100 during steady
+      // playback, so the band stays empty until there is a real figure.
+      bufferRatio: buffered,
+      canSeek: canSeek,
+      isLive: isLive,
+      skipSegments: widget.skipSegments,
+      isTv: widget.isTv,
+      focusNode: widget.focusNode,
+      onChangeStart: (ms) {
+        _beginSeek();
+        setState(() => _dragTo = Duration(milliseconds: ms.round()));
+        _publish();
+      },
+      onChanged: (ms) {
+        setState(() => _dragTo = Duration(milliseconds: ms.round()));
+        _publish();
+      },
+      onChangeEnd: (ms) {
+        final target = Duration(milliseconds: ms.round());
+        _commitSeek(target);
+        _endSeek(target);
+      },
+    );
   }
 }

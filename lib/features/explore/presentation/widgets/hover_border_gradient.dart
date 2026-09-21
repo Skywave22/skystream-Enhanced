@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -222,9 +223,8 @@ class _HoverBorderGradientState extends State<HoverBorderGradient>
                   boxShadow: isActive
                       ? [
                           BoxShadow(
-                            color: const Color(
-                              0xFF3275F8,
-                            ).withValues(alpha: 0.4),
+                            color: const Color(0xFF3275F8)
+                                .withValues(alpha: 0.4),
                             blurRadius: 12,
                             spreadRadius: 1,
                           ),

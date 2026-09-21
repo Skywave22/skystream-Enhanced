@@ -52,10 +52,15 @@ void main() {
   late VlcPlayerController controller;
   late FocusNode barFocus;
 
+  /// Where the bar publishes the position it is showing, for the clock below
+  /// it. The controls own one of these; this stands in for that.
+  late ValueNotifier<Duration> clockPosition;
+
   setUp(() {
     engine = FakeVlcEngine();
     engine.install();
     barFocus = FocusNode(debugLabel: 'bar');
+    clockPosition = ValueNotifier<Duration>(Duration.zero);
   });
 
   /// In the body, not a tearDown: a playing controller holds a 1 s stall
@@ -66,6 +71,7 @@ void main() {
     controller.dispose();
     engine.dispose();
     barFocus.dispose();
+    clockPosition.dispose();
   }
 
   /// Attached in the test body, never in `setUp`: a stream delivers in the
@@ -91,9 +97,33 @@ void main() {
             body: Center(
               child: SizedBox(
                 width: 800,
-                child: VlcProgressBar(
-                  controller: controller,
-                  focusNode: barFocus,
+                // The clock is the visible evidence of the latch, and it is
+                // not a child of the bar any more - it sits in the transport
+                // row and reads the position the bar publishes. Pumped here
+                // the way `VlcPlayerControls` pumps it, so these tests still
+                // watch the latch through the read-out a viewer watches it
+                // through.
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    VlcProgressBar(
+                      controller: controller,
+                      focusNode: barFocus,
+                      displayPosition: clockPosition,
+                    ),
+                    ValueListenableBuilder<VlcPlayerValue>(
+                      valueListenable: controller,
+                      builder: (context, value, _) =>
+                          ValueListenableBuilder<Duration>(
+                            valueListenable: clockPosition,
+                            builder: (context, position, _) => PlayerTimeLabel(
+                              position: position,
+                              duration: value.duration,
+                              hasDuration: value.duration > Duration.zero,
+                            ),
+                          ),
+                    ),
+                  ],
                 ),
               ),
             ),

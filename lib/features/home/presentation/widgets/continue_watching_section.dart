@@ -13,13 +13,11 @@ import 'package:skystream/core/services/notification_service.dart';
 class ContinueWatchingSection extends ConsumerStatefulWidget {
   final String title;
   final List<HistoryItem> items;
-  final double? topPadding;
 
   const ContinueWatchingSection({
     super.key,
     required this.title,
     required this.items,
-    this.topPadding,
   });
 
   @override
@@ -50,11 +48,16 @@ class _ContinueWatchingSectionState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
+          // The same header inset MediaHorizontalList uses, so Continue
+          // Watching keeps the vertical rhythm of the rows underneath it
+          // instead of carrying numbers of its own. This used to take a
+          // `topPadding` override that home_screen set to 0 on widescreen,
+          // which is how the title ended up flush against the carousel.
           padding: EdgeInsets.fromLTRB(
             isLarge ? LayoutConstants.dashboardContentPadding : 16,
-            widget.topPadding ?? 24,
+            LayoutConstants.spacingLg,
             isLarge ? LayoutConstants.dashboardContentPadding : 16,
-            12,
+            LayoutConstants.spacingSm,
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -166,11 +169,18 @@ class _ContinueWatchingSectionState
                 const double spacing = 16.0;
                 return ListView.builder(
                   controller: _scrollController,
+                  // No vertical padding, so the space under the rail is the
+                  // next section's 24 alone rather than 24 + 8 - which is what
+                  // made the gap below this row read as bigger than the one
+                  // above it. Clip.none is what pays for dropping it:
+                  // CardsWrapper draws its focus ring OUTSIDE the card and
+                  // blurs a glow 8 dp further still, and a clipping viewport
+                  // would cut both off with a hard edge on a television.
+                  clipBehavior: Clip.none,
                   padding: EdgeInsets.symmetric(
                     horizontal: isLarge
                         ? LayoutConstants.dashboardContentPadding
                         : 16,
-                    vertical: 8,
                   ),
                   scrollDirection: Axis.horizontal,
                   itemCount: widget.items.length,

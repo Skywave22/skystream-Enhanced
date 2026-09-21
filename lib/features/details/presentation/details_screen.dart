@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../core/router/app_router.dart';
 import '../../../core/services/notification_service.dart';
 
@@ -25,6 +26,7 @@ import "widgets/details_desktop_hero.dart";
 import "widgets/premium_details_widgets.dart";
 import "../../../shared/widgets/expandable_text.dart";
 import "../../../shared/widgets/loading_indicator.dart";
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 class DetailsScreen extends ConsumerStatefulWidget {
@@ -105,9 +107,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     );
     final item = details ?? widget.item;
     final selectedEpisodeCount = ref.watch(
-      detailsControllerProvider(
-        widget.item.url,
-      ).select((state) => state.selectedEpisodeKeys.length),
+      detailsControllerProvider(widget.item.url)
+          .select((state) => state.selectedEpisodeKeys.length),
     );
 
     final l10n = AppLocalizations.of(context)!;
@@ -207,18 +208,14 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          Theme.of(
-                            context,
-                          ).scaffoldBackgroundColor.withValues(alpha: 0.0),
-                          Theme.of(
-                            context,
-                          ).scaffoldBackgroundColor.withValues(alpha: 0.15),
-                          Theme.of(
-                            context,
-                          ).scaffoldBackgroundColor.withValues(alpha: 0.45),
-                          Theme.of(
-                            context,
-                          ).scaffoldBackgroundColor.withValues(alpha: 0.8),
+                          Theme.of(context).scaffoldBackgroundColor
+                              .withValues(alpha: 0.0),
+                          Theme.of(context).scaffoldBackgroundColor
+                              .withValues(alpha: 0.15),
+                          Theme.of(context).scaffoldBackgroundColor
+                              .withValues(alpha: 0.45),
+                          Theme.of(context).scaffoldBackgroundColor
+                              .withValues(alpha: 0.8),
                           Theme.of(context).scaffoldBackgroundColor,
                         ],
                         stops: const [0.0, 0.5, 0.75, 0.9, 1.0],
@@ -559,9 +556,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           RecommendationsCarousel(
             items: item.recommendations!,
             onItemTap: (rec) {
-              DetailsRoute(
-                $extra: DetailsRouteExtra(item: rec),
-              ).push<void>(context);
+              DetailsRoute($extra: DetailsRouteExtra(item: rec))
+                  .push<void>(context);
             },
           ),
         ],
@@ -662,9 +658,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
               const SizedBox(height: 24),
               Text(
                 l10n.synopsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+                style: Theme.of(context).textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               ExpandableText(
@@ -681,13 +676,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
               else if (detailsState is AsyncError)
                 Container(
                   padding: const EdgeInsets.all(16),
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.error.withValues(alpha: 0.1),
+                  color: Theme.of(context).colorScheme.error
+                      .withValues(alpha: 0.1),
                   child: Text(
-                    AppLocalizations.of(
-                      context,
-                    )!.errorPrefix(detailsState.error.toString()),
+                    AppLocalizations.of(context)!
+                        .errorPrefix(detailsState.error.toString()),
                   ),
                 )
               else if (!isMovie && details?.episodes != null)
@@ -724,9 +717,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 RecommendationsCarousel(
                   items: item.recommendations!,
                   onItemTap: (rec) {
-                    DetailsRoute(
-                      $extra: DetailsRouteExtra(item: rec),
-                    ).push<void>(context);
+                    DetailsRoute($extra: DetailsRouteExtra(item: rec))
+                        .push<void>(context);
                   },
                 ),
               ],

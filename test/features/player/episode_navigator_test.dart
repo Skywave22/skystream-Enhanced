@@ -168,4 +168,96 @@ void main() {
       expect(effectiveEpisodes(show(subbedOnly), subbedOnly[0]), hasLength(2));
     });
   });
+
+  group('previousEpisodeFor', () {
+    final season = [ep(1, 1), ep(1, 2), ep(1, 3)];
+
+    test('steps back within a season', () {
+      expect(
+        previousEpisodeFor(
+          item: show(season),
+          current: season[2],
+          videoUrl: '',
+        )?.episode,
+        2,
+      );
+    });
+
+    test('the first episode has nothing behind it', () {
+      expect(
+        previousEpisodeFor(
+          item: show(season),
+          current: season.first,
+          videoUrl: '',
+        ),
+        isNull,
+      );
+    });
+
+    test('a film has no previous episode', () {
+      expect(
+        previousEpisodeFor(
+          item: show(season, type: MultimediaContentType.movie),
+          current: season[1],
+          videoUrl: '',
+        ),
+        isNull,
+      );
+    });
+
+    test('an episode that cannot be located answers null, not the last one', () {
+      // The honest answer, and the one that renders no button: guessing here
+      // would hand the viewer an episode they were not watching near.
+      expect(
+        previousEpisodeFor(
+          item: show(season),
+          current: ep(9, 9),
+          videoUrl: 'nothing-like-it',
+        ),
+        isNull,
+      );
+    });
+
+    test('it crosses a season boundary backwards', () {
+      final two = [ep(1, 1), ep(1, 2), ep(2, 1)];
+      final previous = previousEpisodeFor(
+        item: show(two),
+        current: two[2],
+        videoUrl: '',
+      );
+      expect(previous?.season, 1);
+      expect(previous?.episode, 2);
+    });
+
+    test('it walks one dub track, like the advance does', () {
+      // The reason the filter is not optional: subbed and dubbed copies of the
+      // same episode sit adjacent, so a naive index - 1 steps sideways into
+      // the other language rather than back an episode.
+      final mixed = [
+        ep(1, 1, dub: DubStatus.subbed),
+        ep(1, 1, dub: DubStatus.dubbed),
+        ep(1, 2, dub: DubStatus.subbed),
+        ep(1, 2, dub: DubStatus.dubbed),
+      ];
+      final previous = previousEpisodeFor(
+        item: show(mixed),
+        current: mixed[3],
+        videoUrl: '',
+      );
+      expect(previous?.episode, 1);
+      expect(previous?.dubStatus, DubStatus.dubbed);
+    });
+
+    test('it locates the current episode by numbering when the url moved', () {
+      // Same fallback the advance uses, through the same helper: a plugin that
+      // hands back a different url for the same episode must not make the
+      // button vanish.
+      final previous = previousEpisodeFor(
+        item: show(season),
+        current: ep(1, 3, url: 'a-different-url-for-the-same-episode'),
+        videoUrl: '',
+      );
+      expect(previous?.episode, 2);
+    });
+  });
 }

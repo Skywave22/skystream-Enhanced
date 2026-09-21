@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:dpad/dpad.dart';
 import 'package:flutter/material.dart';
@@ -50,7 +49,7 @@ class AddonSourcesSheet extends ConsumerStatefulWidget {
     return showDialog<void>(
       context: context,
       barrierDismissible: true,
-      barrierColor: Colors.black.withValues(alpha: 0.65),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.65),
       builder: (_) => AddonSourcesSheet(
         item: item,
         request: request,
@@ -376,7 +375,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
                             },
                             size: 13,
                             color: switch (status.outcome) {
-                              AddonQueryOutcome.links => Colors.green,
+                              AddonQueryOutcome.links => cs.primary,
                               AddonQueryOutcome.failed => cs.error,
                               _ => cs.onSurfaceVariant,
                             },
@@ -431,21 +430,17 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
   }
 
   Widget _readyToPlayLabel(int count) {
-    const green = Color(0xFF10B981);
+    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(left: 2, bottom: 6),
       child: Row(
         children: [
-          const Icon(
-            Icons.play_circle_outline_rounded,
-            size: 14,
-            color: green,
-          ),
+          Icon(Icons.play_circle_outline_rounded, size: 14, color: cs.primary),
           const SizedBox(width: 6),
           Text(
             'Ready to play ($count)',
-            style: const TextStyle(
-              color: green,
+            style: TextStyle(
+              color: cs.primary,
               fontSize: 12,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.2,
@@ -465,13 +460,14 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
     final subtitleText = episode != null
         ? 'S${episode.season} · E${episode.episode} ${episode.name}'
         : (_result.isLoading
-            ? 'Asking add-ons… ${_result.completedCount}/${_result.totalCount}'
-            : '${_result.streams.length} links from ${_result.respondedCount} add-on(s)');
+              ? 'Asking add-ons… ${_result.completedCount}/${_result.totalCount}'
+              : '${_result.streams.length} links from ${_result.respondedCount} add-on(s)');
     final visible = _visible;
 
     final topPick = visible.isNotEmpty ? visible.first : null;
-    final remainingReady =
-        visible.length > 1 ? visible.sublist(1) : <AddonStreamSource>[];
+    final remainingReady = visible.length > 1
+        ? visible.sublist(1)
+        : <AddonStreamSource>[];
     // The list is built lazily, so its sections have to be counted up front:
     // two slots for the top pick (its label and its card), then one label
     // ahead of everything else.
@@ -481,437 +477,264 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
 
     // Dynamic Capsule: Centered floating glass island.
     // Clean Hyprland-inspired blur: sigmaX: 18, alpha: 0.80, 1px white/12 border, zero colored glow.
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: EdgeInsets.zero,
-      elevation: 0,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => Navigator.of(context).pop(),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            child: Center(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {},
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: 580,
-                    maxHeight: 680,
+    return GlassSheetScaffold(
+      title: 'Stremio Sources',
+      subtitle: subtitleText,
+      actions: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: cs.primary.withValues(alpha: 0.15),
+          ),
+          child: IconButton(
+            tooltip: 'Refresh',
+            // Standard density, like the close button beside it: compact is
+            // the desktop default and gives a 40 dp target.
+            visualDensity: VisualDensity.standard,
+            icon: Icon(
+              Icons.refresh_rounded,
+              size: kSourceSheetHeaderIcon,
+              color: cs.primary,
+            ),
+            onPressed: () => unawaited(_start(forceRefresh: true)),
+          ),
+        ),
+      ],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Telemetry Status Strip
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              kSourceSheetGutter,
+              4,
+              kSourceSheetGutter,
+              4,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _result.isLoading
+                        ? 'Asking add-ons… '
+                              '${_result.completedCount}/${_result.totalCount}'
+                        : '${_result.streams.length} links from '
+                              '${_result.respondedCount} add-on(s)',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: _result.isLoading
+                          ? cs.primary
+                          : cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: glass.paneShadow,
-                  blurRadius: 50,
-                  spreadRadius: 0,
-                  offset: const Offset(0, 10),
                 ),
+                if (_result.isLoading)
+                  SizedBox(
+                    width: 80,
+                    child: LinearProgressIndicator(
+                      value: _result.totalCount == 0
+                          ? null
+                          : _result.completedCount / _result.totalCount,
+                      minHeight: 2.5,
+                      backgroundColor: glass.ink.withValues(alpha: 0.1),
+                      valueColor: AlwaysStoppedAnimation(cs.primary),
+                    ),
+                  )
+                else if (_result.statuses.isNotEmpty)
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(50, 26),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () =>
+                        setState(() => _showDetails = !_showDetails),
+                    child: Text(
+                      _showDetails ? 'Hide' : 'Details',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
               ],
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: Stack(
-                fit: StackFit.expand,
+          ),
+
+          if (_debridStatus != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                kSourceSheetGutter,
+                0,
+                kSourceSheetGutter,
+                4,
+              ),
+              child: Row(
                 children: [
-                  // 1. LAYERED TRANSLUCENT OBSIDIAN/CHARCOAL BLACK BASE WITH BACKDROP BLUR
-                  Positioned.fill(
-                    child: BackdropFilter(
-                      filter: ui.ImageFilter.blur(sigmaX: 22.0, sigmaY: 22.0),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(color: glass.pane),
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _debridStatus!,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: cs.primary,
                       ),
                     ),
                   ),
-                  // Hairline edge on the glass. It used to be wrapped in
-                  // a full-bleed ShaderMask that faded the line out over the
-                  // top and bottom 15% of the panel: a BlendMode.dstIn mask
-                  // costs an offscreen surface the size of the whole sheet,
-                  // and what it bought was a gradient between "0.5 dp line at
-                  // 12% ink" and "no line at all" - a transition between two
-                  // states that are already at the edge of visible. The line
-                  // itself is kept, and now closes around the top and bottom
-                  // corners as well.
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: glass.ink.withValues(alpha: 0.12),
-                            width: 0.5,
-                          ),
-                        ),
-                      ),
-                    ),
+                ],
+              ),
+            ),
+
+          if (_showDetails) _details(theme, cs),
+
+          // Filter Chips Rail
+          SizedBox(
+            height: 34,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                horizontal: kSourceSheetGutter,
+              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: SourceFilterChip(
+                    text: '1080p+',
+                    selected: _hdOnly,
+                    outline: glass.tint(0.15),
+                    onSelected: (value) => setState(() => _hdOnly = value),
                   ),
-                  // Main content
-                  Positioned.fill(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                    // Header Bar
+                ),
+                for (final filter in _KindFilter.values)
+                  if (filter == _KindFilter.all ||
+                      _result.streams.any(filter.matches))
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 14, 12, 4),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                      padding: const EdgeInsets.only(right: 6),
+                      child: SourceFilterChip(
+                        text: filter.label,
+                        selected: _kind == filter,
+                        outline: glass.tint(0.15),
+                        onSelected: (_) => setState(() => _kind = filter),
+                      ),
+                    ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 6),
+
+          // Stream Source List (Structured with Top Pick & Ready to play)
+          Expanded(
+            child: visible.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: _result.isLoading
+                          ? Text(
+                              'Asking active add-ons…',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: cs.onSurfaceVariant,
+                              ),
+                            )
+                          : Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                Icon(
+                                  Icons.cloud_off_outlined,
+                                  size: 40,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                                const SizedBox(height: 12),
                                 Text(
-                                  'Stremio Sources',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: glass.ink,
-                                    letterSpacing: -0.2,
+                                  _result.streams.isNotEmpty
+                                      ? 'No links match this filter. Try "All".'
+                                      : _result.error ??
+                                            'No add-on returned links for this title. '
+                                                'Install a stream add-on such as Torrentio, '
+                                                'MediaFusion or WatchHub.',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: cs.onSurfaceVariant,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  subtitleText,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: cs.onSurfaceVariant,
-                                    fontSize: 11.5,
-                                  ),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 10,
+                                  alignment: WrapAlignment.center,
+                                  children: [
+                                    FilledButton.tonalIcon(
+                                      onPressed: () =>
+                                          unawaited(_start(forceRefresh: true)),
+                                      icon: const Icon(Icons.refresh_rounded),
+                                      label: const Text('Retry'),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: () =>
+                                          setState(() => _showDetails = true),
+                                      icon: const Icon(
+                                        Icons.info_outline_rounded,
+                                      ),
+                                      label: const Text('Why?'),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                          ),
-                          Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: cs.primary.withValues(alpha: 0.15),
-                            ),
-                            child: IconButton(
-                              tooltip: 'Refresh',
-                              visualDensity: VisualDensity.compact,
-                              icon: Icon(
-                                Icons.refresh_rounded,
-                                size: 19,
-                                color: cs.primary,
-                              ),
-                              onPressed: () =>
-                                  unawaited(_start(forceRefresh: true)),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          IconButton(
-                            tooltip: 'Close',
-                            visualDensity: VisualDensity.compact,
-                            icon: const Icon(
-                              Icons.close_rounded,
-                              size: 20,
-                              color: Color(0xFFEF4444),
-                            ),
-                            hoverColor:
-                                const Color(0xFFEF4444).withValues(alpha: 0.15),
-                            highlightColor:
-                                const Color(0xFFEF4444).withValues(alpha: 0.2),
-                            onPressed: () => Navigator.of(context).pop(),
-                          ),
-                        ],
-                      ),
                     ),
-
-                    // Telemetry Status Strip
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 4, 18, 4),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              _result.isLoading
-                                  ? 'Asking add-ons… '
-                                        '${_result.completedCount}/${_result.totalCount}'
-                                  : '${_result.streams.length} links from '
-                                        '${_result.respondedCount} add-on(s)',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: _result.isLoading
-                                    ? cs.primary
-                                    : cs.onSurfaceVariant,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (_result.isLoading)
-                            SizedBox(
-                              width: 80,
-                              child: LinearProgressIndicator(
-                                value: _result.totalCount == 0
-                                    ? null
-                                    : _result.completedCount /
-                                          _result.totalCount,
-                                minHeight: 2.5,
-                                backgroundColor: glass.ink.withValues(
-                                  alpha: 0.1,
-                                ),
-                                valueColor: AlwaysStoppedAnimation(cs.primary),
-                              ),
-                            )
-                          else if (_result.statuses.isNotEmpty)
-                            TextButton(
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(50, 26),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              onPressed: () => setState(
-                                () => _showDetails = !_showDetails,
-                              ),
-                              child: Text(
-                                _showDetails ? 'Hide' : 'Details',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                        ],
-                      ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(
+                      kSourceSheetGutter,
+                      4,
+                      kSourceSheetGutter,
+                      16,
                     ),
+                    itemCount: rowCount,
+                    itemBuilder: (context, index) {
+                      if (topPick != null) {
+                        if (index == 0) return _topPickLabel(cs);
+                        if (index == 1) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _SourceRow(
+                              stream: topPick,
+                              isBest: true,
+                              autofocus: true,
+                              downloadMode: _downloadMode,
+                              onPlay: () => unawaited(_play(topPick)),
+                              onDownload: () => unawaited(_download(topPick)),
+                            ),
+                          );
+                        }
+                      }
 
-                    if (_debridStatus != null)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
-                        child: Row(
-                          children: [
-                            const SizedBox(
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _debridStatus!,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: cs.primary,
-                                ),
-                              ),
-                            ),
-                          ],
+                      // Past the top pick: one label, then the rest.
+                      var slot = index - (topPick == null ? 0 : 2);
+                      if (slot == 0) {
+                        return _readyToPlayLabel(remainingReady.length);
+                      }
+                      slot -= 1;
+
+                      final stream = remainingReady[slot];
+                      return Padding(
+                        padding: EdgeInsets.only(top: slot == 0 ? 0 : 6),
+                        child: _SourceRow(
+                          stream: stream,
+                          isBest: false,
+                          autofocus: topPick == null && slot == 0,
+                          downloadMode: _downloadMode,
+                          onPlay: () => unawaited(_play(stream)),
+                          onDownload: () => unawaited(_download(stream)),
                         ),
-                      ),
-
-                    if (_showDetails) _details(theme, cs),
-
-                    // Filter Chips Rail
-                    SizedBox(
-                      height: 34,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: FilterChip(
-                              visualDensity: VisualDensity.compact,
-                              label: const Text(
-                                '1080p+',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                              selected: _hdOnly,
-                              selectedColor: cs.primary,
-                              labelStyle: TextStyle(
-                                fontSize: 11,
-                                color: _hdOnly
-                                    ? cs.onPrimary
-                                    : cs.onSurfaceVariant,
-                                fontWeight: _hdOnly
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                              side: BorderSide(
-                                color: _hdOnly
-                                    ? Colors.transparent
-                                    : glass.ink.withValues(alpha: 0.15),
-                                width: 1,
-                              ),
-                              backgroundColor: Colors.transparent,
-                              onSelected: (value) =>
-                                  setState(() => _hdOnly = value),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                            ),
-                          ),
-                          for (final filter in _KindFilter.values)
-                            if (filter == _KindFilter.all ||
-                                _result.streams.any(filter.matches))
-                              Padding(
-                                padding: const EdgeInsets.only(right: 6),
-                                child: FilterChip(
-                                  visualDensity: VisualDensity.compact,
-                                  label: Text(
-                                    filter.label,
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                  selected: _kind == filter,
-                                  selectedColor: cs.primary,
-                                  labelStyle: TextStyle(
-                                    fontSize: 11,
-                                    color: _kind == filter
-                                        ? cs.onPrimary
-                                        : cs.onSurfaceVariant,
-                                    fontWeight: _kind == filter
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                  ),
-                                  side: BorderSide(
-                                    color: _kind == filter
-                                        ? Colors.transparent
-                                        : glass.ink.withValues(alpha: 0.15),
-                                    width: 1,
-                                  ),
-                                  backgroundColor: Colors.transparent,
-                                  onSelected: (value) =>
-                                      setState(() => _kind = filter),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                ),
-                              ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 6),
-
-                    // Stream Source List (Structured with Top Pick & Ready to play)
-                    Expanded(
-                      child: visible.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: _result.isLoading
-                                    ? Text(
-                                        'Asking active add-ons…',
-                                        textAlign: TextAlign.center,
-                                        style: theme.textTheme.bodyMedium
-                                            ?.copyWith(
-                                              color: cs.onSurfaceVariant,
-                                            ),
-                                      )
-                                    : Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.cloud_off_outlined,
-                                            size: 40,
-                                            color: cs.onSurfaceVariant,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          Text(
-                                            _result.streams.isNotEmpty
-                                                ? 'No links match this filter. Try "All".'
-                                                : _result.error ??
-                                                      'No add-on returned links for this title. '
-                                                          'Install a stream add-on such as Torrentio, '
-                                                          'MediaFusion or WatchHub.',
-                                            textAlign: TextAlign.center,
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                                  color: cs.onSurfaceVariant,
-                                                ),
-                                          ),
-                                          const SizedBox(height: 12),
-                                          Wrap(
-                                            spacing: 10,
-                                            alignment: WrapAlignment.center,
-                                            children: [
-                                              FilledButton.tonalIcon(
-                                                onPressed: () => unawaited(
-                                                  _start(forceRefresh: true),
-                                                ),
-                                                icon: const Icon(
-                                                  Icons.refresh_rounded,
-                                                ),
-                                                label: const Text('Retry'),
-                                              ),
-                                              OutlinedButton.icon(
-                                                onPressed: () => setState(
-                                                  () => _showDetails = true,
-                                                ),
-                                                icon: const Icon(
-                                                  Icons.info_outline_rounded,
-                                                ),
-                                                label: const Text('Why?'),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                              ),
-                            )
-                          : ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(14, 4, 14, 16),
-                              itemCount: rowCount,
-                              itemBuilder: (context, index) {
-                                if (topPick != null) {
-                                  if (index == 0) return _topPickLabel(cs);
-                                  if (index == 1) {
-                                    return Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: 12,
-                                      ),
-                                      child: _SourceRow(
-                                        stream: topPick,
-                                        isBest: true,
-                                        autofocus: true,
-                                        downloadMode: _downloadMode,
-                                        onPlay: () => unawaited(_play(topPick)),
-                                        onDownload: () =>
-                                            unawaited(_download(topPick)),
-                                      ),
-                                    );
-                                  }
-                                }
-
-                                // Past the top pick: one label, then the rest.
-                                var slot = index - (topPick == null ? 0 : 2);
-                                if (slot == 0) {
-                                  return _readyToPlayLabel(
-                                    remainingReady.length,
-                                  );
-                                }
-                                slot -= 1;
-
-                                final stream = remainingReady[slot];
-                                return Padding(
-                                  padding: EdgeInsets.only(
-                                    top: slot == 0 ? 0 : 6,
-                                  ),
-                                  child: _SourceRow(
-                                    stream: stream,
-                                    isBest: false,
-                                    autofocus: topPick == null && slot == 0,
-                                    downloadMode: _downloadMode,
-                                    onPlay: () => unawaited(_play(stream)),
-                                    onDownload: () =>
-                                        unawaited(_download(stream)),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+                      );
+                    },
+                  ),
           ),
-        ),
+        ],
       ),
-    ),
-  ),
-),
-),
-),
-),
-);
+    );
   }
 }
 
@@ -940,7 +763,6 @@ class _SourceRowState extends State<_SourceRow> {
   late final FocusNode _cardFocusNode;
   late final FocusNode _playFocusNode;
   late final FocusNode _downloadFocusNode;
-  bool _isHovered = false;
 
   @override
   void initState() {
@@ -991,196 +813,184 @@ class _SourceRowState extends State<_SourceRow> {
       child: const SizedBox.shrink(),
       builder: (context, state, _) {
         final isFocused = state.focused;
-        return Material(
-          color: isFocused ? glass.cardFocusFill : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          child: InkWell(
-            // DpadFocusable is this card's only focus node. A focusable
-            // InkWell would publish a second one with the same rect, and
-            // traversal landing there leaves the card focused but unpainted.
-            canRequestFocus: false,
-            onTap: downloadMode && stream.isDirect ? onDownload : onPlay,
-            overlayColor: WidgetStateProperty.all(Colors.transparent),
-            hoverColor: Colors.transparent,
-            splashColor: Colors.transparent,
-            highlightColor: Colors.transparent,
-            onHover: (hovered) {
-              if (_isHovered != hovered) {
-                setState(() => _isHovered = hovered);
-              }
-            },
-            borderRadius: BorderRadius.circular(10),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 140),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 9,
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  // The top pick wears the accent outline permanently, so the
-                  // focus ring has to be a different colour to be readable at
-                  // all — otherwise the best row looks focused from the start.
-                  color: isFocused
-                      ? glass.ink
-                      : (_isHovered || isBest
-                            ? cs.primary
-                            : glass.ink.withValues(alpha: 0.08)),
-                  width: isFocused ? 2 : 1.2,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+        return GlassRow(
+          focused: isFocused,
+          accented: isBest,
+          onTap: downloadMode && stream.isDirect ? onDownload : onPlay,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Top row: Premium quality badge (left top) + tags, size, and seeders
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Top row: Premium quality badge (left top) + tags, size, and seeders
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Wrap(
-                          spacing: 6,
-                          runSpacing: 4,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            QualityBadge(resolution: stream.qualityLabel),
-                            const SourceTag(
-                              text: 'STREMIO',
-                              color: Color(0xFF7C6BF5),
+                  Expanded(
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        QualityBadge(resolution: stream.qualityLabel),
+                        SourceTag(
+                          text: 'STREMIO',
+                          container: cs.primaryContainer,
+                          onContainer: cs.onPrimaryContainer,
+                        ),
+                        if (stream.isHdr)
+                          SourceTag(
+                            text: 'HDR',
+                            container: cs.tertiaryContainer,
+                            onContainer: cs.onTertiaryContainer,
+                          ),
+                        if (stream.isTorrent)
+                          SourceTag(
+                            text: 'TORRENT',
+                            container: cs.secondaryContainer,
+                            onContainer: cs.onSecondaryContainer,
+                          ),
+                        if (stream.isCachedDebrid)
+                          SourceTag(
+                            text: 'CACHED',
+                            container: cs.tertiaryContainer,
+                            onContainer: cs.onTertiaryContainer,
+                          ),
+                        if (stream.isExternal)
+                          SourceTag(
+                            text: 'OPENS APP',
+                            container: cs.surfaceContainerHighest,
+                            onContainer: cs.onSurfaceVariant,
+                          ),
+                        if (size != null)
+                          Text(
+                            size,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: cs.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
                             ),
-                            if (stream.isHdr)
-                              const SourceTag(
-                                text: 'HDR',
-                                color: Colors.deepPurpleAccent,
+                          ),
+                        if (stream.seeders != null)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.people_alt_outlined,
+                                size: 12,
+                                color: cs.onSurfaceVariant,
                               ),
-                            if (stream.isTorrent)
-                              SourceTag(text: 'TORRENT', color: cs.primary),
-                            if (stream.isCachedDebrid)
-                              const SourceTag(
-                                text: 'CACHED',
-                                color: Colors.green,
-                              ),
-                            if (stream.isExternal)
-                              SourceTag(
-                                text: 'OPENS APP',
-                                color: cs.secondary,
-                              ),
-                            if (size != null)
+                              const SizedBox(width: 2),
                               Text(
-                                size,
+                                '${stream.seeders}',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: cs.onSurfaceVariant,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                            if (stream.seeders != null)
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.people_alt_outlined,
-                                    size: 12,
-                                    color: cs.onSurfaceVariant,
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    '${stream.seeders}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: cs.onSurfaceVariant,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Source name (starts from left, uses all horizontal space)
-                  Text(
-                    stream.addonName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      color: glass.ink,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-
-                  // Description (starts from left, uses horizontal space)
-                  Text(
-                    stream.subtitleLine,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                      fontSize: 11,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Bottom row: Empty space on the left, Play and Download buttons on the bottom right corner
-                  SourceCardActions(
-                    cardFocusNode: _cardFocusNode,
-                    child: Row(
-                      children: [
-                        const Spacer(),
-                        DpadSourceButton(
-                          focusNode: _playFocusNode,
-                          icon: stream.isExternal
-                              ? Icons.open_in_new_rounded
-                              : Icons.play_arrow_rounded,
-                          label: stream.isExternal ? 'Open' : 'Play',
-                          isPrimary: true,
-                          tooltip: stream.isExternal ? 'Open' : 'Play',
-                          onPressed: onPlay,
-                          onDirection: (direction) {
-                            // Back out to the card the same way we came in.
-                            if (direction == TraversalDirection.left) {
-                              _cardFocusNode.requestFocus();
-                              return true;
-                            }
-                            if (direction == TraversalDirection.right &&
-                                stream.isDirect) {
-                              _downloadFocusNode.requestFocus();
-                              return true;
-                            }
-                            return false;
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        DpadSourceButton(
-                          focusNode: _downloadFocusNode,
-                          icon: Icons.download_rounded,
-                          label: 'Download now',
-                          isPrimary: false,
-                          tooltip: stream.isDirect
-                              ? 'Download now'
-                              : 'Torrent sources cannot be downloaded',
-                          onPressed: stream.isDirect ? onDownload : null,
-                          onDirection: (direction) {
-                            if (direction != TraversalDirection.left) {
-                              return false;
-                            }
-                            _playFocusNode.requestFocus();
-                            return true;
-                          },
-                        ),
+                            ],
+                          ),
                       ],
                     ),
                   ),
                 ],
               ),
-            ),
+              const SizedBox(height: 6),
+
+              // Source name (starts from left, uses all horizontal space)
+              Text(
+                stream.addonName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: glass.ink,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              const SizedBox(height: 2),
+
+              // Description (starts from left, uses horizontal space)
+              Text(
+                stream.subtitleLine,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  fontSize: 11,
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // Bottom row: Empty space on the left, Play and Download buttons on the bottom right corner
+              SourceCardActions(
+                cardFocusNode: _cardFocusNode,
+                child: Row(
+                  children: [
+                    const Spacer(),
+                    DpadSourceButton(
+                      focusNode: _playFocusNode,
+                      icon: stream.isExternal
+                          ? Icons.open_in_new_rounded
+                          : Icons.play_arrow_rounded,
+                      label: stream.isExternal ? 'Open' : 'Play',
+                      isPrimary: true,
+                      tooltip: stream.isExternal ? 'Open' : 'Play',
+                      onPressed: onPlay,
+                      onDirection: (direction) {
+                        // Back out to the card the same way we came in.
+                        if (direction == TraversalDirection.left) {
+                          _cardFocusNode.requestFocus();
+                          return true;
+                        }
+                        if (direction == TraversalDirection.right) {
+                          // Consumed either way: with a download chip beside
+                          // it focus moves there, and without one Play is the
+                          // row's last control. See the Download handler for
+                          // why being last has to be stated.
+                          if (stream.isDirect) {
+                            _downloadFocusNode.requestFocus();
+                          }
+                          return true;
+                        }
+                        return false;
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    DpadSourceButton(
+                      focusNode: _downloadFocusNode,
+                      icon: Icons.download_rounded,
+                      label: 'Download now',
+                      isPrimary: false,
+                      tooltip: stream.isDirect
+                          ? 'Download now'
+                          : 'Torrent sources cannot be downloaded',
+                      onPressed: stream.isDirect ? onDownload : null,
+                      onDirection: (direction) {
+                        switch (direction) {
+                          case TraversalDirection.left:
+                            _playFocusNode.requestFocus();
+                            return true;
+                          case TraversalDirection.right:
+                            // Download is the row's last control, so RIGHT
+                            // stays put - and says so, instead of falling
+                            // through to the default policy and trusting that
+                            // nothing sits to the right. Flutter keeps a
+                            // candidate whose CENTRE passes this chip's right
+                            // edge, so the header's buttons become targets the
+                            // moment they move.
+                            return true;
+                          case TraversalDirection.up:
+                          case TraversalDirection.down:
+                            return false;
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         );
       },

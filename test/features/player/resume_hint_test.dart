@@ -200,44 +200,68 @@ void main() {
       await _teardown(tester);
     });
 
-    testWidgets('on a television it clears the bottom bar, not a phone gap', (
-      tester,
-    ) async {
-      // A 1080p set reports 960x540 dp, so a bare `shortestSide < 600` reads
-      // TRUE on every television and would float the hint 60 dp up - on top
-      // of the bottom bar's left group. The hint is anchored off the same
-      // chrome token the bar is sized by, so on TV it must clear all of it.
-      tester.view.physicalSize = const Size(1920, 1080);
-      tester.view.devicePixelRatio = 2.0;
-      addTearDown(tester.view.reset);
+    // The hint floats over the video with nothing between it and the bottom
+    // bar, so the only thing keeping it off the scrubber is the number it is
+    // anchored by - and that number has to be the same one on every screen.
+    //
+    // It was not. A second branch, `compact ? 60.0`, was taken whenever the
+    // shortest side came in under 600 dp, which is a phone in landscape, a
+    // small desktop window *and* every 960x540 television. The bar is 102 to
+    // 137 dp tall, so on each of those the hint was anchored inside it and
+    // came up over the scrubber and the transport buttons.
+    for (final (String device, bool isTv, Size size, double ratio)
+        in <(String, bool, Size, double)>[
+          ('a television', true, const Size(1920, 1080), 2.0),
+          ('a desktop window', false, const Size(1280, 720), 1.0),
+          ('a narrow desktop window', false, const Size(440, 330), 1.0),
+          ('a handset in landscape', false, const Size(844, 390), 1.0),
+        ]) {
+      testWidgets('on $device it clears the whole bottom bar', (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = ratio;
+        addTearDown(tester.view.reset);
 
-      await tester.pumpWidget(
-        _host(
-          ResumeHint(
-            position: const Duration(minutes: 42, seconds: 15),
-            isTv: true,
-            onStartOver: () {},
-            onDismissed: () {},
+        await tester.pumpWidget(
+          _host(
+            ResumeHint(
+              position: const Duration(minutes: 42, seconds: 15),
+              isTv: isTv,
+              onStartOver: () {},
+              onDismissed: () {},
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      final hint = tester.getRect(find.byType(ResumeHint));
-      final content = tester.getRect(
-        find.descendant(
-          of: find.byType(ResumeHint),
-          matching: find.byType(FadeTransition),
-        ),
-      );
-      expect(
-        hint.bottom - content.bottom,
-        greaterThanOrEqualTo(HotstarPlayerStyle.bottomChromeHeight),
-        reason: 'the hint has to sit above the whole bottom bar on a set',
-      );
+        final hint = tester.getRect(find.byType(ResumeHint));
+        final content = tester.getRect(
+          find.descendant(
+            of: find.byType(ResumeHint),
+            matching: find.byType(FadeTransition),
+          ),
+        );
+        expect(
+          hint.bottom - content.bottom,
+          greaterThanOrEqualTo(
+            HotstarPlayerStyle.bottomChromeHeightFor(isTv: isTv),
+          ),
+          reason:
+              'the hint has to sit above the whole bottom bar, and '
+              'controls_focus_test holds the bar inside that same token',
+        );
+        // And the same vertical line the bar's left end answers to. Not the
+        // bare edge inset: the track and the first control are both held an
+        // optical amount further in, and a hint flush to the chrome's padding
+        // sits visibly outside the column everything else is in.
+        expect(
+          content.left - hint.left,
+          HotstarPlayerStyle.leadingLineOf(isTv: isTv),
+          reason: 'the hint starts where the track starts',
+        );
 
-      await _teardown(tester);
-    });
+        await _teardown(tester);
+      });
+    }
 
     testWidgets('D-pad reaches both controls and activates them', (
       tester,

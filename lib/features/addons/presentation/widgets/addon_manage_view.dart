@@ -70,8 +70,7 @@ const List<AddonPreset> kAddonPresets = [
   AddonPreset(
     name: 'Streaming Catalogs',
     description: 'Netflix, Disney+, HBO… catalogs (browse only, no streams)',
-    url:
-        'https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/manifest.json',
+    url: 'https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/manifest.json',
     icon: Icons.grid_view_rounded,
   ),
 ];

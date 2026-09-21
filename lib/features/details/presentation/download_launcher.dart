@@ -15,6 +15,7 @@ import '../../../shared/widgets/loading_dialog.dart';
 import '../../../shared/widgets/custom_widgets.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../core/services/notification_service.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 part 'download_launcher.g.dart';
@@ -115,9 +116,8 @@ class DownloadLauncher {
                 padding: const EdgeInsets.all(16.0),
                 child: Text(
                   l10n.selectSource,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ),
               const Divider(height: 1),

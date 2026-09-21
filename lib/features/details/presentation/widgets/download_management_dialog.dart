@@ -1,14 +1,17 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:skystream/core/domain/entity/multimedia_item.dart';
 import 'package:skystream/core/services/download_service.dart';
 import 'package:skystream/shared/widgets/custom_widgets.dart';
 import 'package:collection/collection.dart';
+
 import '../../../library/presentation/downloads_provider.dart';
 import '../playback_launcher.dart';
 import '../details_controller.dart';
 import '../downloaded_file_provider.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
 class DownloadManagementDialog extends HookConsumerWidget {

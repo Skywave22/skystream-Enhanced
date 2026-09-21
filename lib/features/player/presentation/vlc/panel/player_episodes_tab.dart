@@ -19,6 +19,7 @@
 library;
 
 import 'player_anchored_list.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../../../../core/domain/entity/multimedia_item.dart';

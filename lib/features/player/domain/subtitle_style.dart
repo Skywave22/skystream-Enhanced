@@ -29,9 +29,8 @@ VlcSubtitleStyle subtitleStyleFrom(PlayerSettings settings) {
       ? 24
       : (_kRelativeSizeNumerator / size).round().clamp(8, 60);
 
-  final background = Color(settings.subtitleBackgroundColor).withValues(
-    alpha: settings.subtitleBackgroundOpacity.clamp(0.0, 1.0),
-  );
+  final background = Color(settings.subtitleBackgroundColor)
+      .withValues(alpha: settings.subtitleBackgroundOpacity.clamp(0.0, 1.0));
 
   return VlcSubtitleStyle(
     relativeFontSize: relative,

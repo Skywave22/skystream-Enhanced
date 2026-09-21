@@ -5,14 +5,19 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/tmdb_details.dart';
+
 import 'package:intl/intl.dart';
+
 import '../../../../core/storage/history_repository.dart';
 import '../../../../core/utils/responsive_breakpoints.dart';
 import '../data/tmdb_details_provider.dart';
+
 import 'package:skystream/l10n/generated/app_localizations.dart';
 
+import '../../../../core/utils/layout_constants.dart';
 import 'widgets/tmdb_details_desktop_hero.dart';
 import 'widgets/provider_search_section.dart';
+import 'widgets/nuvio_sources_card.dart';
 import 'widgets/tmdb_details_stats_section.dart';
 import 'widgets/movie_cast_list.dart';
 import '../data/lightweight_details_provider.dart';
@@ -21,7 +26,6 @@ import 'widgets/movie_production_companies.dart';
 import 'widgets/movie_seasons_list.dart';
 import 'widgets/episode_picker_sheet.dart';
 import '../../sources/presentation/plugin_sources_sheet.dart';
-import 'package:dpad/dpad.dart';
 import '../../../../shared/widgets/thumbnail_error_placeholder.dart';
 import '../../../../shared/widgets/shimmer_placeholder.dart';
 
@@ -124,53 +128,6 @@ class _TmdbMovieDetailsScreenState
       seasons: seasons,
       target: data,
       source: widget.source,
-    );
-  }
-
-  Widget _buildPlayFromPluginsButton(
-    TmdbDetails data,
-    bool isMovie,
-    ThemeData theme,
-    ColorScheme cs,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: DpadFocusable(
-        onSelect: () => _openPluginSources(data, isMovie),
-        child: const SizedBox.shrink(),
-        builder: (context, state, _) {
-          final isFocused = state.focused;
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: isFocused ? Colors.white : Colors.transparent,
-                width: 2.0,
-              ),
-            ),
-            child: FilledButton.icon(
-              onPressed: () => _openPluginSources(data, isMovie),
-              icon: const Icon(Icons.search_rounded, size: 22),
-              label: const Text(
-                'Search in Nuvio plugins',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: isFocused
-                    ? cs.primary
-                    : cs.primary.withValues(alpha: 0.9),
-                foregroundColor: cs.onPrimary,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 22,
-                  vertical: 14,
-                ),
-                elevation: isFocused ? 6 : 2,
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 
@@ -316,16 +273,18 @@ class _TmdbMovieDetailsScreenState
         data: data,
         isMovie: isMovie,
         source: widget.source,
+        nuvioCard: NuvioSourcesCard(
+          isMovie: isMovie,
+          compact: true,
+          onOpen: () => _openPluginSources(data, isMovie),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 60),
-            _buildPlayFromPluginsButton(
-              data,
-              isMovie,
-              theme,
-              theme.colorScheme,
-            ),
+            // The hero used to end on the overview, and 60 was the room that
+            // needed. It ends on the Nuvio card's action now, so this is the
+            // same gap that separates every other group on the page.
+            const SizedBox(height: kDetailsGroupGap),
             if (!isMovie) ...[
               MovieSeasonsList(
                 movieId: widget.movieId,
@@ -372,8 +331,6 @@ class _TmdbMovieDetailsScreenState
   }
 
   Widget _buildMobileLayout(TmdbDetails data, bool isHeavyLoading) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final isMovie = widget.mediaType == 'movie';
 
     final backdropImageUrl = data.backdropImageUrl;
@@ -419,15 +376,13 @@ class _TmdbMovieDetailsScreenState
         SliverAppBar(
           expandedHeight: expandedHeaderHeight,
           pinned: true,
-          backgroundColor: Theme.of(
-            context,
-          ).scaffoldBackgroundColor, // Theme aware
+          backgroundColor: Theme.of(context)
+              .scaffoldBackgroundColor, // Theme aware
           leading: Padding(
             padding: const EdgeInsets.all(8.0),
             child: CircleAvatar(
-              backgroundColor: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.1),
+              backgroundColor: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.1),
               radius: 18,
               child: IconButton(
                 icon: Icon(
@@ -483,9 +438,9 @@ class _TmdbMovieDetailsScreenState
                                     MediaQuery.devicePixelRatioOf(context))
                                 .round(),
                         placeholder: (context, url) => Container(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
                         ),
                         errorWidget: (_, _, _) => ThumbnailErrorPlaceholder(
                           label: title,
@@ -514,18 +469,14 @@ class _TmdbMovieDetailsScreenState
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            Theme.of(
-                              context,
-                            ).scaffoldBackgroundColor.withValues(alpha: 0.0),
-                            Theme.of(
-                              context,
-                            ).scaffoldBackgroundColor.withValues(alpha: 0.15),
-                            Theme.of(
-                              context,
-                            ).scaffoldBackgroundColor.withValues(alpha: 0.45),
-                            Theme.of(
-                              context,
-                            ).scaffoldBackgroundColor.withValues(alpha: 0.8),
+                            Theme.of(context).scaffoldBackgroundColor
+                                .withValues(alpha: 0.0),
+                            Theme.of(context).scaffoldBackgroundColor
+                                .withValues(alpha: 0.15),
+                            Theme.of(context).scaffoldBackgroundColor
+                                .withValues(alpha: 0.45),
+                            Theme.of(context).scaffoldBackgroundColor
+                                .withValues(alpha: 0.8),
                             Theme.of(context).scaffoldBackgroundColor,
                           ],
                           stops: const [0.0, 0.5, 0.75, 0.9, 1.0],
@@ -557,9 +508,9 @@ class _TmdbMovieDetailsScreenState
                                           title.toUpperCase(),
                                           textAlign: TextAlign.center,
                                           style: TextStyle(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSurface,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
                                             fontSize: 40,
                                             fontFamily: 'RobotoCondensed',
                                             fontWeight: FontWeight.w900,
@@ -578,9 +529,9 @@ class _TmdbMovieDetailsScreenState
                                           title.toUpperCase(),
                                           textAlign: TextAlign.center,
                                           style: TextStyle(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSurface,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
                                             fontSize: 40,
                                             fontFamily: 'RobotoCondensed',
                                             fontWeight: FontWeight.w900,
@@ -593,9 +544,9 @@ class _TmdbMovieDetailsScreenState
                                       title.toUpperCase(),
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.onSurface,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
                                         fontSize: 40,
                                         fontFamily: 'RobotoCondensed',
                                         fontWeight: FontWeight.w900,
@@ -639,15 +590,26 @@ class _TmdbMovieDetailsScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Cross-plugin stream launcher + provider results
-                _buildPlayFromPluginsButton(data, isMovie, theme, cs),
+                // The two source systems, as peers and in the same order the
+                // desktop hero uses: SkyStream providers, then Nuvio. One
+                // spacing unit above, between and below, so neither card
+                // reads as the page's primary action.
                 ProviderSearchSection(
                   query: title,
                   parentMediaType: isMovie ? 'movie' : 'tv',
                   tmdbId: data.tmdbId,
                   imdbId: data.imdbId,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: LayoutConstants.spacingMd),
+                NuvioSourcesCard(
+                  isMovie: isMovie,
+                  onOpen: () => _openPluginSources(data, isMovie),
+                ),
+                // No spacer here: the card already carries a 16 dp foot inside
+                // its own padding, and the block below brings its own 8. A
+                // third gap stacked all three into ~40 dp, which is why the
+                // space under Nuvio read as bigger than the 16 between the two
+                // cards.
                 Consumer(
                   builder: (context, ref, _) {
                     final historyRepo = ref.watch(historyRepositoryProvider);
@@ -753,9 +715,8 @@ class _TmdbMovieDetailsScreenState
                             : "${l10n.creator}: ",
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.7),
                         ),
                       ),
                       TextSpan(text: director),
@@ -778,9 +739,8 @@ class _TmdbMovieDetailsScreenState
                             ? TextOverflow.visible
                             : TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.8),
+                          color: Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.8),
                           fontSize: 15,
                           height: 1.5,
                         ),
@@ -800,9 +760,9 @@ class _TmdbMovieDetailsScreenState
                                       ? l10n.showLess
                                       : l10n.showMore,
                                   style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurface,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -810,9 +770,9 @@ class _TmdbMovieDetailsScreenState
                                   _isDescriptionExpanded
                                       ? Icons.keyboard_arrow_up
                                       : Icons.keyboard_arrow_down,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurface,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface,
                                   size: 18,
                                 ),
                               ],
@@ -989,9 +949,8 @@ class _TmdbMovieDetailsScreenState
         Text(
           text,
           style: TextStyle(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.8),
+            color: Theme.of(context).colorScheme.onSurface
+                .withValues(alpha: 0.8),
             fontSize: 14,
             fontWeight: FontWeight.bold,
           ),
@@ -1004,9 +963,8 @@ class _TmdbMovieDetailsScreenState
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest
+            .withValues(alpha: 0.5),
         border: Border.all(
           color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1),
         ),
@@ -1039,9 +997,8 @@ class _TmdbMovieDetailsScreenState
           Text(
             label,
             style: TextStyle(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.6),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.6),
               fontSize: 14,
             ),
           ),

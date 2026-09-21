@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/services.dart';
+
 import '../../../../shared/widgets/custom_widgets.dart';
 import 'hotstar_player_style.dart';
 import 'player_activation.dart';
@@ -173,16 +175,30 @@ class PlayerBackButtonSlot extends StatelessWidget {
 /// [leading] (playback) pinned left and [actions] (everything else) filling
 /// the rest, right-anchored. Paints its own scrim.
 ///
-/// Neither layout branch may overflow and neither may hide a button. Off touch
-/// the actions are a [Wrap] whose extra runs go above the first, so nothing is
-/// clipped and a D-pad or pointer reaches every button with no gesture. On
-/// touch they are a right-anchored finger-scroll strip with a visible edge
-/// hint, one line tall at every width. Both branches render the same button
-/// list; the fork is a layout ramp, not a capability gate.
+/// Neither layout branch may overflow and neither may hide a button. The fork
+/// is whether the device can *move* a strip, which is to say whether it has a
+/// pointer:
 ///
-/// The touch strip never gets a run of its own. Giving it one below a width
+///  * Everything but a television gets a right-anchored scrolling strip with a
+///    visible edge hint — one line tall at every width, dragged by finger on a
+///    handset and by mouse or trackpad on a desktop (see [PlayerActionStrip],
+///    which enables the pointer drag the default scroll behaviour withholds).
+///  * A television gets a [Wrap], because a D-pad cannot drag anything: its
+///    extra runs go above the first so nothing is clipped and every button is
+///    still reachable by arrow.
+///
+/// Both branches render the same button list; the fork is a layout ramp, not a
+/// capability gate.
+///
+/// The strip never gets a run of its own. Giving it one below a width
 /// threshold rendered the bar as two runs, 112 dp tall, on the commonest
 /// Android portrait width — chrome eating 48 dp of the video underneath it.
+/// The [Wrap] has the same failure without a threshold to blame: on a narrow
+/// desktop window ten buttons became five runs and a 284 dp bar that ran off
+/// the bottom of a 330 dp viewport, taking the scrubber with it. One line is
+/// also what keeps the transport group and the utility group on the same line
+/// as each other, which two runs silently break — [Row] centres the short
+/// child against the tall one.
 ///
 /// Directional keys are left to [DirectionalFocusAction]: the buttons are
 /// siblings in one [Row] inside one [FocusTraversalGroup], so geometric
@@ -196,9 +212,11 @@ class PlayerBottomBar extends StatelessWidget {
   final List<Widget> actions;
   final bool isTv;
 
-  /// Whether the [actions] scroll rather than wrap. Picks a layout for the
-  /// viewport, never which controls exist.
-  final bool isTouch;
+  /// Whether the [actions] scroll rather than wrap.
+  ///
+  /// True wherever a pointer can drag them, which is everywhere but a
+  /// television. Picks a layout for the viewport, never which controls exist.
+  final bool scrollingActions;
 
   /// The widest viewport still laid out as a portrait handset, in the logical
   /// pixels the bar's own [Padding] leaves it — a device width minus the two
@@ -218,7 +236,7 @@ class PlayerBottomBar extends StatelessWidget {
     this.leading = const [],
     this.actions = const [],
     this.isTv = false,
-    this.isTouch = false,
+    this.scrollingActions = false,
   });
 
   @override
@@ -279,11 +297,11 @@ class PlayerBottomBar extends StatelessWidget {
           // Touch: one line, right-anchored, finger-scrolled, with an edge
           // hint. No [LayoutBuilder] and no width threshold — a threshold is
           // what produced the second run.
-          child: isTouch
+          child: scrollingActions
               ? PlayerActionStrip(actions: actions)
-              // Off touch there is no fling, so overflow is laid out rather
-              // than scrolled: extra runs go above the first and the bar grows
-              // upwards.
+              // A television has no pointer to drag a strip with, so overflow
+              // is laid out rather than scrolled: extra runs go above the
+              // first and the bar grows upwards.
               : Wrap(
                   alignment: WrapAlignment.end,
                   runAlignment: WrapAlignment.end,
@@ -296,7 +314,7 @@ class PlayerBottomBar extends StatelessWidget {
   }
 }
 
-/// The touch action strip: right-anchored, finger-scrollable, and visibly so.
+/// The action strip: right-anchored, scrollable by pointer, and visibly so.
 ///
 /// Right-anchored means the overflow slides off the left edge, so the buttons
 /// at the end of the list survive a squeeze and the ones at the start vanish.
@@ -336,6 +354,21 @@ class _PlayerActionStripState extends State<PlayerActionStrip> {
     return false;
   }
 
+  /// Drag devices, widened to include the two a desktop actually has.
+  ///
+  /// [MaterialScrollBehavior] allows a drag from touch and stylus only, on the
+  /// reasoning that a desktop scrolls with a wheel. A horizontal strip is the
+  /// case that breaks: [Scrollable] maps a wheel's `scrollDelta.dy` onto a
+  /// vertical axis and reads `dx` for a horizontal one, so a plain mouse wheel
+  /// moves this not at all. Without the drag, buttons off the left edge would
+  /// be unreachable on the one device where this strip is new.
+  static const Set<PointerDeviceKind> _dragDevices = <PointerDeviceKind>{
+    PointerDeviceKind.touch,
+    PointerDeviceKind.stylus,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+  };
+
   @override
   Widget build(BuildContext context) {
     return NotificationListener<ScrollMetricsNotification>(
@@ -344,12 +377,36 @@ class _PlayerActionStripState extends State<PlayerActionStrip> {
         onNotification: (n) => _update(n.metrics),
         child: Stack(
           children: [
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              reverse: true,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: widget.actions,
+            ScrollConfiguration(
+              behavior: ScrollConfiguration.of(
+                context,
+              ).copyWith(dragDevices: _dragDevices, scrollbars: false),
+              // The [LayoutBuilder] reads the viewport's width to give the
+              // row a floor, and nothing else. It is not the width *threshold*
+              // this class's header warns about - there is still one layout at
+              // every width, and no branch for it to pick.
+              child: LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  reverse: true,
+                  // `reverse` alone right-anchors the row only while it
+                  // overflows; the moment the buttons fit, the viewport lays
+                  // them out from its leading edge and the whole group floats
+                  // off the right margin - 500 dp adrift of the scrubber's end
+                  // on a wide window. Holding the row to the viewport's width
+                  // and packing it to the end fixes both cases with one rule:
+                  // narrower than the viewport it is stretched and the buttons
+                  // sit against the right edge, wider and the floor does
+                  // nothing and `reverse` shows the end of the row.
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: widget.actions,
+                    ),
+                  ),
+                ),
               ),
             ),
             if (_more)
@@ -566,6 +623,125 @@ class PlayerCenterPlayButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// One of the two seek glyphs flanking [PlayerCenterPlayButton].
+///
+/// Built like the disc and for the same reason: a [GestureDetector] that is
+/// translucent, over an [IgnorePointer] that is only paint. An ordinary
+/// [PlayerIconButton] here would be opaque, stop
+/// [RenderStack.defaultHitTestChildren] dead and take the middle third of the
+/// frame away from the screen-wide detector underneath - which is where
+/// swipe-to-seek and swipe-for-volume are started.
+///
+/// No [FocusNode], again like the disc: this cluster is built on a handset
+/// only, where nothing traverses, and a node here would compete for the
+/// autofocus the bottom bar's play/pause owns.
+class PlayerCenterSeekButton extends StatelessWidget {
+  const PlayerCenterSeekButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    super.key,
+  });
+
+  final IconData icon;
+
+  /// The localized name a screen reader announces. Passed in because this file
+  /// is not a localization boundary.
+  final String label;
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: onPressed,
+        child: IgnorePointer(
+          // 48 dp of target around a 30 dp glyph: the disc beside it is 72,
+          // and these two are reached with the same thumb.
+          child: SizedBox.square(
+            dimension: 48,
+            child: Icon(icon, color: Colors.white, size: 30),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The handset's transport cluster: step back, play/pause, step forward.
+///
+/// Horizontally centred as a group, so the disc stays on the middle of the
+/// frame and the two steps sit either side of it — the shape a thumb expects
+/// and the one every phone player uses. The bottom bar keeps neither, which is
+/// what leaves its left end to the episode buttons and the clock.
+///
+/// [onRewind] and [onForward] are null on a live edge, where a relative seek
+/// does nothing; the disc is then centred alone.
+class PlayerCenterControls extends StatelessWidget {
+  const PlayerCenterControls({
+    required this.playing,
+    required this.playLabel,
+    required this.onPlayPause,
+    this.rewindIcon,
+    this.forwardIcon,
+    this.rewindLabel,
+    this.forwardLabel,
+    this.onRewind,
+    this.onForward,
+    super.key,
+  });
+
+  final bool playing;
+  final String playLabel;
+  final VoidCallback onPlayPause;
+
+  final IconData? rewindIcon;
+  final IconData? forwardIcon;
+  final String? rewindLabel;
+  final String? forwardLabel;
+  final VoidCallback? onRewind;
+  final VoidCallback? onForward;
+
+  /// Between a step and the disc. Wide enough that a thumb aimed at one does
+  /// not catch the other, and narrow enough that the three read as one group.
+  static const double gap = 28;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool steps = onRewind != null && onForward != null;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (steps) ...<Widget>[
+          PlayerCenterSeekButton(
+            icon: rewindIcon!,
+            label: rewindLabel!,
+            onPressed: onRewind!,
+          ),
+          const SizedBox(width: gap),
+        ],
+        PlayerCenterPlayButton(
+          playing: playing,
+          label: playLabel,
+          onPressed: onPlayPause,
+        ),
+        if (steps) ...<Widget>[
+          const SizedBox(width: gap),
+          PlayerCenterSeekButton(
+            icon: forwardIcon!,
+            label: forwardLabel!,
+            onPressed: onForward!,
+          ),
+        ],
+      ],
     );
   }
 }

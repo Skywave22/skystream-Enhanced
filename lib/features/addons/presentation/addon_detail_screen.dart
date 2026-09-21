@@ -18,6 +18,7 @@ import '../../details/presentation/widgets/movie_production_companies.dart';
 import '../../details/presentation/widgets/movie_trailers_carousel.dart';
 import 'addon_providers.dart';
 import 'addon_sources_sheet.dart';
+import 'widgets/stremio_sources_card.dart';
 
 /// Detail page for an add-on catalog entry, styled to match the TMDB Details Screen.
 /// Metadata comes from a `meta` add-on, playback from `stream` add-ons.
@@ -258,10 +259,9 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
         ? tmdb!.tmdbCast
         : meta.castMembers;
 
-    final productionCompanies =
-        (tmdb?.productionCompanies.isNotEmpty == true)
-            ? tmdb!.productionCompanies
-            : meta.productionCompanies;
+    final productionCompanies = (tmdb?.productionCompanies.isNotEmpty == true)
+        ? tmdb!.productionCompanies
+        : meta.productionCompanies;
 
     final trailers = (tmdb?.tmdbTrailers.isNotEmpty == true)
         ? tmdb!.tmdbTrailers
@@ -465,7 +465,7 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
                           ),
                         ],
                         const SizedBox(height: 24),
-                        _buildPlayButton(context, meta),
+                        _buildSourcesCard(context, meta, compact: true),
                       ],
                     ),
                   ),
@@ -536,10 +536,9 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
         ? tmdb!.tmdbCast
         : meta.castMembers;
 
-    final productionCompanies =
-        (tmdb?.productionCompanies.isNotEmpty == true)
-            ? tmdb!.productionCompanies
-            : meta.productionCompanies;
+    final productionCompanies = (tmdb?.productionCompanies.isNotEmpty == true)
+        ? tmdb!.productionCompanies
+        : meta.productionCompanies;
 
     final trailers = (tmdb?.tmdbTrailers.isNotEmpty == true)
         ? tmdb!.tmdbTrailers
@@ -733,8 +732,7 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Play Button
-                _buildPlayButton(context, meta),
+                _buildSourcesCard(context, meta),
                 const SizedBox(height: 16),
 
                 // Metadata Row: [ADD-ON] [MOVIE/SERIES] Year Rating Runtime Seasons
@@ -855,9 +853,7 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
 
                 // Trailers Section
                 if (trailers.isNotEmpty) ...[
-                  MovieTrailersCarousel(
-                    trailers: trailers,
-                  ),
+                  MovieTrailersCarousel(trailers: trailers),
                   const SizedBox(height: 24),
                 ],
 
@@ -872,8 +868,17 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
     );
   }
 
-  Widget _buildPlayButton(BuildContext context, AddonMeta meta) {
-    final cs = Theme.of(context).colorScheme;
+  /// The Stremio source card, in the same place the "Play from add-ons"
+  /// button used to sit.
+  ///
+  /// [compact] follows the layout, not the device: the desktop hero draws it
+  /// inside a padded column of its own, where the card's container would be a
+  /// box inside a box.
+  Widget _buildSourcesCard(
+    BuildContext context,
+    AddonMeta meta, {
+    bool compact = false,
+  }) {
     final item = meta.toMultimediaItem();
 
     final seasons = meta.seasons;
@@ -882,69 +887,32 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
     final episodes = meta.episodesForSeason(activeSeason);
     final firstVideo = episodes.isNotEmpty ? episodes.first : null;
 
-    AddonStreamRequest requestFor({AddonVideo? video}) => AddonStreamRequest(
-      type: meta.isSeries ? 'series' : 'movie',
-      contentId: meta.id,
-      videoId: video?.id,
-      season: video?.season,
-      episode: video?.episode,
-      imdbId: meta.imdbId,
-    );
+    // A series resolves one episode - the first of the selected season - and
+    // the label says which. Anything else is reached from the episode list
+    // further down, which opens the same sheet per episode.
+    final isEpisode = meta.isSeries && firstVideo != null;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: DpadFocusable(
-        onSelect: () => AddonSourcesSheet.open(
-          context,
-          item: item,
-          request: requestFor(video: firstVideo),
-          episode: firstVideo?.toEpisode(),
-          playlist: meta.videos,
+    return StremioSourcesCard(
+      compact: compact,
+      episode: isEpisode
+          ? (
+              season: firstVideo.season ?? activeSeason,
+              episode: firstVideo.episode ?? 1,
+            )
+          : null,
+      onOpen: () => AddonSourcesSheet.open(
+        context,
+        item: item,
+        request: AddonStreamRequest(
+          type: meta.isSeries ? 'series' : 'movie',
+          contentId: meta.id,
+          videoId: firstVideo?.id,
+          season: firstVideo?.season,
+          episode: firstVideo?.episode,
+          imdbId: meta.imdbId,
         ),
-        child: const SizedBox.shrink(),
-        builder: (context, state, _) {
-          final isFocused = state.focused;
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: isFocused ? Colors.white : Colors.transparent,
-                width: 2.0,
-              ),
-            ),
-            child: FilledButton.icon(
-              onPressed: () => AddonSourcesSheet.open(
-                context,
-                item: item,
-                request: requestFor(video: firstVideo),
-                episode: firstVideo?.toEpisode(),
-                playlist: meta.videos,
-              ),
-              icon: const Icon(Icons.play_arrow_rounded, size: 24),
-              label: Text(
-                meta.videos.length > 1 && firstVideo != null
-                    ? 'Play S${firstVideo.season ?? 1} E${firstVideo.episode ?? 1}'
-                    : 'Play from add-ons',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: isFocused
-                    ? cs.primary
-                    : cs.primary.withValues(alpha: 0.9),
-                foregroundColor: cs.onPrimary,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 14,
-                ),
-                elevation: isFocused ? 6 : 2,
-              ),
-            ),
-          );
-        },
+        episode: firstVideo?.toEpisode(),
+        playlist: meta.videos,
       ),
     );
   }
@@ -1036,7 +1004,6 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
       ],
     );
   }
-
 
   Widget _buildSeasonsAndEpisodesSection(BuildContext context, AddonMeta meta) {
     final theme = Theme.of(context);

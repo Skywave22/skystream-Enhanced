@@ -1,6 +1,8 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../data/explore_language_provider.dart';
 
 class LanguageSelectorDialog extends ConsumerWidget {
@@ -142,12 +144,12 @@ class LanguageSelectorDialog extends ConsumerWidget {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: isSelected
-                                            ? Theme.of(
-                                                context,
-                                              ).colorScheme.onSurface
-                                            : Theme.of(
-                                                context,
-                                              ).colorScheme.onSurfaceVariant,
+                                            ? Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface
+                                            : Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
                                         fontWeight: FontWeight.bold,
                                         fontSize: 15,
                                       ),
@@ -158,12 +160,12 @@ class LanguageSelectorDialog extends ConsumerWidget {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: isSelected
-                                            ? Theme.of(
-                                                context,
-                                              ).colorScheme.onSurfaceVariant
-                                            : Theme.of(
-                                                context,
-                                              ).colorScheme.outline,
+                                            ? Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant
+                                            : Theme.of(context)
+                                                  .colorScheme
+                                                  .outline,
                                         fontSize: 12,
                                       ),
                                     ),

@@ -2,7 +2,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:skystream/features/player/presentation/widgets/hotstar_player_style.dart';
 import 'package:skystream/features/player/presentation/widgets/player_stream_widgets.dart';
 
 void main() {
@@ -55,21 +54,6 @@ void main() {
       )
       .map((c) => c.constraints!.maxHeight)
       .toList();
-
-  /// The focus ring: the outermost Container is the only decorated one.
-  BoxBorder? ring(WidgetTester tester) =>
-      (tester
-                  .widget<Container>(
-                    find
-                        .descendant(
-                          of: find.byType(PlayerSeekBar),
-                          matching: find.byType(Container),
-                        )
-                        .first,
-                  )
-                  .decoration
-              as BoxDecoration)
-          .border;
 
   testWidgets('mouse move over the track moves the hover line without '
       'rebuilding the scrubber', (tester) async {
@@ -140,32 +124,39 @@ void main() {
     expect(bandHeights(tester).last, 20, reason: 'the focused thumb');
   });
 
-  testWidgets('the focus ring is the accent every other control uses', (
-    tester,
-  ) async {
+  testWidgets('focus is the thumb swelling, and nothing is drawn around the '
+      'bar', (tester) async {
+    // The bar says it has the remote in the one place a viewer is looking:
+    // the thumb. There used to be a rounded accent rule around the whole
+    // width on top of that - a second, larger answer to a question the first
+    // had already answered, and on a ten-foot bar a 1200 dp box around a
+    // 20 dp cursor.
     final focus = FocusNode();
     addTearDown(focus.dispose);
 
     await pumpSeekBar(tester, focusNode: focus);
-    expect(
-      ring(tester),
-      Border.all(color: Colors.transparent, width: 2),
-      reason: 'unfocused, the ring only holds the space',
-    );
+    final resting = bandHeights(tester).last;
 
     focus.requestFocus();
     await tester.pump();
 
-    final theme = ThemeData();
     expect(
-      HotstarPlayerStyle.accent,
-      isNot(theme.colorScheme.primary),
-      reason: 'the bar used to ring itself in the Material seed colour',
+      bandHeights(tester).last,
+      greaterThan(resting),
+      reason: 'the thumb is the focus indicator',
     );
-    expect(
-      ring(tester),
-      Border.all(color: HotstarPlayerStyle.accent, width: 2),
-    );
+    for (final decorated in tester.widgetList<DecoratedBox>(
+      find.descendant(
+        of: find.byType(PlayerSeekBar),
+        matching: find.byType(DecoratedBox),
+      ),
+    )) {
+      expect(
+        (decorated.decoration as BoxDecoration).border,
+        isNull,
+        reason: 'nothing in the bar draws a border around itself',
+      );
+    }
   });
 
   // Without this the bar is invisible to a screen reader: no role, no

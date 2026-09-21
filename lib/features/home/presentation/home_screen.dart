@@ -1,14 +1,17 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'home_provider.dart';
 import 'home_state.dart';
+
 import 'package:skystream/features/home/presentation/widgets/continue_watching_section.dart';
 import 'package:skystream/features/search/presentation/search_provider.dart';
 import 'package:skystream/features/tracking/data/sync_manager.dart';
 import 'package:skystream/features/tracking/domain/sync_progress_item.dart';
 import 'package:skystream/features/home/presentation/widgets/synced_progress_section.dart';
 import 'package:skystream/features/library/presentation/history_provider.dart';
+
 import '../../settings/presentation/general_settings_provider.dart';
 import '../../explore/presentation/widgets/explore_carousel.dart';
 import '../../explore/presentation/widgets/media_horizontal_list.dart';
@@ -19,9 +22,11 @@ import '../../extensions/providers/extensions_controller.dart';
 import '../../../core/extensions/models/extension_plugin.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
+
 import 'package:skystream/core/extensions/extension_manager.dart';
 import 'package:skystream/core/extensions/base_provider.dart';
 import 'package:skystream/core/router/app_router.dart';
+
 import 'delegates/home_search_delegate.dart';
 import '../../../shared/widgets/cards_wrapper.dart';
 import '../../../shared/widgets/custom_widgets.dart';
@@ -29,7 +34,9 @@ import '../../../shared/widgets/shimmer_placeholder.dart';
 import '../../../../core/utils/layout_constants.dart';
 import '../../../../core/utils/responsive_breakpoints.dart';
 import '../../../../core/providers/device_info_provider.dart';
+
 import 'dart:async';
+
 import 'widgets/dashboard_header_bar.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -188,9 +195,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           // shows up on the perf overlay as a constant raster cost. Alpha
           // blending on a Container fill costs ~0.
           builder: (context, opacity, _) => Container(
-            color: Theme.of(
-              context,
-            ).scaffoldBackgroundColor.withValues(alpha: opacity),
+            color: Theme.of(context).scaffoldBackgroundColor
+                .withValues(alpha: opacity),
           ),
         ),
         title: Text(l10n.appTitle),
@@ -212,9 +218,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               },
               borderRadius: BorderRadius.circular(50),
               child: CircleAvatar(
-                backgroundColor: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: 0.1),
+                backgroundColor: Theme.of(context).colorScheme.onSurface
+                    .withValues(alpha: 0.1),
                 radius: 18,
                 child: Icon(
                   Icons.search,
@@ -241,9 +246,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     height: 36,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.1),
+                      color: Theme.of(context).colorScheme.onSurface
+                          .withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(50),
                     ),
                     child: Row(
@@ -360,9 +364,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     onControllerReady: (c) =>
                         setState(() => _carouselController = c),
                     onTap: (item) {
-                      DetailsRoute(
-                        $extra: DetailsRouteExtra(item: item),
-                      ).push<void>(context);
+                      DetailsRoute($extra: DetailsRouteExtra(item: item))
+                          .push<void>(context);
                     },
                   ),
                 )
@@ -375,9 +378,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     onControllerReady: (c) =>
                         setState(() => _carouselController = c),
                     onTap: (item) {
-                      DetailsRoute(
-                        $extra: DetailsRouteExtra(item: item),
-                      ).push<void>(context);
+                      DetailsRoute($extra: DetailsRouteExtra(item: item))
+                          .push<void>(context);
                     },
                   ),
                 )
@@ -395,7 +397,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   child: ContinueWatchingSection(
                     title: l10n.continueWatching,
                     items: history.cast<HistoryItem>(),
-                    topPadding: isWidescreen ? 0 : null,
                   ),
                 ),
 
@@ -426,9 +427,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       category: ViewAllCategory.providerContent,
                       showViewAll: true,
                       onTap: (item) {
-                        DetailsRoute(
-                          $extra: DetailsRouteExtra(item: item),
-                        ).push<void>(context);
+                        DetailsRoute($extra: DetailsRouteExtra(item: item))
+                            .push<void>(context);
                       },
                       heroTagPrefix: 'home',
                     );
@@ -552,9 +552,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             const SizedBox(height: 24),
             Text(
               isOffline ? l10n.noInternetConnection : l10n.siteNotReachable,
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             Text(
@@ -600,12 +599,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   icon: const Icon(Icons.download_for_offline_rounded),
                   label: Text(l10n.goToDownloads),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(
-                      context,
-                    ).colorScheme.secondaryContainer,
-                    foregroundColor: Theme.of(
-                      context,
-                    ).colorScheme.onSecondaryContainer,
+                    backgroundColor: Theme.of(context)
+                        .colorScheme
+                        .secondaryContainer,
+                    foregroundColor: Theme.of(context)
+                        .colorScheme
+                        .onSecondaryContainer,
                   ),
                 ),
               ],
@@ -634,9 +633,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               Icon(
                 Icons.extension_off_rounded,
                 size: 56,
-                color: Theme.of(
-                  context,
-                ).colorScheme.primary.withValues(alpha: 0.6),
+                color: Theme.of(context).colorScheme.primary
+                    .withValues(alpha: 0.6),
               ),
               const SizedBox(height: 16),
               Text(
@@ -1033,9 +1031,9 @@ class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
                                           vertical: 2,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.secondaryContainer,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .secondaryContainer,
                                           borderRadius: BorderRadius.circular(
                                             4,
                                           ),
@@ -1044,9 +1042,9 @@ class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
                                           pluginTag,
                                           style: TextStyle(
                                             fontSize: 10,
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSecondaryContainer,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSecondaryContainer,
                                             fontWeight: FontWeight.w500,
                                           ),
                                           maxLines: 1,

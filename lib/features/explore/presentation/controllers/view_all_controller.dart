@@ -1,4 +1,5 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../../../../core/domain/entity/multimedia_item.dart';
 import '../../data/explore_tmdb_provider.dart';
 import '../../data/explore_language_provider.dart';

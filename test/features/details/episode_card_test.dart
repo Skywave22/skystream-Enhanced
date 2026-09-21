@@ -211,9 +211,8 @@ Future<_Harness> _pumpCards(
         supportedLocales: AppLocalizations.supportedLocales,
         home: Builder(
           builder: (context) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(navigationMode: navigationMode),
+            data: MediaQuery.of(context)
+                .copyWith(navigationMode: navigationMode),
             child: Directionality(
               textDirection: textDirection,
               child: Scaffold(

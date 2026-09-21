@@ -2,6 +2,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/config/tmdb_config.dart';
 import '../../settings/presentation/widgets/settings_dialogs.dart';
 import '../../../shared/widgets/cards_wrapper.dart';
@@ -25,6 +26,7 @@ import '../../addons/presentation/addons_screen.dart';
 import 'widgets/explore_mode_selector_dialog.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../../core/router/app_router.dart';
+
 import 'dart:async';
 
 class ExploreScreen extends ConsumerStatefulWidget {
@@ -141,9 +143,8 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
             : SystemUiOverlayStyle.dark;
 
         return Scaffold(
-          backgroundColor: Theme.of(
-            context,
-          ).scaffoldBackgroundColor, // Base background
+          backgroundColor: Theme.of(context)
+              .scaffoldBackgroundColor, // Base background
           extendBodyBehindAppBar: true,
           appBar: AppBar(
             systemOverlayStyle: overlayStyle,
@@ -156,9 +157,8 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
               // than Opacity — same saveLayer-per-frame issue.
               builder: (context, opacity, child) {
                 return Container(
-                  color: Theme.of(
-                    context,
-                  ).scaffoldBackgroundColor.withValues(alpha: opacity),
+                  color: Theme.of(context).scaffoldBackgroundColor
+                      .withValues(alpha: opacity),
                 );
               },
             ),
@@ -184,9 +184,9 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
                     builder: (context, ref, _) {
                       final mode = ref.watch(exploreModeProvider);
                       final l10n = AppLocalizations.of(context)!;
-                      final onSurfaceColor = Theme.of(
-                        context,
-                      ).colorScheme.onSurface;
+                      final onSurfaceColor = Theme.of(context)
+                          .colorScheme
+                          .onSurface;
 
                       Widget iconWidget;
                       String tooltipMsg;
@@ -268,9 +268,8 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
                         child: CircleAvatar(
                           backgroundColor: (!isStremio && hasActiveFilter)
                               ? Theme.of(context).colorScheme.primary
-                              : Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.1),
+                              : Theme.of(context).colorScheme.onSurface
+                                    .withValues(alpha: 0.1),
                           radius: 18,
                           child: Icon(
                             isStremio
@@ -303,9 +302,8 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
                   },
                   borderRadius: BorderRadius.circular(50),
                   child: CircleAvatar(
-                    backgroundColor: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.1),
+                    backgroundColor: Theme.of(context).colorScheme.onSurface
+                        .withValues(alpha: 0.1),
                     radius: 18,
                     child: Icon(
                       Icons.search,
@@ -472,8 +470,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
         context,
         icon: Icons.cloud_off_rounded,
         title: l10n.siteNotReachable,
-        subtitle:
-            'Could not load Explore content. Check your internet connection or verify your TMDB API key.',
+        subtitle: 'Could not load Explore content. Check your internet connection or verify your TMDB API key.',
         errorDetails: firstError?.toString(),
         showApiKeyButton: true,
       );
@@ -617,9 +614,8 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen>
                   bottom: LayoutConstants.spacingLg,
                 ),
                 decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Center(
