@@ -125,7 +125,7 @@ Map<String, dynamic> _entry({
       'catalogs': const [
         {'type': 'movie', 'id': 'top', 'name': 'Top'},
       ],
-      if (behaviorHints != null) 'behaviorHints': behaviorHints,
+      ?'behaviorHints': behaviorHints,
     },
   };
 }
