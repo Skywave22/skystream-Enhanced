@@ -16,6 +16,17 @@ class AppLocalizationsPt extends AppLocalizations {
   String get languageName => 'Português';
 
   @override
+  String get addonHealthChecking => 'Checking add-on…';
+
+  @override
+  String addonHealthWorking(int ms) {
+    return 'Working · $ms ms';
+  }
+
+  @override
+  String get addonHealthUnavailable => 'Unavailable';
+
+  @override
   String get home => 'Início';
 
   @override

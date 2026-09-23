@@ -114,12 +114,29 @@ class AddonStreamProgress {
 /// Queries add-ons for streams. Add-on only — nothing in this file knows the
 /// plugin/extension system exists.
 class AddonStreamService {
-  AddonStreamService(this._client);
+  AddonStreamService(
+    this._client, {
+    Duration addonBudget = const Duration(seconds: 30),
+    Duration requestTimeout = const Duration(seconds: 20),
+  }) : _addonBudget = addonBudget,
+       _requestTimeout = requestTimeout;
 
   final AddonClient _client;
 
+  /// One request's ceiling. 20 s is deliberate: scraping add-ons (the
+  /// CNCVerse bridge measures ~20 s on /stream) sit just above the old
+  /// 18 s and were being clipped mid-answer.
+  final Duration _requestTimeout;
+
+  /// Hard stop for everything ONE add-on may spend before we move on. The
+  /// old (id x alias) fallback chain could burn 9+ request timeouts in a row
+  /// on a dead add-on (~160 s of a stalled worker slot). The budget keeps
+  /// the SAME request order and traffic profile, but a dying add-on is
+  /// abandoned after roughly one budget; the in-flight request is clamped
+  /// to whatever remains, so an add-on never overshoots its budget.
+  final Duration _addonBudget;
+
   static const int _maxConcurrent = 6;
-  static const Duration _perRequestTimeout = Duration(seconds: 18);
 
   /// Add-ons that can answer a `/stream` request at all. Catalog-only add-ons
   /// (Streaming Catalogs, Trakt lists…) are never asked.
@@ -185,9 +202,16 @@ class AddonStreamService {
       );
     }
 
-    /// One add-on: try every (id, type) combination until something answers.
+    /// One add-on: walk the (id, alias) fallbacks in priority order — the
+    /// add-on's own id first, IMDb next, tmdb last — until something answers.
+    /// The walk stops at the per-add-on budget: a dead add-on used to chain
+    /// up to a dozen request timeouts (~160 s) and hold its worker slot
+    /// hostage while better add-ons waited in the queue. Whichever fallback
+    /// WOULD have answered fires first anyway, so the budget only ever
+    /// truncates genuinely hanging hosts.
     Future<void> runOne(ManagedAddon addon) async {
       final manifest = addon.manifest!;
+      final stopwatch = Stopwatch()..start();
       String? lastError;
       var added = 0;
       var attempted = false;
@@ -196,7 +220,15 @@ class AddonStreamService {
       for (final id in ids) {
         if (!manifest.supportsId('stream', id)) continue;
         for (final type in manifest.requestTypesFor('stream', request.type)) {
+          final remaining = _addonBudget - stopwatch.elapsed;
+          if (remaining <= Duration.zero) {
+            lastError ??= 'add-on is taking too long to answer';
+            break outer;
+          }
           attempted = true;
+          final timeout = remaining < _requestTimeout
+              ? remaining
+              : _requestTimeout;
           try {
             final results = await _client
                 .streams(
@@ -206,7 +238,7 @@ class AddonStreamService {
                   forceRefresh: forceRefresh,
                   cancelToken: cancelToken,
                 )
-                .timeout(_perRequestTimeout);
+                .timeout(timeout);
             if (results.isEmpty) continue;
 
             for (final stream in results) {

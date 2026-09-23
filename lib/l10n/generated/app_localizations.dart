@@ -189,6 +189,24 @@ abstract class AppLocalizations {
   /// **'English'**
   String get languageName;
 
+  /// Manage tab, Stremio add-ons: the liveness probe for an installed add-on is still running.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking add-on…'**
+  String get addonHealthChecking;
+
+  /// Manage tab, Stremio add-ons: the add-on answered its manifest ping. {ms} is the round-trip latency in milliseconds.
+  ///
+  /// In en, this message translates to:
+  /// **'Working · {ms} ms'**
+  String addonHealthWorking(int ms);
+
+  /// Manage tab, Stremio add-ons: the add-on did not answer its manifest ping (offline, moved, or wrong URL).
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable'**
+  String get addonHealthUnavailable;
+
   /// No description provided for @home.
   ///
   /// In en, this message translates to:

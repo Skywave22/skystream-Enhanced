@@ -81,6 +81,24 @@ class _Entry {
   const _Entry(this.value, this.expiresAt);
 }
 
+/// Signatures of add-ons that trade in pirate streams. The community
+/// directory is largely subtitles/metadata/catalog utilities, but p2p and
+/// torrent catalog add-ons do appear in it; SkyStream does not surface those
+/// — they are the copyright problems that get unofficial directories and
+/// their users in trouble. (Note these are dropped from Discover only;
+/// nothing is blocked server-side, and anything already installed keeps
+/// working.)
+final RegExp _copyrightRiskPattern = RegExp(
+  r'(?:torrent|magnet|p2p|pirate(?:bay)?|yify|rarbg|1337x|1377x|kickass|eztv|limetorrent|h33t|iptv)',
+  caseSensitive: false,
+);
+
+bool _looksCopyrightRisky(AddonManifest manifest) {
+  if (manifest.behaviorHints.p2p) return true;
+  final haystack = '${manifest.id} ${manifest.name} ${manifest.description}';
+  return _copyrightRiskPattern.hasMatch(haystack);
+}
+
 /// Community add-on entry from Stremio's public collection.
 class CommunityAddon {
   final String transportUrl;
@@ -354,6 +372,14 @@ class AddonClient {
           );
           if (parsed.id.isEmpty || parsed.name.isEmpty) continue;
           if (!seenIds.add(parsed.id)) continue; // server duplicate
+          if (_looksCopyrightRisky(parsed)) {
+            if (kDebugMode) {
+              debugPrint(
+                '[AddonClient] copyright-risk add-on hidden: ${parsed.id}',
+              );
+            }
+            continue;
+          }
           out.add(CommunityAddon(transportUrl: transportUrl, manifest: parsed));
         } catch (error) {
           // One junk manifest must not sink the whole directory.

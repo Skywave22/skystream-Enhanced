@@ -9,8 +9,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/addons/data/addon_repository.dart';
 import '../../../../core/addons/data/debrid_service.dart';
 import '../../../../core/addons/models/addon_manifest.dart';
+import '../../../../l10n/generated/app_localizations.dart';
 import '../../../../shared/widgets/text_input_dialog.dart';
 import '../../../../shared/focus/app_focus.dart';
+import '../addon_providers.dart';
 
 /// One-tap starter add-ons, matching the official Stremio apps: the two
 /// official add-ons that work the moment they are installed — Cinemeta for
@@ -58,6 +60,13 @@ class AddonManageView extends ConsumerStatefulWidget {
 
 class _AddonManageViewState extends ConsumerState<AddonManageView> {
   final Set<String> _busy = {};
+
+  Future<void> _refreshAll() async {
+    // Re-fetch manifests and re-run the liveness badges together — a manual
+    // refresh is the moment the user expects honest status, not a cache hit.
+    await ref.read(addonRepositoryProvider.notifier).refreshAll();
+    ref.invalidate(addonHealthProvider);
+  }
 
   Future<void> _install(String url, {String? label}) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -127,8 +136,15 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(addonRepositoryProvider);
+    final healthAsync = ref.watch(addonHealthProvider);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final healthByUrl = healthAsync.value ?? const <String, AddonHealth>{};
+    // While the probe is running the tiles show "checking" — but the moment
+    // the probe errored as a whole (should not happen, it is one map) the
+    // badges simply hide rather than lying.
+    final healthProbing = healthAsync.isLoading;
+    final healthGone = healthAsync.hasError;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
@@ -154,9 +170,7 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
                       ),
                     ),
                     DpadFocusable(
-                      onSelect: () => unawaited(
-                        ref.read(addonRepositoryProvider.notifier).refreshAll(),
-                      ),
+                      onSelect: () => unawaited(_refreshAll()),
                       child: const SizedBox.shrink(),
                       builder: (context, focusState, _) {
                         final isFocused = focusState.focused;
@@ -173,11 +187,7 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
                           ),
                           child: IconButton(
                             tooltip: 'Refresh manifests',
-                            onPressed: () => unawaited(
-                              ref
-                                  .read(addonRepositoryProvider.notifier)
-                                  .refreshAll(),
-                            ),
+                            onPressed: () => unawaited(_refreshAll()),
                             icon: const Icon(Icons.refresh_rounded),
                           ),
                         );
@@ -322,6 +332,10 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
             index: i,
             isFirst: i == 0,
             isLast: i == state.addons.length - 1,
+            health: healthGone
+                ? null
+                : healthByUrl[state.addons[i].manifestUrl],
+            healthProbing: !healthGone && healthProbing,
             onToggle: (value) => unawaited(
               ref
                   .read(addonRepositoryProvider.notifier)
@@ -362,6 +376,10 @@ class _AddonTile extends StatefulWidget {
   final int index;
   final bool isFirst;
   final bool isLast;
+
+  /// Liveness verdict from [addonHealthProvider] — null while probing.
+  final AddonHealth? health;
+  final bool healthProbing;
   final ValueChanged<bool> onToggle;
   final VoidCallback onRemove;
   final Future<void> Function() onConfigure;
@@ -374,6 +392,8 @@ class _AddonTile extends StatefulWidget {
     required this.index,
     required this.isFirst,
     required this.isLast,
+    required this.health,
+    required this.healthProbing,
     required this.onToggle,
     required this.onRemove,
     required this.onConfigure,
@@ -515,6 +535,14 @@ class _AddonTileState extends State<_AddonTile> {
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: cs.error,
                                 ),
+                              ),
+                            )
+                          else
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: _HealthBadge(
+                                health: widget.health,
+                                probing: widget.healthProbing,
                               ),
                             ),
                           const SizedBox(height: 6),
@@ -1085,6 +1113,67 @@ class _DebridCardState extends ConsumerState<_DebridCard> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Small Nuvio-style liveness line for one installed add-on: coloured dot +
+/// "Working · 340 ms" / "Unavailable" / "Checking add-on…". Every string runs
+/// through AppLocalizations — the hardcoded-strings gate polices this file.
+class _HealthBadge extends StatelessWidget {
+  final AddonHealth? health;
+  final bool probing;
+
+  const _HealthBadge({required this.health, required this.probing});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final Color color;
+    final IconData icon;
+    final String label;
+    final health = this.health;
+    if (health == null) {
+      if (!probing) return const SizedBox.shrink();
+      color = cs.onSurfaceVariant;
+      icon = Icons.hourglass_top_rounded;
+      label = l10n.addonHealthChecking;
+    } else {
+      switch (health.status) {
+        case AddonHealthStatus.working:
+          color = const Color(0xFF4CAF50);
+          icon = Icons.check_circle_rounded;
+          label = l10n.addonHealthWorking(health.latencyMs ?? 0);
+        case AddonHealthStatus.unavailable:
+          color = cs.error;
+          icon = Icons.error_rounded;
+          label = l10n.addonHealthUnavailable;
+      }
+    }
+
+    return Semantics(
+      label: label,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

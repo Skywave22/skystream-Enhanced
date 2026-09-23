@@ -78,31 +78,69 @@ void main() {
       expect(entries.single.manifest.behaviorHints.configurable, true);
     });
 
-    test('a failure throws, and is never cached as an empty directory', () async {
-      final adapter = _StubAdapter(
-        payload: <Object?>[_entry(id: 'org.example.alive', name: 'Alive')],
-        failing: true,
-      );
-      final client = _client(adapter);
+    test(
+      'a failure throws, and is never cached as an empty directory',
+      () async {
+        final adapter = _StubAdapter(
+          payload: <Object?>[_entry(id: 'org.example.alive', name: 'Alive')],
+          failing: true,
+        );
+        final client = _client(adapter);
 
-      await expectLater(client.communityAddons(), throwsA(anything));
+        await expectLater(client.communityAddons(), throwsA(anything));
 
-      // Recovery must be immediate, not after a three-hour empty-list cache.
-      adapter.failing = false;
-      final entries = await client.communityAddons();
-      expect(entries.single.manifest.id, 'org.example.alive');
+        // Recovery must be immediate, not after a three-hour empty-list cache.
+        adapter.failing = false;
+        final entries = await client.communityAddons();
+        expect(entries.single.manifest.id, 'org.example.alive');
 
-      // …while a real result IS cached, so the TTL still does its job.
-      adapter.requestCount = 0;
-      await client.communityAddons();
-      expect(adapter.requestCount, 0);
-    });
+        // …while a real result IS cached, so the TTL still does its job.
+        adapter.requestCount = 0;
+        await client.communityAddons();
+        expect(adapter.requestCount, 0);
+      },
+    );
 
     test('a healthy response with no usable entries throws', () async {
       final adapter = _StubAdapter(payload: <Object?>['garbage']);
       final client = _client(adapter);
 
       expect(client.communityAddons(), throwsA(isA<AddonException>()));
+    });
+
+    test('hides p2p and pirate catalog add-ons — copyright risk', () async {
+      // The live collection really ships entries like "Top Seeded Torrent
+      // Catalogs"; Discover must never surface them, whatever the server
+      // does. Everything else passes through untouched.
+      final adapter = _StubAdapter(
+        payload: <Object?>[
+          _entry(id: 'com.stremio.opensubtitlesv3', name: 'OpenSubtitles v3'),
+          _entry(
+            id: 'org.tornet.catalogs',
+            name: 'Torrent Catalogs',
+            behaviorHints: {'p2p': true, 'configurable': false},
+          ),
+          _entry(id: 'io.strem.seeded', name: 'Top Seeded Torrent Catalogs'),
+          _entry(id: 'club.magnet.indexer', name: 'Magnet Indexer'),
+          _entry(
+            id: 'com.example.p2p-flag',
+            name: 'Innocent Name',
+            behaviorHints: {'p2p': true},
+          ),
+          _entry(id: 'com.example.trakt-tv', name: 'Trakt Tv'),
+        ],
+      );
+      final client = _client(adapter);
+
+      final entries = await client.communityAddons();
+
+      expect(
+        entries.map((e) => e.manifest.id),
+        ['com.stremio.opensubtitlesv3', 'com.example.trakt-tv'],
+        reason:
+            'p2p flag and torrent/pirate naming are dropped, safe '
+            'entries (Trakt, OpenSubtitles) survive',
+      );
     });
   });
 }
@@ -125,7 +163,7 @@ Map<String, dynamic> _entry({
       'catalogs': const [
         {'type': 'movie', 'id': 'top', 'name': 'Top'},
       ],
-      ?'behaviorHints': behaviorHints,
+      'behaviorHints': ?behaviorHints,
     },
   };
 }

@@ -16,6 +16,17 @@ class AppLocalizationsBe extends AppLocalizations {
   String get languageName => 'Беларуская';
 
   @override
+  String get addonHealthChecking => 'Checking add-on…';
+
+  @override
+  String addonHealthWorking(int ms) {
+    return 'Working · $ms ms';
+  }
+
+  @override
+  String get addonHealthUnavailable => 'Unavailable';
+
+  @override
   String get home => 'Галоўная';
 
   @override

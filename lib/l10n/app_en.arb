@@ -2,6 +2,24 @@
   "@@locale": "en",
   "appTitle": "SkyStream",
   "languageName": "English",
+  "addonHealthChecking": "Checking add-on…",
+  "@addonHealthChecking": {
+    "description": "Manage tab, Stremio add-ons: the liveness probe for an installed add-on is still running."
+  },
+  "addonHealthWorking": "Working · {ms} ms",
+  "@addonHealthWorking": {
+    "description": "Manage tab, Stremio add-ons: the add-on answered its manifest ping. {ms} is the round-trip latency in milliseconds.",
+    "placeholders": {
+      "ms": {
+        "type": "int",
+        "example": "340"
+      }
+    }
+  },
+  "addonHealthUnavailable": "Unavailable",
+  "@addonHealthUnavailable": {
+    "description": "Manage tab, Stremio add-ons: the add-on did not answer its manifest ping (offline, moved, or wrong URL)."
+  },
   "home": "Home",
   "search": "Search",
   "explore": "Explore",

@@ -16,6 +16,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get languageName => '简体中文';
 
   @override
+  String get addonHealthChecking => 'Checking add-on…';
+
+  @override
+  String addonHealthWorking(int ms) {
+    return 'Working · $ms ms';
+  }
+
+  @override
+  String get addonHealthUnavailable => 'Unavailable';
+
+  @override
   String get home => '首页';
 
   @override
