@@ -1491,6 +1491,30 @@ abstract class AppLocalizations {
   /// **'Install'**
   String get install;
 
+  /// No description provided for @discoverSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search community add-ons'**
+  String get discoverSearchHint;
+
+  /// No description provided for @discoverClearSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get discoverClearSearch;
+
+  /// No description provided for @discoverNeedsWebSetup.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs quick setup on the add-on\'s website'**
+  String get discoverNeedsWebSetup;
+
+  /// No description provided for @discoverOpenSetup.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up on the add-on website'**
+  String get discoverOpenSetup;
+
   /// No description provided for @error.
   ///
   /// In en, this message translates to:

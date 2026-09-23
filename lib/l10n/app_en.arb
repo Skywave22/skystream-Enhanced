@@ -328,6 +328,10 @@
     }
   },
   "install": "Install",
+  "discoverSearchHint": "Search community add-ons",
+  "discoverClearSearch": "Clear",
+  "discoverNeedsWebSetup": "Needs quick setup on the add-on's website",
+  "discoverOpenSetup": "Set up on the add-on website",
   "error": "Error",
   "ok": "OK",
   "pluginSettings": "{pluginName} Settings",

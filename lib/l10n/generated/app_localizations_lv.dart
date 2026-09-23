@@ -729,6 +729,19 @@ class AppLocalizationsLv extends AppLocalizations {
   String get install => 'Instalēt';
 
   @override
+  String get discoverSearchHint => 'Search community add-ons';
+
+  @override
+  String get discoverClearSearch => 'Clear';
+
+  @override
+  String get discoverNeedsWebSetup =>
+      'Needs quick setup on the add-on\'s website';
+
+  @override
+  String get discoverOpenSetup => 'Set up on the add-on website';
+
+  @override
   String get error => 'Kļūda';
 
   @override

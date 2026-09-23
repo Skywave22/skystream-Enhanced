@@ -307,6 +307,18 @@ class AddonClient {
   }
 
   /// Stremio's official community collection, used by the Discover tab.
+  ///
+  /// This is the same `api.strem.io/addonscollection.json` the official
+  /// Stremio apps render as their Community add-ons page, so what the
+  /// Discover tab shows tracks what a Play Store Stremio install shows.
+  ///
+  /// Failure handling is deliberate: a failed request throws (the Discover
+  /// tab shows an error row with a retry) and, because it throws, it is NOT
+  /// cached — the old code swallowed errors into an empty list and cached
+  /// that for three hours, leaving the directory dead for hours after a
+  /// single offline blip. Individual broken entries are skipped instead,
+  /// with duplicates by manifest id folded (the server occasionally lists
+  /// the same add-on twice, e.g. community.trakt-tv).
   Future<List<CommunityAddon>> communityAddons({
     bool forceRefresh = false,
   }) async {
@@ -314,34 +326,46 @@ class AddonClient {
     if (forceRefresh) _cache.invalidatePrefix(key);
 
     return _cache.run(key, const Duration(hours: 3), () async {
-      try {
-        final response = await _dio.get<dynamic>(
-          'https://api.strem.io/addonscollection.json',
-          options: _options(_slow),
+      final response = await _dio.get<dynamic>(
+        'https://api.strem.io/addonscollection.json',
+        options: _options(_slow),
+      );
+      final data = response.data;
+      if (data is! List) {
+        throw const AddonException(
+          'The add-on directory returned an unexpected response.',
         );
-        final data = response.data;
-        if (data is! List) return const <CommunityAddon>[];
-        final out = <CommunityAddon>[];
-        for (final entry in data) {
-          if (entry is! Map) continue;
+      }
+      final out = <CommunityAddon>[];
+      final seenIds = <String>{};
+      for (final entry in data) {
+        if (entry is! Map) continue;
+        try {
           final map = Map<String, dynamic>.from(entry);
           final transportUrl = map['transportUrl'] as String?;
           final manifest = map['manifest'];
-          if (transportUrl == null || manifest is! Map) continue;
-          out.add(
-            CommunityAddon(
-              transportUrl: transportUrl,
-              manifest: AddonManifest.fromJson(
-                Map<String, dynamic>.from(manifest),
-              ),
-            ),
+          if (transportUrl == null ||
+              transportUrl.isEmpty ||
+              manifest is! Map) {
+            continue;
+          }
+          final parsed = AddonManifest.fromJson(
+            Map<String, dynamic>.from(manifest),
           );
+          if (parsed.id.isEmpty || parsed.name.isEmpty) continue;
+          if (!seenIds.add(parsed.id)) continue; // server duplicate
+          out.add(CommunityAddon(transportUrl: transportUrl, manifest: parsed));
+        } catch (error) {
+          // One junk manifest must not sink the whole directory.
+          if (kDebugMode) {
+            debugPrint('[AddonClient] community entry skipped: $error');
+          }
         }
-        return out;
-      } catch (error) {
-        if (kDebugMode) debugPrint('[AddonClient] community list: $error');
-        return const <CommunityAddon>[];
       }
+      if (out.isEmpty) {
+        throw const AddonException('The add-on directory returned nothing.');
+      }
+      return out;
     });
   }
 

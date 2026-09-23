@@ -12,8 +12,10 @@ import '../../../../core/addons/models/addon_manifest.dart';
 import '../../../../shared/widgets/text_input_dialog.dart';
 import '../../../../shared/focus/app_focus.dart';
 
-/// One-tap starter add-ons: catalogs, streams and subtitles, so a fresh
-/// install can be useful in three taps.
+/// One-tap starter add-ons, matching the official Stremio apps: the two
+/// official add-ons that work the moment they are installed — Cinemeta for
+/// catalogs and metadata, OpenSubtitles v3 for subtitles. Everything else
+/// lives in the community directory on the Discover tab.
 class AddonPreset {
   final String name;
   final String description;
@@ -28,9 +30,9 @@ class AddonPreset {
   });
 }
 
-/// Curated starters. The mix matters: a catalog add-on to browse, a torrent
-/// add-on for links, a deep-link add-on for the streaming services themselves,
-/// and subtitles.
+/// The official add-ons, like the official Stremio client shows them. The
+/// community add-ons (Torrentio, Comet, MediaFusion…) are intentionally not
+/// repeated here — the Discover tab is their home.
 const List<AddonPreset> kAddonPresets = [
   AddonPreset(
     name: 'Cinemeta',
@@ -39,40 +41,10 @@ const List<AddonPreset> kAddonPresets = [
     icon: Icons.movie_filter_rounded,
   ),
   AddonPreset(
-    name: 'Torrentio',
-    description: 'Torrent streams from public trackers',
-    url: 'https://torrentio.strem.fun/manifest.json',
-    icon: Icons.bolt_rounded,
-  ),
-  AddonPreset(
     name: 'OpenSubtitles v3',
     description: 'Subtitles in 60+ languages',
     url: 'https://opensubtitles-v3.strem.io/manifest.json',
     icon: Icons.subtitles_rounded,
-  ),
-  AddonPreset(
-    name: 'WatchHub',
-    description: 'Where to watch: Netflix, Prime, Plex… (opens the service)',
-    url: 'https://watchhub.strem.io/manifest.json',
-    icon: Icons.open_in_new_rounded,
-  ),
-  AddonPreset(
-    name: 'MediaFusion',
-    description: 'Streams from many sources, debrid-friendly',
-    url: 'https://mediafusion.elfhosted.com/manifest.json',
-    icon: Icons.hub_rounded,
-  ),
-  AddonPreset(
-    name: 'Comet',
-    description: 'Torrent + debrid streams',
-    url: 'https://comet.elfhosted.com/manifest.json',
-    icon: Icons.bolt_outlined,
-  ),
-  AddonPreset(
-    name: 'Streaming Catalogs',
-    description: 'Netflix, Disney+, HBO… catalogs (browse only, no streams)',
-    url: 'https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/manifest.json',
-    icon: Icons.grid_view_rounded,
   ),
 ];
 
