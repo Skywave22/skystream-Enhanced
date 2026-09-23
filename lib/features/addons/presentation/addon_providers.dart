@@ -222,11 +222,11 @@ class AddonHealth {
   /// Why the probe failed (timeout, HTTP error, …), for debugging.
   final String? message;
 
-  const AddonHealth.working(int this.latencyMs)
+  const AddonHealth.working(this.latencyMs)
     : status = AddonHealthStatus.working,
       message = null;
 
-  const AddonHealth.unavailable(String? this.message)
+  const AddonHealth.unavailable(this.message)
     : status = AddonHealthStatus.unavailable,
       latencyMs = null;
 }
