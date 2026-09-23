@@ -236,11 +236,6 @@ Future<ResolvedPlayback> resolvePlayback({
   List<StreamResult>? preloadedStreams,
   int probeCandidates = 3,
   Duration probeBudget = kProbeBudget,
-  /// When true, open the first preloaded stream immediately — no health-check
-  /// race. Used by the source sheets after the viewer already picked a row;
-  /// the "Checking… / Opening…" delay is the thing that felt stuck on tap.
-  /// Failover and the in-player Sources panel still probe in the background.
-  bool openFirstImmediately = false,
   bool Function()? isCancelled,
   void Function(List<StreamResult> streams)? onCandidates,
   void Function(int index, ProbeOutcome outcome)? onProbe,
@@ -268,6 +263,7 @@ Future<ResolvedPlayback> resolvePlayback({
   // A list handed in is a choice the viewer already made: the sheets put the
   // tapped source first and have ranked the rest themselves.
   final handPicked = preloaded.isNotEmpty;
+
   List<StreamResult> raw;
   if (handPicked) {
     raw = preloaded;
@@ -299,18 +295,6 @@ Future<ResolvedPlayback> resolvePlayback({
     throw const StreamResolutionException(StreamResolutionFailure.noStreams);
   }
   onCandidates?.call(streams);
-
-  // Source sheets put the tapped row first and ask us not to re-probe it —
-  // the viewer already chose. Opening index 0 skips the "Checking…" /
-  // "Opening…" race that otherwise delayed every tap by up to the probe
-  // budget. Failover and the in-player Sources panel still check the rest.
-  if (handPicked && openFirstImmediately) {
-    return ResolvedPlayback(
-      streams: streams,
-      index: 0,
-      qualityFilteredFallback: didFallback,
-    );
-  }
 
   final saved = handPicked ? 0 : _savedStreamIndex(read, item, streams);
   final index = probeCandidates <= 1

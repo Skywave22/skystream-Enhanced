@@ -16,7 +16,7 @@ AddonStreamService addonStreamService(Ref ref) =>
 
 /// Everything needed to ask add-ons for links to one movie/episode.
 class AddonStreamRequest {
-  /// `movie` or `series`.
+  /// `movie`, `series`, `other`, `tv`, …
   final String type;
 
   /// The id of the meta item the user opened (`tt0111161`, `kitsu:1376`…).
@@ -116,29 +116,27 @@ class AddonStreamProgress {
 class AddonStreamService {
   AddonStreamService(
     this._client, {
-    Duration addonBudget = const Duration(seconds: 30),
-    Duration requestTimeout = const Duration(seconds: 20),
+    Duration addonBudget = const Duration(seconds: 25),
+    Duration requestTimeout = const Duration(seconds: 18),
   }) : _addonBudget = addonBudget,
        _requestTimeout = requestTimeout;
 
   final AddonClient _client;
 
-  /// One request's ceiling. 20 s is deliberate: scraping add-ons (the
-  /// CNCVerse bridge measures ~20 s on /stream) sit just above the old
-  /// 18 s and were being clipped mid-answer.
+  /// One request's ceiling. Scraping bridges (CNCVerse ~15–20 s on /stream)
+  /// need headroom; empty/fast add-ons finish in well under a second.
   final Duration _requestTimeout;
 
-  /// Hard stop for everything ONE add-on may spend before we move on. The
-  /// old (id x alias) fallback chain could burn 9+ request timeouts in a row
-  /// on a dead add-on (~160 s of a stalled worker slot). The budget keeps
-  /// the SAME request order and traffic profile, but a dying add-on is
-  /// abandoned after roughly one budget; the in-flight request is clamped
-  /// to whatever remains, so an add-on never overshoots its budget.
+  /// Hard stop for everything ONE add-on may spend. Dead hosts used to chain
+  /// id×alias timeouts (~160 s) and stall the queue; the budget abandons them
+  /// so healthy add-ons keep answering.
   final Duration _addonBudget;
 
-  // More workers = links surface sooner when many add-ons are installed.
-  // Cap stays well under typical mobile connection limits.
-  static const int _maxConcurrent = 8;
+  /// Fan out every installed stream add-on at once. Partial results already
+  /// stream into the sheet as each one answers — serialising them only made
+  /// the slowest add-on gate everyone else. Cap is a safety net for users
+  /// with huge collections; typical installs are well under it.
+  static const int _maxConcurrent = 24;
 
   /// Add-ons that can answer a `/stream` request at all. Catalog-only add-ons
   /// (Streaming Catalogs, Trakt lists…) are never asked.
@@ -204,13 +202,114 @@ class AddonStreamService {
       );
     }
 
-    /// One add-on: walk the (id, alias) fallbacks in priority order — the
-    /// add-on's own id first, IMDb next, tmdb last — until something answers.
-    /// The walk stops at the per-add-on budget: a dead add-on used to chain
-    /// up to a dozen request timeouts (~160 s) and hold its worker slot
-    /// hostage while better add-ons waited in the queue. Whichever fallback
-    /// WOULD have answered fires first anyway, so the budget only ever
-    /// truncates genuinely hanging hosts.
+    Future<List<AddonStreamSource>> _ask({
+      required ManagedAddon addon,
+      required String type,
+      required String id,
+      required Duration timeout,
+    }) {
+      return _client
+          .streams(
+            addon,
+            type: type,
+            id: id,
+            forceRefresh: forceRefresh,
+            cancelToken: cancelToken,
+          )
+          .timeout(timeout);
+    }
+
+    /// Try [types] for one id.
+    ///
+    /// The first (preferred) type is asked alone so a healthy add-on still
+    /// costs exactly one request. Only if that comes back empty do the
+    /// remaining aliases race in parallel — a CNCVerse `other` miss then
+    /// discovers `movie` without waiting out every alias one-by-one.
+    Future<List<AddonStreamSource>> _typesForId({
+      required ManagedAddon addon,
+      required String id,
+      required List<String> types,
+      required Duration timeout,
+    }) async {
+      if (types.isEmpty) return const [];
+
+      Object? lastError;
+
+      try {
+        final primary = await _ask(
+          addon: addon,
+          type: types.first,
+          id: id,
+          timeout: timeout,
+        );
+        if (primary.isNotEmpty) return primary;
+      } catch (error) {
+        // A timeout/network error on the preferred type means the host is
+        // struggling — racing aliases against the same dead socket only burns
+        // the budget. Surface the failure and let the next id (or add-on)
+        // take over.
+        if (kDebugMode) {
+          debugPrint(
+            '[AddonStreamService] ${addon.displayName} '
+            '${types.first}/$id: $error',
+          );
+        }
+        throw error is Exception ? error : Exception('$error');
+      }
+
+      // Preferred type answered empty. Race the remaining aliases so a
+      // CNCVerse-style `other` miss can still discover `movie` quickly.
+      final rest = types.skip(1).toList(growable: false);
+      if (rest.isEmpty) {
+        return const [];
+      }
+
+      final completer = Completer<List<AddonStreamSource>>();
+      var pending = rest.length;
+
+      void finishEmpty() {
+        if (!completer.isCompleted) {
+          completer.complete(const <AddonStreamSource>[]);
+        }
+      }
+
+      for (final type in rest) {
+        unawaited(() async {
+          try {
+            final results = await _ask(
+              addon: addon,
+              type: type,
+              id: id,
+              timeout: timeout,
+            );
+            if (results.isNotEmpty && !completer.isCompleted) {
+              completer.complete(results);
+              return;
+            }
+          } catch (error) {
+            lastError = error;
+            if (kDebugMode) {
+              debugPrint(
+                '[AddonStreamService] ${addon.displayName} $type/$id: $error',
+              );
+            }
+          } finally {
+            pending--;
+            if (pending == 0) finishEmpty();
+          }
+        }());
+      }
+
+      final won = await completer.future;
+      if (won.isEmpty && lastError != null) {
+        final error = lastError!;
+        throw error is Exception ? error : Exception('$error');
+      }
+      return won;
+    }
+
+    /// One add-on: walk id candidates in priority order. Stops at the first
+    /// id that returns links, or when the per-add-on budget is spent.
     Future<void> runOne(ManagedAddon addon) async {
       final manifest = addon.manifest!;
       final stopwatch = Stopwatch()..start();
@@ -218,47 +317,40 @@ class AddonStreamService {
       var added = 0;
       var attempted = false;
 
-      outer:
       for (final id in ids) {
         if (!manifest.supportsId('stream', id)) continue;
-        for (final type in manifest.requestTypesFor('stream', request.type)) {
-          final remaining = _addonBudget - stopwatch.elapsed;
-          if (remaining <= Duration.zero) {
-            lastError ??= 'add-on is taking too long to answer';
-            break outer;
-          }
-          attempted = true;
-          final timeout = remaining < _requestTimeout
-              ? remaining
-              : _requestTimeout;
-          try {
-            final results = await _client
-                .streams(
-                  addon,
-                  type: type,
-                  id: id,
-                  forceRefresh: forceRefresh,
-                  cancelToken: cancelToken,
-                )
-                .timeout(timeout);
-            if (results.isEmpty) continue;
+        final types = manifest.requestTypesFor('stream', request.type);
+        if (types.isEmpty) continue;
 
-            for (final stream in results) {
-              if (!seen.add(stream.dedupeKey)) continue;
-              streams.add(stream);
-              added++;
-            }
-            break outer;
-          } catch (error) {
-            lastError = error is DioException
-                ? (error.message ?? error.type.name)
-                : error.toString();
-            if (kDebugMode) {
-              debugPrint(
-                '[AddonStreamService] ${addon.displayName} $type/$id: $error',
-              );
-            }
+        final remaining = _addonBudget - stopwatch.elapsed;
+        if (remaining <= Duration.zero) {
+          lastError ??= 'add-on is taking too long to answer';
+          break;
+        }
+        attempted = true;
+        final timeout = remaining < _requestTimeout
+            ? remaining
+            : _requestTimeout;
+
+        try {
+          final results = await _typesForId(
+            addon: addon,
+            id: id,
+            types: types,
+            timeout: timeout,
+          );
+          if (results.isEmpty) continue;
+
+          for (final stream in results) {
+            if (!seen.add(stream.dedupeKey)) continue;
+            streams.add(stream);
+            added++;
           }
+          break;
+        } catch (error) {
+          lastError = error is DioException
+              ? (error.message ?? error.type.name)
+              : error.toString();
         }
       }
 
@@ -282,12 +374,19 @@ class AddonStreamService {
     }
 
     unawaited(() async {
+      // Every stream add-on runs now (up to the cap). Links surface the
+      // moment each one answers — the sheet never waits on the slowest
+      // host before showing the fast ones.
       final queue = List<ManagedAddon>.of(providers);
+      final workerCount =
+          providers.length < _maxConcurrent ? providers.length : _maxConcurrent;
       final workers = List.generate(
-        providers.length < _maxConcurrent ? providers.length : _maxConcurrent,
+        workerCount,
         (_) => Future(() async {
-          while (queue.isNotEmpty) {
-            await runOne(queue.removeAt(0));
+          while (true) {
+            if (queue.isEmpty) return;
+            final next = queue.removeAt(0);
+            await runOne(next);
           }
         }),
       );

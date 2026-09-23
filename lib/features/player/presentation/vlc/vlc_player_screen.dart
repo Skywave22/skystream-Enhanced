@@ -66,7 +66,6 @@ class VlcPlayerScreen extends ConsumerStatefulWidget {
     required this.videoUrl,
     this.episode,
     this.preloadedStreams,
-    this.openFirstImmediately = false,
     super.key,
   });
 
@@ -80,9 +79,6 @@ class VlcPlayerScreen extends ConsumerStatefulWidget {
   /// Sources already aggregated by a source sheet. When present, no plugin
   /// call is made.
   final List<StreamResult>? preloadedStreams;
-
-  /// Skip the startup health race and open the first preloaded source now.
-  final bool openFirstImmediately;
 
   @override
   ConsumerState<VlcPlayerScreen> createState() => _VlcPlayerScreenState();
@@ -867,7 +863,6 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
         item: widget.item,
         videoUrl: _videoUrl,
         preloadedStreams: _preloaded,
-        openFirstImmediately: widget.openFirstImmediately,
         isCancelled: () => _disposed,
         onCandidates: (streams) => _onCandidates(generation, streams),
         onProbe: (index, outcome) => _onProbe(generation, index, outcome),

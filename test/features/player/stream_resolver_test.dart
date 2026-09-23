@@ -187,29 +187,6 @@ void main() {
       expect(resolved.selected.url, 'https://cdn.example/720.mp4');
     });
 
-    // The source sheet already put the tapped row first. Re-running the
-    // health race is the "Checking… / Opening…" delay on every Play tap.
-    test('openFirstImmediately skips the health race', () async {
-      final events = <String>[];
-      final resolved = await resolvePlayback(
-        read: readerWith(const PlayerSettings()),
-        item: itemWith(),
-        videoUrl: 'https://example.com/episode/1',
-        // Schemeless tokens would fail a real probe — proving we never asked.
-        preloadedStreams: [
-          streamAt('nothing-here-tapped', '720p'),
-          streamAt('/sources/healthy.mkv', '1080p'),
-        ],
-        openFirstImmediately: true,
-        probeCandidates: 3,
-        onProbe: (index, outcome) => events.add('$index:${outcome.name}'),
-      );
-
-      expect(resolved.index, 0);
-      expect(resolved.selected.url, 'nothing-here-tapped');
-      expect(events, isEmpty, reason: 'no probe was dispatched');
-    });
-
     // atOrAbove used to drop the tapped row out of the list altogether, so it
     // was not even reachable from the player's Sources tab afterwards.
     test('is not filtered out of its own candidate list', () async {

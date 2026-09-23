@@ -144,7 +144,6 @@ class PlaybackLauncher {
     String videoUrl, {
     Episode? episode,
     List<StreamResult> preloadedStreams = const <StreamResult>[],
-    bool openFirstImmediately = false,
   }) {
     return PlayerRoute(
       $extra: PlayerRouteExtra(
@@ -152,10 +151,6 @@ class PlaybackLauncher {
         videoUrl: videoUrl,
         episode: episode,
         preloadedStreams: preloadedStreams.isEmpty ? null : preloadedStreams,
-        // A non-empty preloaded list means the viewer already tapped a row on
-        // a source sheet — open that row without the health-check race.
-        openFirstImmediately:
-            openFirstImmediately || preloadedStreams.isNotEmpty,
       ),
     ).push<void>(context);
   }
