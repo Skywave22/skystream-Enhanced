@@ -136,7 +136,9 @@ class AddonStreamService {
   /// to whatever remains, so an add-on never overshoots its budget.
   final Duration _addonBudget;
 
-  static const int _maxConcurrent = 6;
+  // More workers = links surface sooner when many add-ons are installed.
+  // Cap stays well under typical mobile connection limits.
+  static const int _maxConcurrent = 8;
 
   /// Add-ons that can answer a `/stream` request at all. Catalog-only add-ons
   /// (Streaming Catalogs, Trakt lists…) are never asked.

@@ -285,6 +285,10 @@ class AddonManifest {
 
   /// Type aliases, following ARVIO: add-ons are inconsistent about whether a
   /// show is `series`, `tv` or `show`.
+  ///
+  /// `other` is a Stremio-legal catch-all used by multi-provider scrapers
+  /// (CNCVerse bridges, MovieBox aggregators). Keep it first so the add-on's
+  /// own type is asked before any movie/series fallback.
   static List<String> typeAliases(String type) {
     final normalized = type.toLowerCase();
     if (normalized == 'series' || normalized == 'tv' || normalized == 'show') {
@@ -292,6 +296,11 @@ class AddonManifest {
     }
     if (normalized == 'movie' || normalized == 'film') {
       return const ['movie', 'film'];
+    }
+    if (normalized == 'other') {
+      // Prefer the declared type, then try the two canonical ones — some
+      // bridges accept both `other` and `movie` for the same id.
+      return const ['other', 'movie', 'series'];
     }
     return [normalized];
   }

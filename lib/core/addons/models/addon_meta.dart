@@ -95,6 +95,19 @@ class AddonMetaPreview {
 
   bool get isSeries => type == 'series' || type == 'tv' || type == 'show';
 
+  /// Type string handed to `/stream/{type}/{id}` requests.
+  ///
+  /// Canonical Stremio types are `movie` / `series`. Scraping bridges
+  /// (CNCVerse, MovieBox multi-provider manifests, …) publish catalogs as
+  /// `other` or `tv` and only answer stream queries on those same types —
+  /// rewriting them to `movie`/`series` yields empty link lists. Preserve
+  /// whatever the meta declared; only fall back when the field is blank.
+  String get streamRequestType {
+    final t = type.trim().toLowerCase();
+    if (t.isEmpty) return isSeries ? 'series' : 'movie';
+    return t;
+  }
+
   int? get year {
     final info = releaseInfo;
     if (info == null) return null;

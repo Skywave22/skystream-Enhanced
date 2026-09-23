@@ -209,6 +209,7 @@ class PlayerRouteExtra {
     required this.videoUrl,
     this.episode,
     this.preloadedStreams,
+    this.openFirstImmediately = false,
   });
   final MultimediaItem item;
   final String videoUrl;
@@ -217,6 +218,10 @@ class PlayerRouteExtra {
   /// Cross-plugin stream links aggregated before opening the player. When
   /// present, the player does not call loadStreams again for this item/episode.
   final List<StreamResult>? preloadedStreams;
+
+  /// Source sheets already put the tapped row first. Skip the startup health
+  /// race and open that row immediately (no "Checking…" delay on tap).
+  final bool openFirstImmediately;
 }
 
 class ViewAllRouteExtra {
@@ -268,6 +273,7 @@ class _RouteExtraEncoder extends Converter<Object?, Object?> {
         if (input.preloadedStreams != null)
           'preloadedStreams':
               input.preloadedStreams!.map((s) => s.toJson()).toList(),
+        if (input.openFirstImmediately) 'openFirstImmediately': true,
       };
     }
     if (input is ViewAllRouteExtra) {
@@ -320,6 +326,7 @@ class _RouteExtraDecoder extends Converter<Object?, Object?> {
                     )
                     .toList()
               : null,
+          openFirstImmediately: map['openFirstImmediately'] as bool? ?? false,
         );
       case 'ViewAllRouteExtra':
         return ViewAllRouteExtra(
@@ -440,6 +447,7 @@ class PlayerRoute extends GoRouteData with $PlayerRoute {
       videoUrl: $extra.videoUrl,
       episode: $extra.episode,
       preloadedStreams: $extra.preloadedStreams,
+      openFirstImmediately: $extra.openFirstImmediately,
     );
   }
 }

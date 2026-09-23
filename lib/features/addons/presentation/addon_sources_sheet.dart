@@ -898,9 +898,11 @@ class _SourceRowState extends State<_SourceRow> {
               ),
               const SizedBox(height: 6),
 
-              // Source name (starts from left, uses all horizontal space)
+              // Add-on · provider (Nuvio-style: which add-on, which source
+              // inside it). Quality lives in the badge above so it is never
+              // missing from the row.
               Text(
-                stream.addonName,
+                stream.headline,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -912,10 +914,10 @@ class _SourceRowState extends State<_SourceRow> {
               ),
               const SizedBox(height: 2),
 
-              // Description (starts from left, uses horizontal space)
+              // Stream's own label + description from the add-on.
               Text(
                 stream.subtitleLine,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: cs.onSurfaceVariant,
