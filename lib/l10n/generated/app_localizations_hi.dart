@@ -16,15 +16,15 @@ class AppLocalizationsHi extends AppLocalizations {
   String get languageName => 'हिन्दी';
 
   @override
-  String get addonHealthChecking => 'Checking add-on…';
+  String get addonHealthChecking => 'ऐड-ऑन की जाँच हो रही है…';
 
   @override
   String addonHealthWorking(int ms) {
-    return 'Working · $ms ms';
+    return 'चालू है · $ms मि.से.';
   }
 
   @override
-  String get addonHealthUnavailable => 'Unavailable';
+  String get addonHealthUnavailable => 'अनुपलब्ध';
 
   @override
   String get home => 'होम';

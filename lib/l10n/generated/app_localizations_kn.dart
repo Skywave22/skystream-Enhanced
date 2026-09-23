@@ -16,15 +16,15 @@ class AppLocalizationsKn extends AppLocalizations {
   String get languageName => 'ಕನ್ನಡ';
 
   @override
-  String get addonHealthChecking => 'Checking add-on…';
+  String get addonHealthChecking => 'ಆಡ್-ಆನ್ ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…';
 
   @override
   String addonHealthWorking(int ms) {
-    return 'Working · $ms ms';
+    return 'ಕೆಲಸ ಮಾಡುತ್ತಿದೆ · $ms ಮಿ.ಸೆ.';
   }
 
   @override
-  String get addonHealthUnavailable => 'Unavailable';
+  String get addonHealthUnavailable => 'ಲಭ್ಯವಿಲ್ಲ';
 
   @override
   String get home => 'ಮುಖಪುಟ';
