@@ -293,7 +293,11 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
     final buffer = StringBuffer()
       ..writeln('Addon sources diagnostics')
       ..writeln('title: ${widget.item.title}')
-      ..writeln('id candidates: ${widget.request.idCandidates.join(', ')}')
+      ..writeln(
+        'id candidates: ${widget.request.idCandidates.join(', ')}'
+        '${widget.request.imdbId == null ? '' : ' (imdb ${widget.request.imdbId})'}'
+        '${widget.request.title == null ? '' : ' · title lookup on'}',
+      )
       ..writeln(
         'add-ons: ${_result.streams.length} links, '
         '${_result.completedCount}/${_result.totalCount} done',

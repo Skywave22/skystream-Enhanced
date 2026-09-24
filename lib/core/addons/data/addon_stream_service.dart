@@ -31,6 +31,13 @@ class AddonStreamRequest {
   final String? imdbId;
   final int? tmdbId;
 
+  /// Display title, used to resolve an IMDb id when the content id is an
+  /// opaque scraper token (`cnc:…`) that returns empty `/stream` lists.
+  final String? title;
+
+  /// Release year hint for the Cinemeta title → IMDb lookup.
+  final int? year;
+
   const AddonStreamRequest({
     required this.type,
     required this.contentId,
@@ -39,12 +46,32 @@ class AddonStreamRequest {
     this.episode,
     this.imdbId,
     this.tmdbId,
+    this.title,
+    this.year,
   });
 
   bool get isEpisode => season != null && episode != null;
 
-  /// Ordered id candidates, following ARVIO's strategy: the add-on's own id
-  /// first, then IMDb, then `tmdb:` — the first one that returns links wins.
+  /// True when [contentId] is not a universal id (IMDb / TMDB / kitsu…) that
+  /// every stream add-on understands — scraper bridges mint per-provider
+  /// tokens that often 200 with an empty stream list.
+  bool get hasOpaqueContentId {
+    final id = contentId.trim().toLowerCase();
+    if (id.isEmpty) return true;
+    if (id.startsWith('tt') && RegExp(r'^tt\d').hasMatch(id)) return false;
+    if (id.startsWith('tmdb:')) return false;
+    if (id.startsWith('kitsu:')) return false;
+    if (id.startsWith('mal:')) return false;
+    if (id.startsWith('anidb:')) return false;
+    if (id.startsWith('tvdb:')) return false;
+    return true; // cnc:, provider-local, …
+  }
+
+  /// Ordered id candidates, following ARVIO's strategy with one fix:
+  /// when the content id is a scraper token, put IMDb/TMDB FIRST so a single
+  /// empty `cnc:…` answer does not burn the whole add-on budget before the
+  /// id that actually has links is tried. (CNCVerse Multimovies: cnc empty
+  /// in 3 s, tt30395619 → 88 links in ~27 s.)
   List<String> get idCandidates {
     final ids = <String>[];
 
@@ -55,20 +82,57 @@ class AddonStreamRequest {
     }
 
     final base = contentId.split(':').first;
+    final imdb = imdbId ?? (contentId.startsWith('tt') ? contentId.split(':').first : null);
+    final opaque = hasOpaqueContentId;
 
     if (isEpisode) {
-      add(videoId);
-      if (base.isNotEmpty) add('$base:$season:$episode');
-      final imdb = imdbId ?? (base.startsWith('tt') ? base : null);
-      if (imdb != null) add('$imdb:$season:$episode');
-      if (tmdbId != null) add('tmdb:$tmdbId:$season:$episode');
+      if (opaque) {
+        if (imdb != null) add('$imdb:$season:$episode');
+        if (tmdbId != null) add('tmdb:$tmdbId:$season:$episode');
+        add(videoId);
+        add(contentId);
+      } else {
+        add(videoId);
+        if (base.isNotEmpty) add('$base:$season:$episode');
+        if (imdb != null) add('$imdb:$season:$episode');
+        if (tmdbId != null) add('tmdb:$tmdbId:$season:$episode');
+      }
     } else {
-      add(contentId);
-      add(imdbId);
-      if (tmdbId != null) add('tmdb:$tmdbId');
+      if (opaque) {
+        add(imdb);
+        if (tmdbId != null) add('tmdb:$tmdbId');
+        add(contentId);
+      } else {
+        add(contentId);
+        add(imdb);
+        if (tmdbId != null) add('tmdb:$tmdbId');
+      }
     }
     return ids;
   }
+
+  AddonStreamRequest copyWith({
+    String? type,
+    String? contentId,
+    String? videoId,
+    int? season,
+    int? episode,
+    String? imdbId,
+    int? tmdbId,
+    String? title,
+    int? year,
+  }) =>
+      AddonStreamRequest(
+        type: type ?? this.type,
+        contentId: contentId ?? this.contentId,
+        videoId: videoId ?? this.videoId,
+        season: season ?? this.season,
+        episode: episode ?? this.episode,
+        imdbId: imdbId ?? this.imdbId,
+        tmdbId: tmdbId ?? this.tmdbId,
+        title: title ?? this.title,
+        year: year ?? this.year,
+      );
 }
 
 enum AddonQueryOutcome { pending, links, empty, failed }
@@ -174,7 +238,37 @@ class AddonStreamService {
       return;
     }
 
-    final ids = request.idCandidates;
+    // Scraper-bridge titles often arrive with only a cnc: token. Resolve an
+    // IMDb id from the title (Cinemeta, cached) so every stream add-on has a
+    // universal id to answer — same path Stremio/Nuvio effectively take.
+    var effective = request;
+    if ((effective.imdbId == null || effective.imdbId!.isEmpty) &&
+        effective.hasOpaqueContentId &&
+        (effective.title != null && effective.title!.trim().isNotEmpty)) {
+      try {
+        final resolved = await _client.resolveImdbId(
+          title: effective.title!,
+          type: effective.type,
+          year: effective.year,
+          cancelToken: cancelToken,
+        );
+        if (resolved != null && resolved.isNotEmpty) {
+          effective = effective.copyWith(imdbId: resolved);
+          if (kDebugMode) {
+            debugPrint(
+              '[AddonStreamService] resolved IMDb $resolved '
+              'for "${effective.title}"',
+            );
+          }
+        }
+      } catch (error) {
+        if (kDebugMode) {
+          debugPrint('[AddonStreamService] IMDb lookup failed: $error');
+        }
+      }
+    }
+
+    final ids = effective.idCandidates;
     if (ids.isEmpty) {
       yield const AddonStreamProgress(
         error: 'This title has no id that add-ons can be queried with.',
@@ -323,7 +417,7 @@ class AddonStreamService {
 
       for (final id in ids) {
         if (!manifest.supportsId('stream', id)) continue;
-        final types = manifest.requestTypesFor('stream', request.type);
+        final types = manifest.requestTypesFor('stream', effective.type);
         if (types.isEmpty) continue;
 
         final remaining = _addonBudget - stopwatch.elapsed;

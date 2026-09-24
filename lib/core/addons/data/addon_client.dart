@@ -295,6 +295,95 @@ class AddonClient {
     });
   }
 
+
+  /// Resolve a title to an IMDb id via Cinemeta search.
+  ///
+  /// Scraper bridges (CNCVerse Multimovies, …) identify titles with opaque
+  /// `cnc:…` ids that often return empty `/stream` lists. Stremio and Nuvio
+  /// still show links because they also query by IMDb. We look the title up
+  /// once (cached) and feed `tt…` into the stream id-candidate list.
+  Future<String?> resolveImdbId({
+    required String title,
+    String? type,
+    int? year,
+    CancelToken? cancelToken,
+  }) async {
+    final cleaned = title.trim();
+    if (cleaned.isEmpty) return null;
+
+    final cacheKey =
+        'imdb:${cleaned.toLowerCase()}|${(type ?? '').toLowerCase()}|${year ?? ''}';
+    return _cache.run(cacheKey, const Duration(hours: 12), () async {
+      // Prefer the matching content type; fall back across movie/series.
+      final types = <String>[];
+      final t = (type ?? '').toLowerCase();
+      if (t == 'series' || t == 'tv' || t == 'show') {
+        types.addAll(const ['series', 'movie']);
+      } else if (t == 'movie' || t == 'film' || t == 'other') {
+        types.addAll(const ['movie', 'series']);
+      } else {
+        types.addAll(const ['movie', 'series']);
+      }
+
+      String? best;
+      var bestScore = -1;
+
+      for (final catalogType in types) {
+        final url =
+            'https://v3-cinemeta.strem.io/catalog/$catalogType/top/search='
+            '${Uri.encodeComponent(cleaned)}.json';
+        final json = await _getJson(
+          url,
+          timeout: _fast,
+          cancelToken: cancelToken,
+        );
+        final metas = json?['metas'];
+        if (metas is! List) continue;
+
+        final needle = cleaned.toLowerCase();
+        for (final entry in metas) {
+          if (entry is! Map) continue;
+          final map = Map<String, dynamic>.from(entry);
+          final name = (map['name'] as String?)?.trim() ?? '';
+          if (name.isEmpty) continue;
+          final id = (map['imdb_id'] as String?)?.trim() ??
+              (map['id'] as String?)?.trim() ??
+              '';
+          final match = RegExp(r'tt\d{5,}', caseSensitive: false).firstMatch(id);
+          if (match == null) continue;
+          final imdb = match.group(0)!.toLowerCase();
+
+          var score = 0;
+          final lower = name.toLowerCase();
+          if (lower == needle) {
+            score = 100;
+          } else if (lower.contains(needle) || needle.contains(lower)) {
+            score = 60;
+          } else {
+            // Token overlap
+            final a = needle.split(RegExp(r'[^a-z0-9]+')).where((s) => s.length > 2).toSet();
+            final b = lower.split(RegExp(r'[^a-z0-9]+')).where((s) => s.length > 2).toSet();
+            if (a.isEmpty || b.isEmpty) continue;
+            final overlap = a.intersection(b).length;
+            score = ((overlap / a.length) * 50).round();
+            if (score < 25) continue;
+          }
+
+          if (year != null) {
+            final info = '${map['releaseInfo'] ?? map['year'] ?? ''}';
+            if (info.contains('$year')) score += 20;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            best = imdb;
+          }
+        }
+        if (bestScore >= 100) break; // exact name match
+      }
+      return best;
+    });
+  }
+
   Future<List<AddonSubtitleTrack>> subtitles(
     ManagedAddon addon, {
     required String type,

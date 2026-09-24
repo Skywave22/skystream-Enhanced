@@ -913,6 +913,8 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
           season: firstVideo?.season,
           episode: firstVideo?.episode,
           imdbId: meta.imdbId,
+          title: meta.name,
+          year: meta.year,
         ),
         episode: firstVideo?.toEpisode(),
         playlist: meta.videos,
@@ -1041,6 +1043,8 @@ class _AddonDetailScreenState extends ConsumerState<AddonDetailScreen> {
       season: video.season,
       episode: video.episode,
       imdbId: meta.imdbId,
+      title: meta.name,
+      year: meta.year,
     );
 
     return Column(

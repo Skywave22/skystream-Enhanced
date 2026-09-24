@@ -460,4 +460,29 @@ void main() {
       expect(DebridProvider.fromId('nonsense'), DebridProvider.none);
     });
   });
+
+group('AddonStreamRequest id ordering', () {
+    test('opaque cnc ids put IMDb first so empty scrapers do not burn the budget', () {
+      const request = AddonStreamRequest(
+        type: 'other',
+        contentId:
+            'cnc:TXVsdGltb3ZpZXM6Omh0dHBzOi8vbXVsdGltb3ZpZXMuY2FzYS9tb3ZpZXMvZGVtb24tc2xheWVyLWtpbWV0c3Utbm8teWFpYmEtdG8tdGhlLWhhc2hpcmEtdHJhaW5pbmcv',
+        imdbId: 'tt30395619',
+        title: 'Demon Slayer: Kimetsu no Yaiba -To the Hashira Training',
+      );
+      expect(request.hasOpaqueContentId, isTrue);
+      expect(request.idCandidates.first, 'tt30395619');
+      expect(request.idCandidates, contains(request.contentId));
+    });
+
+    test('canonical IMDb content ids stay first', () {
+      const request = AddonStreamRequest(
+        type: 'movie',
+        contentId: 'tt0111161',
+        imdbId: 'tt0111161',
+      );
+      expect(request.hasOpaqueContentId, isFalse);
+      expect(request.idCandidates.first, 'tt0111161');
+    });
+  });
 }
