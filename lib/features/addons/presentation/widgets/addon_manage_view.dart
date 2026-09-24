@@ -60,6 +60,30 @@ class AddonManageView extends ConsumerStatefulWidget {
 
 class _AddonManageViewState extends ConsumerState<AddonManageView> {
   final Set<String> _busy = {};
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  bool _addonMatches(ManagedAddon addon, String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    final haystack = [
+      addon.displayName,
+      addon.manifest?.id ?? '',
+      addon.manifestUrl,
+      addon.manifest?.description ?? '',
+      if (addon.manifest != null)
+        ...addon.manifest!.types,
+      if (addon.manifest != null)
+        for (final r in addon.manifest!.resources) r.name,
+    ].join(' ').toLowerCase();
+    return haystack.contains(q);
+  }
 
   Future<void> _refreshAll() async {
     // Re-fetch manifests and re-run the liveness badges together — a manual
@@ -139,6 +163,7 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
     final healthAsync = ref.watch(addonHealthProvider);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
     final healthByUrl = healthAsync.value ?? const <String, AddonHealth>{};
     // While the probe is running the tiles show "checking" — but the moment
     // the probe errored as a whole (should not happen, it is one map) the
@@ -292,13 +317,15 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
         Row(
           children: [
             Text(
-              'Installed (${state.addons.length})',
+              _searchQuery.trim().isEmpty
+                  ? 'Installed (${state.addons.length})'
+                  : 'Installed (${state.addons.where((a) => _addonMatches(a, _searchQuery)).length}/${state.addons.length})',
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
             const Spacer(),
-            if (state.addons.isNotEmpty)
+            if (state.addons.isNotEmpty && _searchQuery.trim().isEmpty)
               Text(
                 'Use 3-dot menu to reorder',
                 style: theme.textTheme.labelSmall?.copyWith(
@@ -307,6 +334,32 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
               ),
           ],
         ),
+        if (state.addons.length >= 2) ...[
+          const SizedBox(height: 10),
+          TextField(
+            controller: _searchController,
+            textInputAction: TextInputAction.search,
+            onChanged: (value) => setState(() => _searchQuery = value),
+            decoration: InputDecoration(
+              isDense: true,
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: _searchQuery.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: l10n.discoverClearSearch,
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    ),
+              hintText: l10n.addonManageSearchHint,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 10),
         if (state.isLoading && state.addons.isEmpty)
           const Padding(
@@ -325,47 +378,62 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
               ),
             ),
           ),
-        for (int i = 0; i < state.addons.length; i++) ...[
-          _AddonTile(
-            key: ValueKey(state.addons[i].manifestUrl),
-            addon: state.addons[i],
-            index: i,
-            isFirst: i == 0,
-            isLast: i == state.addons.length - 1,
-            health: healthGone
-                ? null
-                : healthByUrl[state.addons[i].manifestUrl],
-            healthProbing: !healthGone && healthProbing,
-            onToggle: (value) => unawaited(
-              ref
-                  .read(addonRepositoryProvider.notifier)
-                  .setEnabled(state.addons[i].manifestUrl, value),
+        if (!state.isLoading &&
+            state.addons.isNotEmpty &&
+            state.addons.where((a) => _addonMatches(a, _searchQuery)).isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Text(
+              l10n.addonManageNoMatch(_searchQuery),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
             ),
-            onRemove: () => unawaited(_confirmRemove(state.addons[i])),
-            onMoveUp: i > 0
-                ? () => unawaited(
-                    ref
-                        .read(addonRepositoryProvider.notifier)
-                        .reorder(i, i - 1),
-                  )
-                : null,
-            onMoveDown: i < state.addons.length - 1
-                ? () => unawaited(
-                    ref
-                        .read(addonRepositoryProvider.notifier)
-                        .reorder(i, i + 2),
-                  )
-                : null,
-            onConfigure: () async {
-              final configureUrl = AddonTransport.baseUrl(
-                state.addons[i].manifestUrl,
-              );
-              final uri = Uri.tryParse('$configureUrl/configure');
-              if (uri == null) return;
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
-            },
           ),
-        ],
+        // Keep original indices for reorder; only hide non-matches.
+        for (int i = 0; i < state.addons.length; i++)
+          if (_addonMatches(state.addons[i], _searchQuery))
+            _AddonTile(
+              key: ValueKey(state.addons[i].manifestUrl),
+              addon: state.addons[i],
+              index: i,
+              isFirst: i == 0,
+              isLast: i == state.addons.length - 1,
+              health: healthGone
+                  ? null
+                  : healthByUrl[state.addons[i].manifestUrl],
+              healthProbing: !healthGone && healthProbing,
+              onToggle: (value) => unawaited(
+                ref
+                    .read(addonRepositoryProvider.notifier)
+                    .setEnabled(state.addons[i].manifestUrl, value),
+              ),
+              onRemove: () => unawaited(_confirmRemove(state.addons[i])),
+              onMoveUp: i > 0 && _searchQuery.trim().isEmpty
+                  ? () => unawaited(
+                      ref
+                          .read(addonRepositoryProvider.notifier)
+                          .reorder(i, i - 1),
+                    )
+                  : null,
+              onMoveDown:
+                  i < state.addons.length - 1 && _searchQuery.trim().isEmpty
+                  ? () => unawaited(
+                      ref
+                          .read(addonRepositoryProvider.notifier)
+                          .reorder(i, i + 2),
+                    )
+                  : null,
+              onConfigure: () async {
+                final configureUrl = AddonTransport.baseUrl(
+                  state.addons[i].manifestUrl,
+                );
+                final uri = Uri.tryParse('$configureUrl/configure');
+                if (uri == null) return;
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              },
+            ),
       ],
     );
   }

@@ -487,5 +487,12 @@
   "playerSourceOpening": "खुल रहा है…",
   "playerSourceNotChecked": "जाँचा नहीं गया",
   "playerReasonNoAnswer": "लिंक से कोई जवाब नहीं मिला",
-  "playerSourceUnplayable": "चल नहीं सका"
+  "playerSourceUnplayable": "चल नहीं सका",
+"addonSourcesSearchTooltip": "Search links",
+  "addonSourcesCloseSearchTooltip": "Close search",
+  "addonSourcesSearchHint": "Add-on, provider, quality…",
+  "addonSourcesNoMatchFilter": "No links match. Clear search or try \"All\".",
+  "addonManageSearchHint": "Search installed add-ons…",
+  "addonManageNoMatch": "No installed add-on matches \"{query}\"."
 }
+

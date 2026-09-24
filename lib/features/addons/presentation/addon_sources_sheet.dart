@@ -18,6 +18,7 @@ import '../../details/presentation/playback_launcher.dart';
 import '../../settings/presentation/player_settings_provider.dart';
 import '../../sources/presentation/source_sheet_widgets.dart';
 import '../../../shared/focus/app_focus.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// Add-on sources sheet: play or download a title using **only** the links
 /// returned by installed add-ons.
@@ -74,6 +75,13 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
   _KindFilter _kind = _KindFilter.all;
   String? _debridStatus;
 
+  /// Free-text filter over add-on name, inner provider (VegaMovies, MovieBox…),
+  /// quality and the stream's own label — same idea as Nuvio's provider chips.
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+  bool _searchOpen = false;
+  String _searchQuery = '';
+
   /// Whether the sheet was opened to download rather than to play. It is fixed
   /// for the lifetime of the sheet — both actions sit on every row, so the mode
   /// only picks the default action and hides links that cannot be saved.
@@ -89,6 +97,8 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
   void dispose() {
     _disposed = true;
     _sub?.cancel();
+    _searchController.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -113,12 +123,31 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
         });
   }
 
+  bool _matchesSearch(AddonStreamSource s) {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    // Match add-on, inner provider (VegaMovies / MovieBox / …), resolution and
+    // the free-text name/title the add-on published.
+    final haystack = [
+      s.addonName,
+      s.providerName ?? '',
+      s.headline,
+      s.subtitleLine,
+      s.qualityLabel,
+      s.name ?? '',
+      s.title ?? '',
+      s.description ?? '',
+    ].join(' ').toLowerCase();
+    return haystack.contains(q);
+  }
+
   List<AddonStreamSource> get _visible => _result.streams
       .where((s) {
         if (_hdOnly && s.qualityScore < 1080) return false;
         if (_downloadMode && (!s.isDirect || s.url == null)) {
           return false;
         }
+        if (!_matchesSearch(s)) return false;
         return switch (_kind) {
           _KindFilter.all => true,
           _KindFilter.direct => s.isDirect,
@@ -130,6 +159,25 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
 
   List<AddonStreamSource> get _playable =>
       _visible.where((s) => s.isPlayable).toList(growable: false);
+
+  /// Distinct add-on / provider labels for the quick-filter chip rail.
+  /// Prefers the inner provider (VegaMovies) when a multi-provider bridge
+  /// named one; otherwise the add-on itself (Torrentio).
+  List<String> get _providerFilterLabels {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final s in _result.streams) {
+      final label = (s.providerName?.trim().isNotEmpty ?? false)
+          ? s.providerName!.trim()
+          : s.addonName.trim();
+      if (label.isEmpty) continue;
+      final key = label.toLowerCase();
+      if (!seen.add(key)) continue;
+      out.add(label);
+    }
+    out.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return out;
+  }
 
   Future<void> _play(AddonStreamSource stream) async {
     if (stream.isExternal) {
@@ -461,6 +509,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final glass = GlassPalette.of(context);
+    final l10n = AppLocalizations.of(context)!;
     final episode = widget.episode;
     final subtitleText = episode != null
         ? 'S${episode.season} · E${episode.episode} ${episode.name}'
@@ -486,6 +535,37 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
       title: 'Stremio Sources',
       subtitle: subtitleText,
       actions: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: cs.primary.withValues(alpha: 0.15),
+          ),
+          child: IconButton(
+            tooltip: _searchOpen
+                ? l10n.addonSourcesCloseSearchTooltip
+                : l10n.addonSourcesSearchTooltip,
+            visualDensity: VisualDensity.standard,
+            icon: Icon(
+              _searchOpen ? Icons.search_off_rounded : Icons.search_rounded,
+              size: kSourceSheetHeaderIcon,
+              color: cs.primary,
+            ),
+            onPressed: () {
+              setState(() {
+                _searchOpen = !_searchOpen;
+                if (!_searchOpen) {
+                  _searchController.clear();
+                  _searchQuery = '';
+                } else {
+                  // Open the field first, then ask for focus on the next frame.
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _searchFocus.requestFocus();
+                  });
+                }
+              });
+            },
+          ),
+        ),
         Container(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
@@ -627,6 +707,88 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
             ),
           ),
 
+          if (_searchOpen) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                kSourceSheetGutter,
+                6,
+                kSourceSheetGutter,
+                0,
+              ),
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocus,
+                textInputAction: TextInputAction.search,
+                onChanged: (value) => setState(() => _searchQuery = value),
+                decoration: InputDecoration(
+                  isDense: true,
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  suffixIcon: _searchQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: l10n.discoverClearSearch,
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        ),
+                  hintText: l10n.addonSourcesSearchHint,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                ),
+              ),
+            ),
+            // One-tap chips for every add-on that answered, so "VegaMovies"
+            // is a tap rather than a typed query when CNCVerse mixed providers.
+            if (_result.streams.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: SizedBox(
+                  height: 34,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: kSourceSheetGutter,
+                    ),
+                    children: [
+                      for (final name in _providerFilterLabels)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: SourceFilterChip(
+                            text: name,
+                            selected: _searchQuery.trim().toLowerCase() ==
+                                name.toLowerCase(),
+                            outline: glass.tint(0.15),
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  _searchQuery = name;
+                                  _searchController.value = TextEditingValue(
+                                    text: name,
+                                    selection: TextSelection.collapsed(
+                                      offset: name.length,
+                                    ),
+                                  );
+                                } else {
+                                  _searchQuery = '';
+                                  _searchController.clear();
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+
           const SizedBox(height: 6),
 
           // Stream Source List (Structured with Top Pick & Ready to play)
@@ -654,7 +816,7 @@ class _AddonSourcesSheetState extends ConsumerState<AddonSourcesSheet> {
                                 const SizedBox(height: 12),
                                 Text(
                                   _result.streams.isNotEmpty
-                                      ? 'No links match this filter. Try "All".'
+                                      ? l10n.addonSourcesNoMatchFilter
                                       : _result.error ??
                                             'No add-on returned links for this title. '
                                                 'Install a stream add-on such as Torrentio, '
