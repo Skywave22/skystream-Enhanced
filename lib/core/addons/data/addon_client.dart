@@ -122,6 +122,12 @@ class AddonClient {
   static const Duration _fast = Duration(seconds: 12);
   static const Duration _slow = Duration(seconds: 20);
 
+  /// Scraping bridges (CNCVerse, multi-provider profiles) routinely take
+  /// 20–30 s to assemble /stream answers. The generic [_slow] ceiling was
+  /// clipping them mid-scrape and the sheet only ever showed
+  /// "TimeoutException after 0:00:18". Streams get their own budget.
+  static const Duration _stream = Duration(seconds: 45);
+
   Options _options(Duration timeout) => Options(
     receiveTimeout: timeout,
     sendTimeout: timeout,
@@ -269,7 +275,7 @@ class AddonClient {
     return _cache.run('stream:$url', streamTtl, () async {
       final json = await _getJson(
         url,
-        timeout: _slow,
+        timeout: _stream,
         cancelToken: cancelToken,
       );
       final streams = json?['streams'];

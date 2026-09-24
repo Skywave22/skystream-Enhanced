@@ -116,15 +116,19 @@ class AddonStreamProgress {
 class AddonStreamService {
   AddonStreamService(
     this._client, {
-    Duration addonBudget = const Duration(seconds: 25),
-    Duration requestTimeout = const Duration(seconds: 18),
+    // CNCVerse live probes need ~22–27 s per /stream answer. Budget must
+    // cover one successful scrape plus a short empty-id retry, without
+    // letting a totally dead host hold a worker forever.
+    Duration addonBudget = const Duration(seconds: 55),
+    Duration requestTimeout = const Duration(seconds: 45),
   }) : _addonBudget = addonBudget,
        _requestTimeout = requestTimeout;
 
   final AddonClient _client;
 
-  /// One request's ceiling. Scraping bridges (CNCVerse ~15–20 s on /stream)
-  /// need headroom; empty/fast add-ons finish in well under a second.
+  /// One request's ceiling. Matched to [AddonClient]'s stream receive
+  /// timeout so Dio and the service agree; scraping bridges land in the
+  /// low-to-mid 20 s range, empty/fast add-ons finish in under a second.
   final Duration _requestTimeout;
 
   /// Hard stop for everything ONE add-on may spend. Dead hosts used to chain

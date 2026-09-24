@@ -151,6 +151,36 @@ void main() {
       );
     });
 
+
+    test('a slow scraper (~22s) still lands inside the default budget', () async {
+      // CNCVerse live /stream answers take 22–27 s. The old 18 s ceiling
+      // turned every one of those into TimeoutException with 0 links.
+      var requests = 0;
+      final client = _FakeClient((addon, type, id) async {
+        requests++;
+        await Future<void>.delayed(const Duration(seconds: 22));
+        return [
+          AddonStreamSource.fromJson(
+            const {
+              'name': 'MovieBox 1080p',
+              'url': 'https://files.example/mugen.mp4',
+            },
+            addonId: 'cnc',
+            addonName: 'CNCVerse Bridge',
+          ),
+        ];
+      });
+      // Defaults: 45 s request / 55 s budget — must clear a 22 s scrape.
+      final service = AddonStreamService(client);
+
+      final last = await runUntilDone(service, [streamAddon('cnc')]);
+
+      expect(requests, 1);
+      expect(last.streams, hasLength(1));
+      expect(last.statuses.single.outcome, AddonQueryOutcome.links);
+      expect(last.error, isNull);
+    });
+
     test('a healthy add-on still costs exactly one request', () async {
       var requests = 0;
       final client = _FakeClient((addon, type, id) async {
