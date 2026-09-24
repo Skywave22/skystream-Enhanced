@@ -375,6 +375,26 @@ class ManagedAddon {
 
   bool get isActive => enabled && manifest != null;
 
+  /// Whether [query] matches this install for the Manage-tab search box.
+  ///
+  /// Empty queries match everything. Otherwise name, id, URL, description,
+  /// content types and resource names are searched case-insensitively.
+  bool matchesQuery(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    final m = manifest;
+    final haystack = [
+      displayName,
+      m?.id ?? '',
+      manifestUrl,
+      m?.description ?? '',
+      if (m != null) ...m.types,
+      if (m != null)
+        for (final r in m.resources) r.name,
+    ].join(' ').toLowerCase();
+    return haystack.contains(q);
+  }
+
   ManagedAddon copyWith({
     String? manifestUrl,
     AddonManifest? manifest,

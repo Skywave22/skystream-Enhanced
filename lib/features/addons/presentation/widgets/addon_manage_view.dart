@@ -69,20 +69,9 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
     super.dispose();
   }
 
-  bool _addonMatches(ManagedAddon addon, String query) {
-    final q = query.trim().toLowerCase();
-    if (q.isEmpty) return true;
-    final haystack = [
-      addon.displayName,
-      addon.manifest?.id ?? '',
-      addon.manifestUrl,
-      addon.manifest?.description ?? '',
-      if (addon.manifest != null)
-        ...addon.manifest!.types,
-      if (addon.manifest != null)
-        for (final r in addon.manifest!.resources) r.name,
-    ].join(' ').toLowerCase();
-    return haystack.contains(q);
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _searchQuery = '');
   }
 
   Future<void> _refreshAll() async {
@@ -170,6 +159,11 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
     // badges simply hide rather than lying.
     final healthProbing = healthAsync.isLoading;
     final healthGone = healthAsync.hasError;
+    final searching = _searchQuery.trim().isNotEmpty;
+    final filtered = [
+      for (final addon in state.addons)
+        if (addon.matchesQuery(_searchQuery)) addon,
+    ];
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
@@ -317,15 +311,15 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
         Row(
           children: [
             Text(
-              _searchQuery.trim().isEmpty
-                  ? 'Installed (${state.addons.length})'
-                  : 'Installed (${state.addons.where((a) => _addonMatches(a, _searchQuery)).length}/${state.addons.length})',
+              searching
+                  ? 'Installed (${filtered.length}/${state.addons.length})'
+                  : 'Installed (${state.addons.length})',
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
             const Spacer(),
-            if (state.addons.isNotEmpty && _searchQuery.trim().isEmpty)
+            if (state.addons.isNotEmpty && !searching)
               Text(
                 'Use 3-dot menu to reorder',
                 style: theme.textTheme.labelSmall?.copyWith(
@@ -348,10 +342,7 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
                   : IconButton(
                       tooltip: l10n.discoverClearSearch,
                       icon: const Icon(Icons.close_rounded),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _searchQuery = '');
-                      },
+                      onPressed: _clearSearch,
                     ),
               hintText: l10n.addonManageSearchHint,
               border: OutlineInputBorder(
@@ -378,9 +369,7 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
               ),
             ),
           ),
-        if (!state.isLoading &&
-            state.addons.isNotEmpty &&
-            state.addons.where((a) => _addonMatches(a, _searchQuery)).isEmpty)
+        if (!state.isLoading && state.addons.isNotEmpty && filtered.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 20),
             child: Text(
@@ -391,9 +380,10 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
               ),
             ),
           ),
-        // Keep original indices for reorder; only hide non-matches.
+        // Index into state.addons so reorder stays correct while searching
+        // only hides rows (reorder actions are disabled while searching).
         for (int i = 0; i < state.addons.length; i++)
-          if (_addonMatches(state.addons[i], _searchQuery))
+          if (state.addons[i].matchesQuery(_searchQuery))
             _AddonTile(
               key: ValueKey(state.addons[i].manifestUrl),
               addon: state.addons[i],
@@ -410,15 +400,14 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
                     .setEnabled(state.addons[i].manifestUrl, value),
               ),
               onRemove: () => unawaited(_confirmRemove(state.addons[i])),
-              onMoveUp: i > 0 && _searchQuery.trim().isEmpty
+              onMoveUp: i > 0 && !searching
                   ? () => unawaited(
                       ref
                           .read(addonRepositoryProvider.notifier)
                           .reorder(i, i - 1),
                     )
                   : null,
-              onMoveDown:
-                  i < state.addons.length - 1 && _searchQuery.trim().isEmpty
+              onMoveDown: i < state.addons.length - 1 && !searching
                   ? () => unawaited(
                       ref
                           .read(addonRepositoryProvider.notifier)

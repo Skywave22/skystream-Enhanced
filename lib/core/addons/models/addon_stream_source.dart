@@ -438,7 +438,10 @@ class AddonStreamSource {
   /// Secondary line: stream's own label + descriptive text the add-on sent.
   String get subtitleLine {
     final parts = <String>[];
-    final streamLabel = (name ?? '').trim().replaceAll(RegExp(r'[\n\r]+'), ' · ');
+    final streamLabel = (name ?? '').trim().replaceAll(
+      RegExp(r'[\n\r]+'),
+      ' · ',
+    );
     if (streamLabel.isNotEmpty && streamLabel != addonName) {
       parts.add(streamLabel);
     }
@@ -455,6 +458,28 @@ class AddonStreamSource {
       return qualityLabel;
     }
     return parts.join(' · ');
+  }
+
+  /// Whether [query] matches this stream for the sources-sheet filter.
+  ///
+  /// Empty / whitespace-only queries match everything. Otherwise the needle is
+  /// looked for (case-insensitive) in the add-on name, inner provider chip
+  /// (VegaMovies, MovieBox…), quality label, and the free-text fields the
+  /// add-on published.
+  bool matchesQuery(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    final haystack = [
+      addonName,
+      providerName ?? '',
+      headline,
+      subtitleLine,
+      qualityLabel,
+      name ?? '',
+      title ?? '',
+      description ?? '',
+    ].join(' ').toLowerCase();
+    return haystack.contains(q);
   }
 
   /// De-dup key, mirroring ARVIO's.
@@ -501,4 +526,24 @@ class AddonStreamSource {
     }
     return value;
   }
+}
+
+/// Distinct provider / add-on labels for a sources-sheet chip rail.
+///
+/// Prefers the inner provider (VegaMovies) when a multi-provider bridge named
+/// one; otherwise the add-on itself (Torrentio). Sorted case-insensitively.
+List<String> addonStreamProviderLabels(Iterable<AddonStreamSource> streams) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final s in streams) {
+    final provider = s.providerName?.trim();
+    final label = (provider != null && provider.isNotEmpty)
+        ? provider
+        : s.addonName.trim();
+    if (label.isEmpty) continue;
+    if (!seen.add(label.toLowerCase())) continue;
+    out.add(label);
+  }
+  out.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return out;
 }
