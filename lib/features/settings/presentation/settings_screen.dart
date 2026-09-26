@@ -42,9 +42,9 @@ class SettingsScreen extends ConsumerWidget {
               // card by spacingMd, so a horizontal inset here would be paid
               // for twice and the cards would sit further in than on the
               // Accounts screen, which never added one.
-              padding: const EdgeInsets.symmetric(
+              padding: EdgeInsets.symmetric(
                 vertical: LayoutConstants.spacingSm,
-              ).copyWith(bottom: 100),
+              ).copyWith(bottom: LayoutConstants.shellBottomContentPadding(context)),
               children: [
                 _buildGeneralSettingsGroup(
                   context,

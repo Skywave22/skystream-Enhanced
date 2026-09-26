@@ -376,7 +376,11 @@ class _AddonCatalogsTabViewState extends ConsumerState<AddonCatalogsTabView>
               }, childCount: listCatalogs.length),
             ),
 
-            const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
+            SliverPadding(
+              padding: EdgeInsets.only(
+                bottom: LayoutConstants.shellBottomContentPadding(context),
+              ),
+            ),
           ],
         ),
       ),

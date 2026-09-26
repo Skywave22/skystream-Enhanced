@@ -13,6 +13,7 @@ import '../../../../l10n/generated/app_localizations.dart';
 import '../../../../shared/widgets/text_input_dialog.dart';
 import '../../../../shared/focus/app_focus.dart';
 import '../addon_providers.dart';
+import '../../../../core/utils/layout_constants.dart';
 
 /// One-tap starter add-ons, matching the official Stremio apps: the two
 /// official add-ons that work the moment they are installed — Cinemeta for
@@ -166,7 +167,12 @@ class _AddonManageViewState extends ConsumerState<AddonManageView> {
     ];
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        LayoutConstants.shellBottomContentPadding(context),
+      ),
       children: [
         // Top Management Card
         Card(
