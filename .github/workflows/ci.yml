@@ -24,7 +24,9 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [master]
+    # master, and the branch the CloudStream extension fixes live on: it is not a pull request,
+    # and a branch that is never tested is a branch nobody trusts.
+    branches: [master, fix/cloudstream-extension-support]
   schedule:
     # 06:00 UTC daily, on master. Runs the full five-platform matrix.
     - cron: '0 6 * * *'
@@ -188,6 +190,7 @@ jobs:
       # `// ignore: riverpod_lint/missing_provider_scope`. --fatal-infos
       # matches `flutter analyze`, which fails on infos as well.
       - name: Riverpod Lint
+        id: riverpod-lint
         run: dart analyze --fatal-infos
 
       # The extension-engine tests drive QuickJS over FFI, and under
@@ -206,6 +209,11 @@ jobs:
       # are compiled as C and the bridge as C++, which is what that CMakeLists
       # does via `project(... LANGUAGES CXX C)`.
       - name: Build QuickJS Test Bridge
+        # The suite runs even when the Riverpod Lint gate alone failed: that gate has been
+        # failing on master since the analysis server stopped loading the lint plugin (an
+        # exit code of its own, with no finding to show), and a broken gate must not hide
+        # what the suite says. The job still fails on it.
+        if: success() || steps.riverpod-lint.outcome == 'failure'
         run: |
           set -euo pipefail
           cd packages/flutter_js_ng
@@ -226,6 +234,8 @@ jobs:
           echo "LIBQUICKJSC_TEST_PATH=$out/libquickjs_c_bridge_plugin.so" >> "$GITHUB_ENV"
 
       - name: Test
+        # As the bridge above: the suite's own result matters even when the lint gate failed.
+        if: success() || steps.riverpod-lint.outcome == 'failure'
         run: flutter test
 
   # The two vendored Dart packages, in parallel with the app suite rather than
