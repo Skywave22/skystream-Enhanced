@@ -80,7 +80,10 @@ class Cs3Engine {
   Future<Map<String, dynamic>> load(String provider, String url, {String? plugin}) =>
       call('load', {'provider': provider, 'url': url, 'plugin': ?plugin});
 
-  Future<Map<String, dynamic>> loadLinks(String provider, String data, {int timeoutMs = 30000, String? plugin}) =>
+  /// The links [provider] found for [data]. [timeoutMs] is how long the call may run before the
+  /// engine gives up and answers with the links it has: CloudStream's own limit for a provider is
+  /// a few minutes, and a shorter one cut off the extensions that need longer to answer.
+  Future<Map<String, dynamic>> loadLinks(String provider, String data, {int timeoutMs = 120000, String? plugin}) =>
       call('loadLinks', {'provider': provider, 'data': data, 'timeoutMs': timeoutMs, 'plugin': ?plugin});
 
   /// The app's repositories, each `{url, name, iconUrl?}`: what plugins see as CloudStream's list.
@@ -194,7 +197,16 @@ class Cs3Engine {
   ///
   /// `{"event": "pageFocusExit", "session", "node", "direction"}`: keyboard or D-pad focus left the page at that node
   /// (Android), towards `forward`, `backward`, `up`, `down`, `left` or `right`.
-  Stream<Map<String, dynamic>> get events => _transport.events.map((event) => jsonDecode(event) as Map<String, dynamic>);
+  /// What the engine reports unprompted, as it happens. A message that does not read is left out:
+  /// a plugin writing to the engine's own output must not end the stream.
+  Stream<Map<String, dynamic>> get events => _transport.events.map((event) {
+    try {
+      final decoded = jsonDecode(event);
+      return decoded is Map<String, dynamic> ? decoded : const <String, dynamic>{};
+    } on FormatException {
+      return const <String, dynamic>{};
+    }
+  });
 
   /// Stops the engine. On desktop the `java` process exits, releasing the files it held, before
   /// this completes. Android and iOS engines live in the app process; this only detaches.

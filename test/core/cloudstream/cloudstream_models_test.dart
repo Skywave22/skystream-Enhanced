@@ -73,6 +73,54 @@ void main() {
     });
   });
 
+  group('a repository that writes its fields differently', () {
+    test('a plugin still reads', () {
+      final plugin = CsPluginInfo.fromJson({
+        'name': 'Alpha',
+        'url': 'https://repo.test/Alpha.cs3',
+        'version': '3',
+        'status': '2',
+        'fileSize': '2048',
+      }, _repoUrl);
+      expect(plugin.internalName, 'Alpha');
+      expect(plugin.name, 'Alpha');
+      expect(plugin.version, 3);
+      expect(plugin.status, 2);
+      expect(plugin.fileSize, 2048);
+    });
+
+    test('a plugin that names itself only after its file is called that', () {
+      final plugin = CsPluginInfo.fromJson({'url': 'https://repo.test/Alpha.cs3'}, _repoUrl);
+      expect(plugin.internalName, 'Alpha');
+      expect(plugin.name, 'Alpha');
+    });
+
+    test('a plugin without an address does not read', () {
+      expect(() => CsPluginInfo.fromJson({'name': 'Alpha'}, _repoUrl), throwsA(isA<FormatException>()));
+      expect(() => CsPluginInfo.fromJson({'name': 'Alpha', 'url': ''}, _repoUrl), throwsA(isA<FormatException>()));
+    });
+
+    test('a repository without a name is called after its host', () {
+      expect(CsRepository.fromJson({'url': 'https://repo.test/repo.json'}).name, 'repo.test');
+    });
+
+    test('a repository without an address does not read', () {
+      expect(() => CsRepository.fromJson({'name': 'No url'}), throwsA(isA<FormatException>()));
+    });
+
+    test('a repository keeps the plugins that read when one does not', () {
+      final repo = CsRepository.fromJson({
+        'url': 'https://repo.test/repo.json',
+        'plugins': [
+          {'name': 'Good', 'url': 'https://repo.test/Good.cs3'},
+          {'name': 'No address'},
+          {'name': 'Also good', 'url': 'https://repo.test/Also.cs3'},
+        ],
+      });
+      expect(repo.plugins.map((p) => p.name), ['Good', 'Also good']);
+    });
+  });
+
   test('an installed plugin keeps whether it has a settings screen, and older records read as unknown', () {
     const info = CsPluginInfo(
       internalName: 'A',

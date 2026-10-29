@@ -86,7 +86,7 @@ Future<void> openExtensionPopups(BuildContext context, WidgetRef ref, CsInstalle
     final tv = ref.read(deviceProfileProvider).value?.isTv ?? false;
     final ExtensionUiSession session;
     try {
-      session = await ExtensionUiSession.openPopups(HostUiApi(host), plugin.filePath);
+      session = await ExtensionUiSession.openPopups(HostUiApi(host, pluginUrl: plugin.info.url), plugin.filePath);
     } catch (error) {
       messenger.showSnackBar(
         SnackBar(

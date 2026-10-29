@@ -59,6 +59,14 @@
 ---
 
 ### 🐞 *Bug Fixes & System Stability*
+- 🛠️ **Fixed: some CloudStream extensions worked only partly** – An extension's results are now read one by one: a search result, a home entry, an episode, a link or a subtitle an extension leaves out no longer loses the rest of the page with it.
+- 🛠️ **Fixed: a CloudStream extension's links were given up on too early** – The engine stopped waiting after 30 seconds and left the extension with nothing to play. It waits as long as CloudStream does now (two minutes).
+- 🛠️ **Fixed: an extension's home page was empty after it renamed one of its sections** – The sections an extension offers are asked for as they are now, not as they were when it was installed, so a section it renamed or added shows again.
+- 🛠️ **Fixed: links an extension found through another extension's extractor failed** – The extensions that register extractors are loaded before links are fetched, whichever providers they have of their own.
+- 🛠️ **Fixed: an extension's Support button did nothing when it had not been used yet** – The extension is loaded first, and its messages open.
+- 🛠️ **Fixed: a repository whose plugin list held one entry that did not read was lost whole** – The repository is read now, and the entry that does not read is left out of it.
+- 🛠️ **Fixed: a cs.repo link with a code in it did not add its repository** – "https://cs.repo/XXXX" is looked up as the shortcode it is, like "MegaRepo" is.
+- 🛠️ **Fixed: an extension whose file was gone was still listed as installed, and a failed install left half a file behind** – The extension is forgotten, and the half-downloaded file goes, so the next install starts clean.
 - 🛠️ **Fixed: switching audio or subtitles paused the video to rebuffer** – A switch now changes only the track, and the new audio plays within about a second.
 - 🛠️ **Fixed: seeks in HLS streams could be lost** – A seek, or resuming where you left off, sometimes never happened. It now lands.
 - 🛠️ **Fixed: some Android devices were taken for low-memory ones** – SkyStream read whether memory was short at that moment, not the device's own low-memory flag, and held such devices to a lower video quality.

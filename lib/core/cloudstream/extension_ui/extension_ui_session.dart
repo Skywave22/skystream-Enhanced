@@ -32,7 +32,7 @@ class HostUiApi implements ExtensionUiApi {
   Future<int> openSettings(String plugin) => _host.openSettings(plugin, pluginUrl: pluginUrl);
 
   @override
-  Future<int> openPopups(String plugin) => _host.openPopups(plugin);
+  Future<int> openPopups(String plugin) => _host.openPopups(plugin, pluginUrl: pluginUrl);
 
   @override
   Future<Map<String, dynamic>> uiAction(int session, int node, String action, [Object? value]) =>

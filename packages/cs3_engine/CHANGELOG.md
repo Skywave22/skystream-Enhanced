@@ -1,5 +1,11 @@
 ## Unreleased
 
+- **Links are waited for longer:** `loadLinks`'s `timeoutMs` now defaults to 120 s (it was 30 s).
+  An extension that takes its time to answer was cut off and left with nothing to play; the app
+  asks for the same time.
+- **The engine's own output no longer ends the event stream:** a message that does not read is
+  left out, rather than ending the stream a plugin's stray write would end.
+
 - **A site counts as letting only the browser through on proof only:** a clearance the browser
   earned in that solve (or moments before) meeting the check again. Behind `CloudflareKiller`, a 403
   with none of a check's marks counts only when one of the site's pages gets past it. A 503 with

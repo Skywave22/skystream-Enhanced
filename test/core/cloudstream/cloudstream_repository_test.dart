@@ -391,6 +391,27 @@ void main() {
     ]);
   });
 
+  test('a cs.repo link with a code in it is looked up as one', () async {
+    final notifier = boot().read(cloudStreamRepositoryProvider.notifier);
+    expect(await notifier.resolveUrl('https://cs.repo/MegaRepo'), 'https://repo.test/repo.json');
+    expect(network.requested.where((url) => url.contains('cutt.ly')), [
+      'https://cutt.ly/MegaRepo',
+      'https://cutt.ly/megarepo',
+    ]);
+  });
+
+  test('a download that fails leaves no half-downloaded file behind', () async {
+    final notifier = boot().read(cloudStreamRepositoryProvider.notifier);
+    final repo = await notifier.addRepository(_repoUrl);
+    final missing = CsPluginInfo.fromJson({
+      ...repo.plugins.single.toJson(),
+      'url': 'https://repo.test/missing-plugin',
+    }, _repoUrl);
+
+    await expectLater(notifier.install(missing), throwsA(isA<DioException>()));
+    expect(pluginFiles().where((f) => f.path.endsWith('.part')), isEmpty);
+  });
+
   // ViStream registers nothing unless it was installed from its own repository.
   test('a plugin installed from a repository loads with the address it came from', () async {
     final notifier = boot().read(cloudStreamRepositoryProvider.notifier);
