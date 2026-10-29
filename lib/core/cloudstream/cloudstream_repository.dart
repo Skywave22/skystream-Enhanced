@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:cs3_engine/cs3_engine.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -284,7 +285,7 @@ class CloudStreamRepository extends _$CloudStreamRepository {
                 pluginKey: key,
                 info: info,
                 host: _host,
-                prepareLinks: _loadExtractorPlugins,
+                prepareLinks: loadExtractorPlugins,
               );
         }
       }
@@ -668,11 +669,12 @@ class CloudStreamRepository extends _$CloudStreamRepository {
   static bool _isUtility(CsInstalledPlugin plugin) =>
       plugin.providers.isEmpty && plugin.extractors == 0 && plugin.loadError == null;
 
-  /// Plugins that only register link extractors serve other plugins' links. CloudStream has every
-  /// plugin loaded; here they are loaded before links are first fetched.
-  Future<void> _loadExtractorPlugins() async {
-    for (final plugin in state.installed) {
-      if (plugin.providers.isNotEmpty || plugin.extractors == 0 || plugin.loadError != null) continue;
+  /// Any plugin registering extractors can serve other plugins, even if it also has providers.
+  /// CloudStream loads every plugin; here extractor plugins load before links are fetched.
+  @visibleForTesting
+  Future<void> loadExtractorPlugins() async {
+    for (final plugin in [...state.installed]) {
+      if (plugin.extractors == 0 || plugin.loadError != null) continue;
       try {
         await _host.ensureLoaded(plugin.filePath, pluginUrl: plugin.info.url);
       } catch (error) {

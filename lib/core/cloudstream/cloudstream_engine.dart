@@ -187,9 +187,14 @@ class CloudStreamEngineHost {
   /// already under way is unloaded as it ends.
   void setSwitchedOff(bool off) => _switchedOff = off;
 
-  Future<Map<String, dynamic>> ensureLoaded(String path, {String? pluginUrl}) {
-    if (_removed.contains(path)) return Future.error(StateError('$path was uninstalled'));
-    if (_switchedOff) return Future.error(const CloudStreamSwitchedOff());
+  Future<Map<String, dynamic>> ensureLoaded(String path, {String? pluginUrl}) async {
+    if (_removed.contains(path)) throw StateError('$path was uninstalled');
+    if (_switchedOff) throw const CloudStreamSwitchedOff();
+    // A cached load belongs to the old process if the engine died. Check it before
+    // using the cache, including when loading shared extractors ahead of a provider.
+    if (_loaded.containsKey(path)) await engine();
+    if (_removed.contains(path)) throw StateError('$path was uninstalled');
+    if (_switchedOff) throw const CloudStreamSwitchedOff();
     final pending = _loaded[path] ??= _announce(path, _loadOn(path, (e) => e.loadPlugin(path, url: pluginUrl)));
     // A failed load is retried on the next call rather than remembered.
     return pending.catchError((Object error) {

@@ -68,6 +68,35 @@ void main() {
     expect(CloudStreamProvider.isCloudStreamId(null), isFalse);
   });
 
+  test('home reports section errors rather than silently showing an empty page', () async {
+    final provider = CloudStreamProvider(
+      plugin: const CsInstalledPlugin(
+        info: CsPluginInfo(internalName: 'A', name: 'A', url: '', repositoryUrl: ''),
+        filePath: '/plugins/A.cs3',
+      ),
+      pluginKey: 'repo/A',
+      info: const CsProviderInfo(name: 'A', hasMainPage: true),
+      host: _AnsweringHost({'sections': [{'name': 'Popular', 'error': 'site unavailable'}]}),
+    );
+    await expectLater(provider.getHome(), throwsA(isA<StateError>()));
+  });
+
+  test('home retains successful sections when another section fails', () async {
+    final provider = CloudStreamProvider(
+      plugin: const CsInstalledPlugin(
+        info: CsPluginInfo(internalName: 'A', name: 'A', url: '', repositoryUrl: ''),
+        filePath: '/plugins/A.cs3',
+      ),
+      pluginKey: 'repo/A',
+      info: const CsProviderInfo(name: 'A', hasMainPage: true),
+      host: _AnsweringHost({'sections': [
+        {'name': 'Broken', 'error': 'site unavailable'},
+        {'name': 'Popular', 'items': [{'name': 'Film', 'url': 'https://site.test/film'}]},
+      ]}),
+    );
+    expect((await provider.getHome())['Popular']!.single.title, 'Film');
+  });
+
   group("a Play an extension's full-screen window took", () {
     CloudStreamProvider provider(Map<String, dynamic> answer) => CloudStreamProvider(
       plugin: const CsInstalledPlugin(

@@ -99,6 +99,8 @@ class _FakeHost extends CloudStreamEngineHost {
   /// What a load registers.
   List<Map<String, Object?>> providers = const [];
 
+  int extractors = 0;
+
   /// Loads fail, as the engine's do for a plugin it can't run.
   bool failing = false;
 
@@ -113,7 +115,7 @@ class _FakeHost extends CloudStreamEngineHost {
     if (switchedOff) return super.reload(path, pluginUrl: pluginUrl);
     loaded.add((path: path, pluginUrl: pluginUrl));
     if (failing) throw Cs3EngineException('java.lang.NoSuchFieldError', 'Companion');
-    return {'providers': providers};
+    return {'providers': providers, 'extractors': extractors};
   }
 
   @override
@@ -274,6 +276,20 @@ void main() {
   ];
 
   File savedRepositories() => File('${support.path}/extensions/cloudstream/repositories.json');
+
+  test('shared extractors load even when their plugin also registers providers', () async {
+    final container = boot();
+    final notifier = container.read(cloudStreamRepositoryProvider.notifier);
+    final repo = await notifier.addRepository(_repoUrl);
+    host.providers = [{'name': 'Alpha'}];
+    host.extractors = 1;
+    final installed = await notifier.install(repo.plugins.single);
+    host.loaded.clear();
+
+    await notifier.loadExtractorPlugins();
+
+    expect(host.loaded.map((load) => load.path), [installed.filePath]);
+  });
 
   test('a repository is fetched over HTTPS and saved to its file', () async {
     final container = boot();

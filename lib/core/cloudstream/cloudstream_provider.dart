@@ -112,6 +112,12 @@ class CloudStreamProvider extends SkyStreamProvider {
             (e) => e.mainPage(name, section: names[index], plugin: _pluginPath),
             kind: 'mainPage',
           );
+          for (final section in _list(result['sections'])) {
+            if (section['error'] != null) {
+              failure = StateError('${section['error']}');
+              talker.warning('[CloudStream] $name home section failed: ${section['error']}');
+            }
+          }
           pages[index] = {
             for (final section in _list(result['sections']))
               if (section['error'] == null && _list(section['items']).isNotEmpty)
