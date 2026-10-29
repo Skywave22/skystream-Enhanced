@@ -487,12 +487,12 @@ class _LinksEngine implements Cs3Engine {
 
 /// A host that runs its calls on the engine it is given.
 class _EngineHost extends CloudStreamEngineHost {
-  _EngineHost(this.engine);
+  _EngineHost(this.running);
 
-  final Cs3Engine engine;
+  final Cs3Engine running;
 
   @override
-  Future<Cs3Engine> engine() async => engine;
+  Future<Cs3Engine> engine() async => running;
 }
 
 /// An engine host whose every call answers [answer].
