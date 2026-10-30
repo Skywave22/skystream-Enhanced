@@ -1,0 +1,38 @@
+Analyzing skystream-Enhanced...
+An unexpected error was encountered by the Analysis Server.
+Please file an issue at https://github.com/dart-lang/sdk/issues/new/choose with the following details:
+
+Invalid argument(s): Message lintcode.unsupported_provider_value requires 0 arguments, but 1 argument was provided
+#0      new Diagnostic.tmp (package:analyzer/diagnostic/diagnostic.dart:70)
+#1      DiagnosticReporter._createDiagnostic (package:analyzer/src/error/listener.dart:394)
+#2      DiagnosticReporter.atOffset (package:analyzer/src/error/listener.dart:297)
+#3      DiagnosticReporter.atToken (package:analyzer/src/error/listener.dart:362)
+#4      AbstractAnalysisRule._reportAtToken (package:analyzer/src/analysis_rule/analysis_rule.dart:171)
+#5      AnalysisRule.reportAtToken (package:analyzer/src/analysis_rule/analysis_rule.dart:271)
+#6      _Visitor.checkCreatedType (package:riverpod_lint/src/lints/unsupported_provider_value.dart:84)
+#7      _RiverpodAstRegistryVisitor._runSubscriptions (package:riverpod_analyzer_utils/src/nodes.g.dart:822)
+#8      _RiverpodAstRegistryVisitor.visitFunctionalProviderDeclaration (package:riverpod_analyzer_utils/src/nodes.g.dart:868)
+#9      RecursiveRiverpodAstVisitor.visitFunctionDeclaration (package:riverpod_analyzer_utils/src/nodes.g.dart:105)
+#10     FunctionDeclarationImpl.accept (package:analyzer/src/dart/ast/ast.dart:26175)
+#11     _V1ProjectedNodeListImpl.accept (package:analyzer/src/dart/ast/ast.dart:65000)
+#12     CompilationUnitImpl.visitChildren (package:analyzer/src/dart/ast/ast.dart:10328)
+#13     GeneralizingAstVisitor.visitNode (package:analyzer/dart/ast/visitor.g.dart:526)
+#14     RecursiveRiverpodAstVisitor.visitNode (package:riverpod_analyzer_utils/src/nodes.g.dart:64)
+#15     GeneralizingAstVisitor.visitCompilationUnit (package:analyzer/dart/ast/visitor.g.dart:151)
+#16     CompilationUnitImpl.accept (package:analyzer/src/dart/ast/ast.dart:10219)
+#17     RiverpodAstRegistry.run (package:riverpod_analyzer_utils/src/nodes.g.dart:673)
+#18     _Visitor.visitCompilationUnit (package:riverpod_lint/src/lints/unsupported_provider_value.dart:55)
+#19     CompilationUnitImpl.accept (package:analyzer/src/dart/ast/ast.dart:10219)
+#20     AnalysisRuleVisitor._runSubscriptions (package:analyzer/src/lint/linter_visitor.g.dart:1186)
+#21     AnalysisRuleVisitor.visitCompilationUnit (package:analyzer/src/lint/linter_visitor.g.dart:198)
+#22     CompilationUnitImpl.accept (package:analyzer/src/dart/ast/ast.dart:10219)
+#23     PluginServer._computeDiagnosticsFromPlugin (package:analysis_server_plugin/src/plugin_server.dart:606)
+#24     PluginServer._analyzeAndSendDiagnostics.<anonymous closure> (package:analysis_server_plugin/src/plugin_server.dart:417)
+#25     _rootRun (dart:async/zone_root.dart:35)
+#26     _CustomZone.run (dart:async/zone.dart:810)
+#27     _runZoned (dart:async/zone_api.dart:165)
+#28     runZonedGuarded (dart:async/zone_api.dart:151)
+#29     PluginServer._analyzeAndSendDiagnostics (package:analysis_server_plugin/src/plugin_server.dart:416)
+#30     PluginServer._handleResolvedUnit (package:analysis_server_plugin/src/plugin_server.dart:1144)
+<asynchronous suspension>
+
