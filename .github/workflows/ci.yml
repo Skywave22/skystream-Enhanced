@@ -51,6 +51,11 @@ jobs:
     name: Analyze & Test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      # '1' when the committed gen-l10n output drifted from what the SDK
+      # generates. The gen-l10n-output job below uses it to decide whether it
+      # has anything to publish.
+      gen_l10n_stale: ${{ steps.genl10n.outputs.stale }}
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -79,19 +84,26 @@ jobs:
 
       # An ARB edited without re-running gen-l10n ships nothing: the app reads
       # the committed Dart, not the .arb. Cheap to catch, invisible otherwise.
+      #
+      # The drift is reported, not fatal on its own: the gates after this one
+      # (analyze, lint, test) answer different questions, and hiding them
+      # behind an unrelated failure is how a real compile error stays hidden
+      # for a week. The job still fails - this step just does not stop the
+      # ones that matter.
       - name: Check gen-l10n Output Is Committed
+        id: genl10n
         run: |
           if ! git diff --exit-code --stat -- lib/l10n/generated; then
             echo "::error::lib/l10n/generated is stale. Run 'flutter gen-l10n' and commit the result."
-            # The diff goes in the run's summary: the job's own log is not always
-            # readable from here, and what changed is the whole answer.
             {
               echo '### lib/l10n/generated is stale'
               echo '```'
               git diff -- lib/l10n/generated
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+            echo "stale=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=0" >> "$GITHUB_OUTPUT"
           fi
 
       # gen-l10n wrote the per-locale backlog to build/l10n_untranslated.json
@@ -289,6 +301,67 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status
+
+      # The drift is reported above but does not stop the gates after it, so
+      # the job has to fail on it here rather than in the step that found it.
+      - name: Fail On Stale gen-l10n Output
+        if: ${{ always() && steps.genl10n.outputs.stale == '1' }}
+        run: |
+          echo "::error::lib/l10n/generated is stale. Run 'flutter gen-l10n' and commit the result."
+          exit 1
+
+  # The committed lib/l10n/generated/** is what the app ships, and it has to
+  # be byte-for-byte what `flutter gen-l10n` writes - the tool's output is
+  # generated, and hand-editing it to match is guesswork. This job publishes
+  # the SDK's own output to a branch, so the fix is a copy of the real thing
+  # rather than a reconstruction of it.
+  #
+  # It only runs when the drift check found drift, so a healthy branch pays
+  # nothing for it.
+  gen-l10n-output:
+    name: Publish gen-l10n Output
+    needs: analyze-and-test
+    # always(): the job it needs has just failed on the very drift this job
+    # publishes, so the default "skip when the needed job failed" would skip
+    # the one job that can fix it.
+    if: ${{ always() && needs.analyze-and-test.outputs.gen_l10n_stale == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Generate
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      # Pushed to a branch, not committed to the branch under test: this is
+      # output for a human (or an agent) to copy in, and the branch under
+      # test must not change because of a CI run. The commit sits on top of
+      # the tested SHA, so fetching the branch and taking the generated
+      # directory from it is a plain checkout of those paths.
+      - name: Publish
+        env:
+          BRANCH: ci/gen-l10n-output
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A lib/l10n/generated
+          if git diff --cached --quiet; then
+            echo "::error::the drift check reported drift but gen-l10n produced no change"
+            exit 1
+          fi
+          git commit -m "chore(l10n): publish gen-l10n output"
+          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "HEAD:$BRANCH"
+          echo "Published to $BRANCH"
 
   # The two vendored Dart packages, in parallel with the app suite rather than
   # appended to it. Both are path dependencies, so each needs its own
