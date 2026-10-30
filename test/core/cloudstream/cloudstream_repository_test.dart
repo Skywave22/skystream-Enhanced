@@ -412,6 +412,30 @@ void main() {
     expect(pluginFiles().where((f) => f.path.endsWith('.part')), isEmpty);
   });
 
+  test('every extension of a repository is installed in one go', () async {
+    final notifier = boot().read(cloudStreamRepositoryProvider.notifier);
+    final repo = await notifier.addRepository(_repoUrl);
+
+    final result = await notifier.installAll(repo);
+    expect(result.installed, ['Alpha']);
+    expect(result.failed, isEmpty);
+
+    // Installed already: there is nothing left to install.
+    final again = await notifier.installAll(repo);
+    expect(again.installed, isEmpty);
+    expect(again.failed, isEmpty);
+  });
+
+  test('an extension that does not load is named among those that failed', () async {
+    final notifier = boot().read(cloudStreamRepositoryProvider.notifier);
+    final repo = await notifier.addRepository(_repoUrl);
+    host.failing = true;
+
+    final result = await notifier.installAll(repo);
+    expect(result.installed, isEmpty);
+    expect(result.failed, ['Alpha']);
+  });
+
   // ViStream registers nothing unless it was installed from its own repository.
   test('a plugin installed from a repository loads with the address it came from', () async {
     final notifier = boot().read(cloudStreamRepositoryProvider.notifier);

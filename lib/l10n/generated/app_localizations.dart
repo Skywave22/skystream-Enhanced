@@ -4247,6 +4247,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{time} behind live'**
   String playerBehindLive(String time);
+
+  /// CloudStream extensions: the button that updates every installed extension at once.
+  ///
+  /// In en, this message translates to:
+  /// **'Update all'**
+  String get cloudStreamUpdateAll;
+
+  /// CloudStream extensions: while every installed extension is updated.
+  ///
+  /// In en, this message translates to:
+  /// **'Updating…'**
+  String get cloudStreamUpdatingAll;
+
+  /// CloudStream extensions: the button that installs every extension a repository lists.
+  ///
+  /// In en, this message translates to:
+  /// **'Install all'**
+  String get cloudStreamInstallAll;
+
+  /// CloudStream extensions: while every extension of a repository is installed.
+  ///
+  /// In en, this message translates to:
+  /// **'Installing…'**
+  String get cloudStreamInstallingAll;
+
+  /// CloudStream extensions: how many of a repository's extensions were installed.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Installed 1 extension} other{Installed {count} extensions}}'**
+  String cloudStreamInstalledAll(int count);
+
+  /// CloudStream extensions: the ones of a repository that could not be installed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not install: {names}'**
+  String cloudStreamCouldNotInstallAll(String names);
+
+  /// Home, the provider list: the field that looks for a provider by name.
+  ///
+  /// In en, this message translates to:
+  /// **'Search providers'**
+  String get providerSearchHint;
+
+  /// Home, the provider list: the title of the sheet a long press opens.
+  ///
+  /// In en, this message translates to:
+  /// **'Provider details'**
+  String get providerDetailsTitle;
+
+  /// Home, the provider details: the kind of media a provider offers.
+  ///
+  /// In en, this message translates to:
+  /// **'Type'**
+  String get providerDetailsType;
+
+  /// Home, the provider details: the extension a provider comes from.
+  ///
+  /// In en, this message translates to:
+  /// **'From'**
+  String get providerDetailsFrom;
+
+  /// Settings, under the font size: what the font size switch does.
+  ///
+  /// In en, this message translates to:
+  /// **'Make the text bigger or smaller, everywhere in the app.'**
+  String get fontSizeDescription;
 }
 
 class _AppLocalizationsDelegate

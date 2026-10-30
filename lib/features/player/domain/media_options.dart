@@ -70,7 +70,9 @@ List<String> playerInstanceOptions(TargetPlatform platform) =>
 ///   `highest` replaces the player's `predictive` for this media;
 /// - [softwareDecode]: see [softwareDecodeFor];
 /// - [languageOption]: the audio language setting, when it speaks for this
-///   media.
+///   media;
+/// - [audioSlave]: the address of a sound that is in a file of its own, which
+///   libVLC plays with the video when it is named as the media's second input.
 List<String> playbackMediaOptions({
   required bool live,
   required BufferPlan plan,
@@ -78,6 +80,7 @@ List<String> playbackMediaOptions({
   bool qualityPicked = false,
   bool softwareDecode = false,
   String? languageOption,
+  String? audioSlave,
   int liveDelayMs = kLiveDelayMs,
 }) => <String>[
   ':network-caching=${live ? kLiveCachingMs : kVodCachingMs}',
@@ -89,4 +92,5 @@ List<String> playbackMediaOptions({
   if (qualityPicked) ':adaptive-logic=highest',
   if (softwareDecode) ':codec=all',
   ?languageOption,
+  ?audioSlave,
 ];

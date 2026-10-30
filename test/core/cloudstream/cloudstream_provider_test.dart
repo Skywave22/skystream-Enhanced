@@ -50,6 +50,43 @@ void main() {
     });
   });
 
+  group('a link whose sound is in a file of its own', () {
+    test('is read, with the headers that file needs', () {
+      expect(
+        CloudStreamProvider.audioTrack({
+          'url': 'https://cdn.test/video.mp4',
+          'audioTracks': [
+            {
+              'url': 'https://cdn.test/audio.m4a',
+              'headers': {'Referer': 'https://x.test/'},
+            },
+          ],
+        }),
+        (
+          url: 'https://cdn.test/audio.m4a',
+          headers: {'Referer': 'https://x.test/'},
+        ),
+      );
+    });
+
+    test('is left out when there is none', () {
+      expect(
+        CloudStreamProvider.audioTrack({'url': 'https://cdn.test/video.mp4'}),
+        isNull,
+      );
+      expect(CloudStreamProvider.audioTrack({'audioTracks': []}), isNull);
+      expect(
+        CloudStreamProvider.audioTrack({
+          'audioTracks': [
+            {'url': ''},
+            {'url': 'https://cdn.test/audio.m4a'},
+          ],
+        }),
+        (url: 'https://cdn.test/audio.m4a', headers: null),
+      );
+    });
+  });
+
   test('a links call waits as long as CloudStream lets one', () async {
     final engine = _LinksEngine();
     final links = await CloudStreamProvider(

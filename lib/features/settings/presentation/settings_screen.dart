@@ -124,6 +124,16 @@ class SettingsScreen extends ConsumerWidget {
               showLanguageDialog(context, ref, ref.read(localeProvider)),
         ),
         SettingsTile(
+          icon: Icons.format_size_rounded,
+          title: l10n.fontSize,
+          subtitle: '${(generalSettings.fontScale * 100).round()}%',
+          onTap: () => showFontSizeDialog(
+            context,
+            ref,
+            generalSettings.fontScale,
+          ),
+        ),
+        SettingsTile(
           icon: Icons.home_rounded,
           title: l10n.defaultHomeScreen,
           subtitle: getHomeScreenLabel(generalSettings.defaultHomeScreen, l10n),

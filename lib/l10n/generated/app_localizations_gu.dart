@@ -2436,4 +2436,47 @@ class AppLocalizationsGu extends AppLocalizations {
   String playerBehindLive(String time) {
     return 'લાઇવથી $time પાછળ';
   }
+
+  @override
+  String get cloudStreamUpdateAll => 'Update all';
+
+  @override
+  String get cloudStreamUpdatingAll => 'Updating…';
+
+  @override
+  String get cloudStreamInstallAll => 'Install all';
+
+  @override
+  String get cloudStreamInstallingAll => 'Installing…';
+
+  @override
+  String cloudStreamInstalledAll(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Installed $count extensions',
+      one: 'Installed 1 extension',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String cloudStreamCouldNotInstallAll(String names) {
+    return 'Could not install: $names';
+  }
+
+  @override
+  String get providerSearchHint => 'Search providers';
+
+  @override
+  String get providerDetailsTitle => 'Provider details';
+
+  @override
+  String get providerDetailsType => 'Type';
+
+  @override
+  String get providerDetailsFrom => 'From';
+
+  @override
+  String get fontSizeDescription => 'Make the text bigger or smaller, everywhere in the app.';
 }

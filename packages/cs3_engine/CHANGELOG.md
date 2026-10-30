@@ -1,5 +1,12 @@
 ## Unreleased
 
+- **A link's own sound file is passed on:** `loadLinks` answers each link with the audio files it
+  carries (`audioTracks`), the way CloudStream hands them to its player. An extension that gives
+  the picture and the sound apart (a YouTube download does) was played without sound.
+- **Android:** an extension that asks the app to restart is now heard of (`restartRequested`), so
+  the app can load it again - which is what the restart would have done, and what makes the
+  settings it saved apply.
+
 - **Links are waited for longer:** `loadLinks`'s `timeoutMs` now defaults to 120 s (it was 30 s).
   An extension that takes its time to answer was cut off and left with nothing to play; the app
   asks for the same time.

@@ -61,10 +61,15 @@ Future<void> _openExtensionSettings(BuildContext context, WidgetRef ref, CsInsta
   if (crash != null) {
     messenger.showSnackBar(SnackBar(content: Text(l10n.cloudStreamSettingsStopped(plugin.info.name, crash))));
   }
-  if (!changed) return;
+  // The extension is loaded afresh whatever it said. An extension that keeps its settings in
+  // memory - 44 of the 79 settings screens surveyed ask for a restart to apply them, and the app
+  // does not restart - only applies them when its code runs again, and the app cannot see that
+  // its settings were saved.
   try {
     await ref.read(cloudStreamRepositoryProvider.notifier).applySettings(plugin);
-    messenger.showSnackBar(SnackBar(content: Text(l10n.cloudStreamSettingsApplied(plugin.info.name))));
+    if (changed) {
+      messenger.showSnackBar(SnackBar(content: Text(l10n.cloudStreamSettingsApplied(plugin.info.name))));
+    }
   } catch (error) {
     messenger.showSnackBar(
       SnackBar(

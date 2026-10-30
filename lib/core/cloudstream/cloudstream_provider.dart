@@ -349,6 +349,9 @@ class CloudStreamProvider extends SkyStreamProvider {
       // A link without an address is not one: the others still are.
       final target = link['url'];
       if (target is! String || target.isEmpty) continue;
+      // The sound of a link that carries it in a file of its own: a YouTube download gives the
+      // video and the audio apart, and the player plays the two together.
+      final audio = _audioTrack(link);
       streams.add(
         StreamResult(
           url: target,
@@ -360,10 +363,44 @@ class CloudStreamProvider extends SkyStreamProvider {
           drmKid: (link['drm'] as Map?)?['kid'] as String?,
           drmKey: (link['drm'] as Map?)?['key'] as String?,
           licenseUrl: (link['drm'] as Map?)?['licenseUrl'] as String?,
+          audioUrl: audio?.$1,
+          audioHeaders: audio?.$2,
         ),
       );
     }
     return streams;
+  }
+
+  /// The sound of [link] in a file of its own, with the headers that file needs.
+  @visibleForTesting
+  static ({String url, Map<String, String>? headers})? audioTrack(
+    Map<String, dynamic> link,
+  ) => _audioTrack(link);
+
+  /// The sound of [link] in a file of its own: the first of the audio files it names, with the
+  /// headers that file needs. Null when the link carries its own sound.
+  static ({String url, Map<String, String>? headers})? _audioTrack(
+    Map<String, dynamic> link,
+  ) {
+    final tracks = link['audioTracks'];
+    if (tracks is! List) return null;
+    for (final track in tracks) {
+      if (track is! Map) continue;
+      final url = track['url'];
+      if (url is! String || url.isEmpty) continue;
+      final headers = track['headers'];
+      return (
+        url: url,
+        headers: headers is Map
+            ? {
+                for (final entry in headers.entries)
+                  if (entry.key is String && entry.value is String)
+                    entry.key as String: entry.value as String,
+              }
+            : null,
+      );
+    }
+    return null;
   }
 
   /// The items [raw] holds: one that does not read (an extension that left out the address the

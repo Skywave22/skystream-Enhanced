@@ -38,6 +38,7 @@ import '../../../shared/widgets/shimmer_placeholder.dart';
 import '../../../../core/utils/layout_constants.dart';
 import '../../../../core/utils/responsive_breakpoints.dart';
 import '../../../../core/providers/device_info_provider.dart';
+import 'package:skystream/core/storage/storage_service.dart';
 
 import 'dart:async';
 
@@ -803,12 +804,16 @@ class _ProviderSelectorDialog extends StatefulWidget {
 class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
   final ScrollController _scrollController = ScrollController();
   final ScrollController _chipsScrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
   bool _didInitialScroll = false;
+  bool _searching = false;
+  String _query = '';
 
   @override
   void dispose() {
     _scrollController.dispose();
     _chipsScrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -827,11 +832,64 @@ class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
     }
   }
 
+  /// Whether a provider is one of several that share an extension: the extension's name is
+  /// shown beside it then.
+  bool _isSubprovider(SkyStreamProvider p) {
+    final cloudStream = p is CloudStreamProvider ? p : null;
+    return p.packageName.contains('::') ||
+        (cloudStream != null && cloudStream.plugin.providers.length > 1);
+  }
+
+  /// The extension a provider comes from: the tag shown beside its name, and the folder its live
+  /// providers are gathered under.
+  String _pluginTag(SkyStreamProvider p, List<ExtensionPlugin?> installedPlugins) {
+    final cloudStream = p is CloudStreamProvider ? p : null;
+    if (cloudStream != null) return cloudStream.pluginName;
+    if (!p.packageName.contains('::')) return '';
+    final parentPackageName = p.packageName.substring(
+      0,
+      p.packageName.indexOf('::'),
+    );
+    final plugin = installedPlugins.cast<ExtensionPlugin?>().firstWhere(
+      (pl) => pl?.packageName == parentPackageName,
+      orElse: () => null,
+    );
+    return plugin?.name ?? parentPackageName;
+  }
+
+  /// The name a provider goes by: the one the person gave it, or the one it came with.
+  String _displayName(SkyStreamProvider p, Map<String, String> aliases) =>
+      aliases[p.packageName] ?? p.name;
+
+  /// Shows what a provider is: the name it goes by, the kind of media it offers, and the
+  /// extension it comes from ("JTV+ from Cricfy"). The name is the person's to change.
+  Future<void> _showDetails(
+    BuildContext context,
+    SkyStreamProvider provider,
+    String tag,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final storage = ref.read(storageServiceProvider);
+    final alias = storage.getProviderAlias(provider.packageName);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => _ProviderDetailsDialog(
+        provider: provider,
+        tag: tag,
+        alias: alias,
+      ),
+    );
+    if (name == null) return;
+    await storage.setProviderAlias(provider.packageName, name);
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final providers = widget.providers;
     final activeProvider = widget.activeProvider;
+    final aliases = ref.read(storageServiceProvider).getProviderAliases();
 
     return AlertDialog(
       title: Text(l10n.selectProvider),
@@ -841,6 +899,29 @@ class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_searching)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: l10n.providerSearchHint,
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    isDense: true,
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      tooltip: l10n.close,
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _query = '');
+                      },
+                    ),
+                  ),
+                  onChanged: (value) => setState(() => _query = value),
+                ),
+              ),
             Consumer(
               builder: (context, ref, _) {
                 final currentFilter = ref.watch(homeFilterProvider);
@@ -900,33 +981,64 @@ class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
                   );
                   final installedPlugins = extensionsState.installedPlugins;
 
-                  final filteredProviders = filter == null
-                      ? providers
-                      : providers
-                            .where((p) => p.supportedTypes.contains(filter))
-                            .toList();
+                  final query = _query.trim().toLowerCase();
+                  final filteredProviders = providers.where((p) {
+                    if (filter != null && !p.supportedTypes.contains(filter)) {
+                      return false;
+                    }
+                    if (query.isEmpty) return true;
+                    final name = _displayName(p, aliases).toLowerCase();
+                    if (name.contains(query)) return true;
+                    return p.packageName.toLowerCase().contains(query);
+                  }).toList();
 
-                  // Auto-scroll to selected provider on initial show
-                  int targetIndex = -1;
-                  if (activeProvider == null) {
-                    if (filter == null) {
-                      targetIndex = 0;
+                  final tags = {
+                    for (final p in filteredProviders)
+                      p.packageName: _pluginTag(p, installedPlugins),
+                  };
+
+                  // The list, one row each. Under Live Streams the providers of one extension
+                  // stand under that extension's name, the way a folder of files does.
+                  final rows = <({String? heading, SkyStreamProvider? provider})>[];
+                  if (filter == ProviderType.livestream) {
+                    final byExtension = <String, List<SkyStreamProvider>>{};
+                    for (final p in filteredProviders) {
+                      byExtension
+                          .putIfAbsent(tags[p.packageName] ?? '', () => [])
+                          .add(p);
+                    }
+                    for (final entry in byExtension.entries) {
+                      if (entry.key.isEmpty) {
+                        for (final p in entry.value) {
+                          rows.add((heading: null, provider: p));
+                        }
+                        continue;
+                      }
+                      rows.add((heading: entry.key, provider: null));
+                      for (final p in entry.value) {
+                        rows.add((heading: null, provider: p));
+                      }
                     }
                   } else {
-                    final idx = filteredProviders.indexWhere(
-                      (p) => p.packageName == activeProvider.packageName,
-                    );
-                    if (idx != -1) {
-                      targetIndex = filter == null ? idx + 1 : idx;
-                    } else {
-                      targetIndex = 0;
+                    for (final p in filteredProviders) {
+                      rows.add((heading: null, provider: p));
                     }
                   }
 
-                  // If still -1 (e.g. activeProvider == null and filter != null), focus first item
-                  if (targetIndex == -1) targetIndex = 0;
+                  // "None" is the first row, and it is only there when nothing is filtered out
+                  // of the way.
+                  final showNone = filter == null && query.isEmpty;
+                  final activeRow = rows.indexWhere(
+                    (r) =>
+                        r.provider?.packageName == activeProvider?.packageName,
+                  );
 
-                  if (!_didInitialScroll && targetIndex != -1) {
+                  // Auto-scroll to selected provider on initial show
+                  var targetIndex = activeRow;
+                  if (targetIndex < 0) targetIndex = 0;
+                  if (showNone) targetIndex += 1;
+
+                  if (!_didInitialScroll) {
                     _didInitialScroll = true;
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (_scrollController.hasClients) {
@@ -960,17 +1072,16 @@ class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
                         controller: _scrollController,
                         shrinkWrap: true,
                         padding: EdgeInsets.zero,
-                        itemCount:
-                            (filter == null ? 1 : 0) + filteredProviders.length,
+                        itemCount: (showNone ? 1 : 0) + rows.length,
                         itemBuilder: (context, index) {
-                          if (filter == null && index == 0) {
+                          if (showNone && index == 0) {
                             return SizedBox(
                               height: 56.0,
                               child: Center(
                                 child: ListTile(
                                   title: Text(l10n.none),
                                   leading: const Radio<String?>(value: null),
-                                  autofocus: index == targetIndex,
+                                  autofocus: activeRow < 0,
                                   onTap: () {
                                     ref
                                         .read(activeProviderProvider.notifier)
@@ -983,43 +1094,39 @@ class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
                             );
                           }
 
-                          final p =
-                              filteredProviders[filter == null
-                                  ? index - 1
-                                  : index];
-                          final isDebug = p.isDebug;
-                          final cloudStream = p is CloudStreamProvider ? p : null;
-                          // A CloudStream extension can register several providers (one
-                          // plugin, "Netflix" and "Prime Video"): then name the extension too.
-                          final isSubprovider = p.packageName.contains('::') ||
-                              (cloudStream != null && cloudStream.plugin.providers.length > 1);
-                          String pluginTag = '';
-                          if (cloudStream != null) {
-                            pluginTag = cloudStream.pluginName;
-                          } else if (isSubprovider) {
-                            final parentPackageName = p.packageName.substring(
-                              0,
-                              p.packageName.indexOf('::'),
+                          final row = rows[index - (showNone ? 1 : 0)];
+                          if (row.heading != null) {
+                            final theme = Theme.of(context);
+                            return Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                              child: Text(
+                                row.heading!,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             );
-                            final plugin = installedPlugins
-                                .cast<ExtensionPlugin?>()
-                                .firstWhere(
-                                  (pl) => pl?.packageName == parentPackageName,
-                                  orElse: () => null,
-                                );
-                            pluginTag = plugin?.name ?? parentPackageName;
                           }
+
+                          final p = row.provider!;
+                          final isDebug = p.isDebug;
+                          final cloudStream =
+                              p is CloudStreamProvider ? p : null;
+                          final isSubprovider = _isSubprovider(p);
+                          final pluginTag = tags[p.packageName] ?? '';
 
                           return SizedBox(
                             height: 56.0,
                             child: Center(
                               child: ListTile(
-                                autofocus: index == targetIndex,
+                                autofocus:
+                                    activeRow >= 0 && index == targetIndex,
                                 title: Row(
                                   children: [
                                     Flexible(
                                       child: Text(
-                                        p.name,
+                                        _displayName(p, aliases),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
@@ -1092,6 +1199,11 @@ class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
                                   Navigator.pop(context);
                                   ref.invalidate(homeDataProvider);
                                 },
+                                // A long press says what the provider is: which extension it
+                                // comes from, and the name the person gave it.
+                                onLongPress: () => unawaited(
+                                  _showDetails(context, p, pluginTag),
+                                ),
                               ),
                             ),
                           );
@@ -1106,11 +1218,149 @@ class _ProviderSelectorDialogState extends State<_ProviderSelectorDialog> {
         ),
       ),
       actions: [
+        IconButton(
+          tooltip: l10n.search,
+          icon: Icon(
+            _searching ? Icons.close_rounded : Icons.search_rounded,
+          ),
+          onPressed: () => setState(() {
+            _searching = !_searching;
+            if (!_searching) {
+              _query = '';
+              _searchController.clear();
+            }
+          }),
+        ),
         CustomButton(
           onPressed: () => Navigator.pop(context),
           child: Text(l10n.close),
         ),
       ],
+    );
+  }
+}
+
+/// What a long press on a provider shows: the name it goes by, the kind of media it offers and
+/// the extension it comes from ("JTV+ from Cricfy"). The name is the person's to change.
+class _ProviderDetailsDialog extends ConsumerStatefulWidget {
+  const _ProviderDetailsDialog({
+    required this.provider,
+    required this.tag,
+    required this.alias,
+  });
+
+  final SkyStreamProvider provider;
+  final String tag;
+  final String? alias;
+
+  @override
+  ConsumerState<_ProviderDetailsDialog> createState() =>
+      _ProviderDetailsDialogState();
+}
+
+class _ProviderDetailsDialogState extends ConsumerState<_ProviderDetailsDialog> {
+  late final TextEditingController _nameController = TextEditingController(
+    text: widget.alias ?? widget.provider.name,
+  );
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final provider = widget.provider;
+    final types = provider.supportedTypes
+        .map(
+          (type) => switch (type) {
+            ProviderType.movie => l10n.movies,
+            ProviderType.series => l10n.series,
+            ProviderType.anime => l10n.anime,
+            ProviderType.livestream => l10n.liveStreams,
+            ProviderType.other => l10n.unknown,
+          },
+        )
+        .toList();
+
+    return AlertDialog(
+      title: Text(l10n.providerDetailsTitle),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: l10n.providerDetailsTitle,
+                hintText: provider.name,
+              ),
+              onSubmitted: (value) => Navigator.pop(context, value),
+            ),
+            const SizedBox(height: 12),
+            _DetailRow(
+              label: l10n.providerDetailsType,
+              value: types.isEmpty ? l10n.unknown : types.join(', '),
+            ),
+            if (widget.tag.isNotEmpty)
+              _DetailRow(label: l10n.providerDetailsFrom, value: widget.tag),
+            _DetailRow(label: 'ID', value: provider.packageName),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.cancel),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _nameController.text),
+          child: Text(l10n.save),
+        ),
+      ],
+    );
+  }
+}
+
+/// One line of the provider's details: what it is called, and what it says.
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 88,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -8,6 +8,8 @@
 - **Extension settings** – An extension's own settings open in SkyStream on every platform and take effect without restarting the app. Extensions' own dialogs and pages open in SkyStream too.
 - **Full-screen extension windows** – Extensions that open a full-screen page, games included, work on every platform, and Back closes them.
 - **One switch** – Turn CloudStream off entirely in Settings: no extension loads and their providers are hidden everywhere. Nothing is uninstalled.
+- **Update all** – One button updates every installed extension, and one installs every extension a repository lists, instead of one tap each.
+- **Extensions' own settings take effect** – An extension's settings are applied when its settings screen closes, whatever the extension says about it: an extension that asks the app to restart (the usual way its settings apply) is loaded again instead, so the change it made is the change you get.
 - **Richer details** – A CloudStream title's page shows everything its extension provides: its logo, score, content rating, status and tags; cast with voice actors; trailers; more titles from the same extension; when the next episode airs; named seasons; and each episode's rating, runtime and air date. A title not out yet says Coming soon. Tracking and skip times now get the title's MAL, AniList, IMDb and TMDB ids.
 
 #### 🛡️ Bot Checks (Cloudflare and Others)
@@ -48,6 +50,17 @@
 - **Torrents start on the right buffer** – TorrServer now gets the buffer size SkyStream chooses for each film, instead of running on its 64 MB default, and the film is no longer held twice in memory. While a torrent prepares, the screen shows its peers, speed and how much is loaded.
 - **Season packs play the episode you picked** from Stremio add-ons, instead of the pack's first file.
 
+#### 📺 The provider list
+- **Find a provider by name** – A search icon in the provider list looks for a provider by name, as you type.
+- **What a provider is** – A long press on a provider says what it is: the kind of media it offers, the extension it comes from ("JTV+" from Cricfy), and its name, which is yours to change.
+- **Providers in folders** – The provider list's Live Streams folder holds the live providers of each extension under that extension's name, so Cricfy, PlayTV and SKTech each have their own.
+
+#### 🔤 Text size
+- **Font size** – A slider in Settings makes the text of the app bigger or smaller, everywhere at once, on top of the size your device asks for.
+
+#### 📦 On television boxes and cheap sticks
+- **Less memory used** – On a box with little memory the pictures the app keeps are capped smaller, so it is not killed while a stream plays.
+
 #### 🖥️ Interface
 - **Navigation bar** – A new frosted navigation bar on phones (PR #121 by @likhithkrishna1103-tech).
 
@@ -59,6 +72,7 @@
 ---
 
 ### 🐞 *Bug Fixes & System Stability*
+- 🛠️ **Fixed: a CloudStream extension's video played without sound** – An extension can give the sound of a video in a file of its own (a YouTube download does), and the file was dropped: the sound now plays with the picture.
 - 🛠️ **Fixed: some CloudStream extensions worked only partly** – An extension's results are now read one by one: a search result, a home entry, an episode, a link or a subtitle an extension leaves out no longer loses the rest of the page with it.
 - 🛠️ **Fixed: a CloudStream extension's links were given up on too early** – The engine stopped waiting after 30 seconds and left the extension with nothing to play. It waits as long as CloudStream does now (two minutes).
 - 🛠️ **Fixed: an extension's home page was empty after it renamed one of its sections** – The sections an extension offers are asked for as they are now, not as they were when it was installed, so a section it renamed or added shows again.

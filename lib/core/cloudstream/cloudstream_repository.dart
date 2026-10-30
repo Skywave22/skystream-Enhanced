@@ -622,6 +622,37 @@ class CloudStreamRepository extends _$CloudStreamRepository {
     }
   }
 
+  /// Installs every extension of [repo] that is not installed yet, one after another: a
+  /// repository holds dozens, and installing them one by one is a tap each.
+  ///
+  /// Returns the names of those installed, and those that failed: one that downloads but does
+  /// not load counts as failed, and says so where it is listed.
+  Future<({List<String> installed, List<String> failed})> installAll(CsRepository repo) async {
+    await _loaded;
+    final wanted = [
+      for (final plugin in repo.plugins)
+        if (state.installedFor(plugin) == null) plugin,
+    ];
+    final installed = <String>[];
+    final failed = <String>[];
+    for (final plugin in wanted) {
+      try {
+        final result = await install(plugin);
+        if (result.loadError == null) {
+          installed.add(plugin.name);
+        } else {
+          failed.add(plugin.name);
+        }
+      } catch (error) {
+        talker.warning('[CloudStream] installing ${plugin.name} failed: $error');
+        failed.add(plugin.name);
+        // The switch is off: every one after this would fail the same way.
+        if (error is CloudStreamSwitchedOff) break;
+      }
+    }
+    return (installed: installed, failed: failed);
+  }
+
   Future<void> uninstall(CsInstalledPlugin plugin) async {
     await _loaded;
     final key = keyOf(plugin.info);
