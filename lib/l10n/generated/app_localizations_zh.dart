@@ -2382,6 +2382,50 @@ class AppLocalizationsZh extends AppLocalizations {
   String playerBehindLive(String time) {
     return '落后直播 $time';
   }
+
+  @override
+  String get cloudStreamUpdateAll => 'Update all';
+
+  @override
+  String get cloudStreamUpdatingAll => 'Updating…';
+
+  @override
+  String get cloudStreamInstallAll => 'Install all';
+
+  @override
+  String get cloudStreamInstallingAll => 'Installing…';
+
+  @override
+  String cloudStreamInstalledAll(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Installed $count extensions',
+      one: 'Installed 1 extension',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String cloudStreamCouldNotInstallAll(Object names) {
+    return 'Could not install: $names';
+  }
+
+  @override
+  String get providerSearchHint => 'Search providers';
+
+  @override
+  String get providerDetailsTitle => 'Provider details';
+
+  @override
+  String get providerDetailsType => 'Type';
+
+  @override
+  String get providerDetailsFrom => 'From';
+
+  @override
+  String get fontSizeDescription =>
+      'Make the text bigger or smaller, everywhere in the app.';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -3781,47 +3825,4 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String playerBehindLive(String time) {
     return '落後直播 $time';
   }
-
-  @override
-  String get cloudStreamUpdateAll => 'Update all';
-
-  @override
-  String get cloudStreamUpdatingAll => 'Updating…';
-
-  @override
-  String get cloudStreamInstallAll => 'Install all';
-
-  @override
-  String get cloudStreamInstallingAll => 'Installing…';
-
-  @override
-  String cloudStreamInstalledAll(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Installed $count extensions',
-      one: 'Installed 1 extension',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String cloudStreamCouldNotInstallAll(String names) {
-    return 'Could not install: $names';
-  }
-
-  @override
-  String get providerSearchHint => 'Search providers';
-
-  @override
-  String get providerDetailsTitle => 'Provider details';
-
-  @override
-  String get providerDetailsType => 'Type';
-
-  @override
-  String get providerDetailsFrom => 'From';
-
-  @override
-  String get fontSizeDescription => 'Make the text bigger or smaller, everywhere in the app.';
 }

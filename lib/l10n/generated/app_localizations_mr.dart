@@ -2441,7 +2441,7 @@ class AppLocalizationsMr extends AppLocalizations {
   String get cloudStreamInstallingAll => 'Installing…';
 
   @override
-  String cloudStreamInstalledAll(int count) {
+  String cloudStreamInstalledAll(num count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
@@ -2452,7 +2452,7 @@ class AppLocalizationsMr extends AppLocalizations {
   }
 
   @override
-  String cloudStreamCouldNotInstallAll(String names) {
+  String cloudStreamCouldNotInstallAll(Object names) {
     return 'Could not install: $names';
   }
 
@@ -2469,5 +2469,6 @@ class AppLocalizationsMr extends AppLocalizations {
   String get providerDetailsFrom => 'From';
 
   @override
-  String get fontSizeDescription => 'Make the text bigger or smaller, everywhere in the app.';
+  String get fontSizeDescription =>
+      'Make the text bigger or smaller, everywhere in the app.';
 }

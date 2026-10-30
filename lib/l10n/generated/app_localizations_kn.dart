@@ -2443,49 +2443,6 @@ class AppLocalizationsKn extends AppLocalizations {
   }
 
   @override
-  String get cloudStreamUpdateAll => 'Update all';
-
-  @override
-  String get cloudStreamUpdatingAll => 'Updating…';
-
-  @override
-  String get cloudStreamInstallAll => 'Install all';
-
-  @override
-  String get cloudStreamInstallingAll => 'Installing…';
-
-  @override
-  String cloudStreamInstalledAll(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Installed $count extensions',
-      one: 'Installed 1 extension',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String cloudStreamCouldNotInstallAll(String names) {
-    return 'Could not install: $names';
-  }
-
-  @override
-  String get providerSearchHint => 'Search providers';
-
-  @override
-  String get providerDetailsTitle => 'Provider details';
-
-  @override
-  String get providerDetailsType => 'Type';
-
-  @override
-  String get providerDetailsFrom => 'From';
-
-  @override
-  String get fontSizeDescription => 'Make the text bigger or smaller, everywhere in the app.';
-
-  @override
   String get cloudStreamUpdateAll => 'ಎಲ್ಲವನ್ನೂ ಅಪ್‌ಡೇಟ್ ಮಾಡಿ';
 
   @override
@@ -2498,7 +2455,7 @@ class AppLocalizationsKn extends AppLocalizations {
   String get cloudStreamInstallingAll => 'ಇನ್‌ಸ್ಟಾಲ್ ಆಗುತ್ತಿದೆ…';
 
   @override
-  String cloudStreamInstalledAll(int count) {
+  String cloudStreamInstalledAll(num count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
@@ -2509,7 +2466,7 @@ class AppLocalizationsKn extends AppLocalizations {
   }
 
   @override
-  String cloudStreamCouldNotInstallAll(String names) {
+  String cloudStreamCouldNotInstallAll(Object names) {
     return 'ಇನ್‌ಸ್ಟಾಲ್ ಆಗಲಿಲ್ಲ: $names';
   }
 
@@ -2526,5 +2483,6 @@ class AppLocalizationsKn extends AppLocalizations {
   String get providerDetailsFrom => 'ಎಲ್ಲಿಂದ';
 
   @override
-  String get fontSizeDescription => 'ಆ್ಯಪ್‌ನಲ್ಲಿ ಎಲ್ಲಿಯೂ ಪಠ್ಯವನ್ನು ದೊಡ್ಡದಾಗಿ ಅಥವಾ ಚಿಕ್ಕದಾಗಿ ಮಾಡಿ.';
+  String get fontSizeDescription =>
+      'ಆ್ಯಪ್‌ನಲ್ಲಿ ಎಲ್ಲಿಯೂ ಪಠ್ಯವನ್ನು ದೊಡ್ಡದಾಗಿ ಅಥವಾ ಚಿಕ್ಕದಾಗಿ ಮಾಡಿ.';
 }

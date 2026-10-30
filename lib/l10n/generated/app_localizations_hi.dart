@@ -2430,49 +2430,6 @@ class AppLocalizationsHi extends AppLocalizations {
   }
 
   @override
-  String get cloudStreamUpdateAll => 'Update all';
-
-  @override
-  String get cloudStreamUpdatingAll => 'Updating…';
-
-  @override
-  String get cloudStreamInstallAll => 'Install all';
-
-  @override
-  String get cloudStreamInstallingAll => 'Installing…';
-
-  @override
-  String cloudStreamInstalledAll(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: 'Installed $count extensions',
-      one: 'Installed 1 extension',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String cloudStreamCouldNotInstallAll(String names) {
-    return 'Could not install: $names';
-  }
-
-  @override
-  String get providerSearchHint => 'Search providers';
-
-  @override
-  String get providerDetailsTitle => 'Provider details';
-
-  @override
-  String get providerDetailsType => 'Type';
-
-  @override
-  String get providerDetailsFrom => 'From';
-
-  @override
-  String get fontSizeDescription => 'Make the text bigger or smaller, everywhere in the app.';
-
-  @override
   String get cloudStreamUpdateAll => 'सभी अपडेट करें';
 
   @override
@@ -2485,7 +2442,7 @@ class AppLocalizationsHi extends AppLocalizations {
   String get cloudStreamInstallingAll => 'इंस्टॉल हो रहा है…';
 
   @override
-  String cloudStreamInstalledAll(int count) {
+  String cloudStreamInstalledAll(num count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
@@ -2496,7 +2453,7 @@ class AppLocalizationsHi extends AppLocalizations {
   }
 
   @override
-  String cloudStreamCouldNotInstallAll(String names) {
+  String cloudStreamCouldNotInstallAll(Object names) {
     return 'इंस्टॉल नहीं हो सका: $names';
   }
 
@@ -2513,5 +2470,6 @@ class AppLocalizationsHi extends AppLocalizations {
   String get providerDetailsFrom => 'कहाँ से';
 
   @override
-  String get fontSizeDescription => 'ऐप में हर जगह टेक्स्ट को बड़ा या छोटा करें।';
+  String get fontSizeDescription =>
+      'ऐप में हर जगह टेक्स्ट को बड़ा या छोटा करें।';
 }

@@ -4276,13 +4276,13 @@ abstract class AppLocalizations {
   ///
   /// In en, this message translates to:
   /// **'{count, plural, =1{Installed 1 extension} other{Installed {count} extensions}}'**
-  String cloudStreamInstalledAll(int count);
+  String cloudStreamInstalledAll(num count);
 
   /// CloudStream extensions: the ones of a repository that could not be installed.
   ///
   /// In en, this message translates to:
   /// **'Could not install: {names}'**
-  String cloudStreamCouldNotInstallAll(String names);
+  String cloudStreamCouldNotInstallAll(Object names);
 
   /// Home, the provider list: the field that looks for a provider by name.
   ///
