@@ -157,6 +157,53 @@ String getTitlePositionLabel(String position, AppLocalizations l10n) {
   }
 }
 
+/// The size of the app's text: a slider that changes it as it is dragged, so the person sees the
+/// size before letting go of it.
+void showFontSizeDialog(
+  BuildContext context,
+  WidgetRef ref,
+  double current,
+) {
+  final l10n = AppLocalizations.of(context)!;
+  var value = current;
+  showDialog<void>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        surfaceTintColor: Colors.transparent,
+        title: Text(l10n.fontSize),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.fontSizeDescription),
+            const SizedBox(height: 12),
+            Slider(
+              value: value,
+              min: 0.8,
+              max: 1.6,
+              divisions: 8,
+              label: '${(value * 100).round()}%',
+              onChanged: (v) {
+                setState(() => value = v);
+                // The slider answers at once: the size on screen changes as it
+                // is dragged, so the setting is written in the background.
+                unawaited(ref.read(generalSettingsProvider.notifier).setFontScale(v));
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop<void>(context),
+            child: Text(l10n.close),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// Shows a dialog to pick the title position on poster cards.
 void showTitlePositionDialog(
   BuildContext context,

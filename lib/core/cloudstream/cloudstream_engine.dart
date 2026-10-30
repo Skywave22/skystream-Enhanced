@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatf
 import 'package:path_provider/path_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../logger/app_logger.dart';
 import '../network/clearance/clearance.dart';
 import '../network/clearance/site_keys.dart';
 import '../providers/locale_provider.dart';
@@ -179,14 +180,28 @@ class CloudStreamEngineHost {
     if (_language case final language?) await engine.setLanguage(language);
   }
 
-  /// Loads the plugin at [path] once per engine and returns what `loadPlugin` said. [pluginUrl] is
-  /// where it was downloaded from, which plugins can look up (ViStream checks it).
   /// Sets whether CloudStream is switched off. While it is, nothing loads: [ensureLoaded], [reload],
   /// [reloadAfresh], [openSettings] and [run] throw [CloudStreamSwitchedOff], without starting the engine, so a
   /// screen still holding a provider can't load its extension back. What's loaded stays until [unload]; a load
   /// already under way is unloaded as it ends.
   void setSwitchedOff(bool off) => _switchedOff = off;
 
+  /// What the plugin at [path] registered: its providers, and the sections each of them offers.
+  /// The engine answers without running the plugin's load again, so this is cheap once the plugin
+  /// is loaded. Null when CloudStream is switched off.
+  ///
+  /// The sections an extension offers change as it changes - one is renamed, another added - and
+  /// the ones recorded when it was installed go stale: a section asked for by an old name answers
+  /// nothing. This says what it offers now.
+  ///
+  /// Throws what [ensureLoaded] throws when the plugin does not load.
+  Future<Map<String, dynamic>?> registration(String path, {String? pluginUrl}) async {
+    if (_switchedOff) return null;
+    return ensureLoaded(path, pluginUrl: pluginUrl);
+  }
+
+  /// Loads the plugin at [path] once per engine and returns what `loadPlugin` said. [pluginUrl] is
+  /// where it was downloaded from, which plugins can look up (ViStream checks it).
   Future<Map<String, dynamic>> ensureLoaded(String path, {String? pluginUrl}) {
     if (_removed.contains(path)) return Future.error(StateError('$path was uninstalled'));
     if (_switchedOff) return Future.error(const CloudStreamSwitchedOff());
@@ -245,15 +260,42 @@ class CloudStreamEngineHost {
     return engine.openSettings(path);
   }
 
-  /// Opens [path]'s kept pop-ups (its Support button), and returns the session its `ui` events name.
-  Future<int> openPopups(String path) async => (await engine()).openPopups(path);
+  /// Opens [path]'s kept pop-ups (its Support button), loading it first, and returns the session
+  /// its `ui` events name.
+  Future<int> openPopups(String path, {String? pluginUrl}) async {
+    if (_switchedOff) throw const CloudStreamSwitchedOff();
+    final engine = await this.engine();
+    await ensureLoaded(path, pluginUrl: pluginUrl);
+    return engine.openPopups(path);
+  }
 
   /// See [Cs3Engine.uiAction].
   Future<Map<String, dynamic>> uiAction(int session, int node, String action, [Object? value]) async =>
       (await engine()).uiAction(session, node, action, value);
 
   /// See [Cs3Engine.closeUi].
-  Future<void> closeUi(int session, {bool force = false}) async => (await engine()).closeUi(session, force: force);
+  ///
+  /// A screen the engine has already ended, or an engine that stopped, is
+  /// nothing to close: the app says so and goes on. The engine that is
+  /// running is asked directly, so a screen whose engine is gone does not
+  /// start a fresh one to be told so.
+  Future<void> closeUi(int session, {bool force = false}) async {
+    try {
+      final current = _engine;
+      if (current != null) {
+        final running = await current;
+        // The engine stopped: the screen went with it.
+        if (!running.isRunning) return;
+        await running.closeUi(session, force: force);
+        return;
+      }
+      // No engine of our own: a host that keeps one elsewhere (a platform
+      // that hosts the engine in the app, a test) is asked directly.
+      await (await engine()).closeUi(session, force: force);
+    } catch (error) {
+      talker.warning('[CloudStream] closing an extension screen failed: $error');
+    }
+  }
 
   /// Runs [call] on the engine with the plugin at [path] loaded. If the engine stopped (desktop:
   /// the `java` process died) or forgot the plugin, it is started or loaded again, once.

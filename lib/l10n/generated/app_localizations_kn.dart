@@ -2441,4 +2441,51 @@ class AppLocalizationsKn extends AppLocalizations {
   String playerBehindLive(String time) {
     return 'ಲೈವ್‌ಗಿಂತ $time ಹಿಂದೆ';
   }
+
+  @override
+  String get cloudStreamUpdateAll => 'ಎಲ್ಲವನ್ನೂ ಅಪ್‌ಡೇಟ್ ಮಾಡಿ';
+
+  @override
+  String get cloudStreamUpdatingAll => 'ಅಪ್‌ಡೇಟ್ ಆಗುತ್ತಿದೆ…';
+
+  @override
+  String get cloudStreamInstallAll => 'ಎಲ್ಲವನ್ನೂ ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಿ';
+
+  @override
+  String get cloudStreamInstallingAll => 'ಇನ್‌ಸ್ಟಾಲ್ ಆಗುತ್ತಿದೆ…';
+
+  @override
+  String cloudStreamInstalledAll(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ಎಕ್ಸ್‌ಟೆನ್‌ಶನ್‌ಗಳು ಸ್ಥಾಪಿಸಲಾಗಿವೆ',
+      one: '1 ಎಕ್ಸ್‌ಟೆನ್‌ಶನ್ ಸ್ಥಾಪಿಸಲಾಗಿದೆ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String cloudStreamCouldNotInstallAll(String names) {
+    return 'ಇನ್‌ಸ್ಟಾಲ್ ಆಗಲಿಲ್ಲ: $names';
+  }
+
+  @override
+  String get providerSearchHint => 'ಪ್ರೊವೈಡರ್ ಹುಡುಕಿ';
+
+  @override
+  String get providerDetailsTitle => 'ಪ್ರೊವೈಡರ್ ವಿವರ';
+
+  @override
+  String get providerDetailsType => 'ಪ್ರಕಾರ';
+
+  @override
+  String get providerDetailsFrom => 'ಎಲ್ಲಿಂದ';
+
+  @override
+  String get providerDetailsId => 'ಐಡಿ';
+
+  @override
+  String get fontSizeDescription =>
+      'ಆ್ಯಪ್‌ನಲ್ಲಿ ಎಲ್ಲಿಯೂ ಪಠ್ಯವನ್ನು ದೊಡ್ಡದಾಗಿ ಅಥವಾ ಚಿಕ್ಕದಾಗಿ ಮಾಡಿ.';
 }

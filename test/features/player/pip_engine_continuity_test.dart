@@ -240,7 +240,7 @@ class _NoHistory extends HistoryRepository {
   int getDuration(String url) => 0;
 
   @override
-  Future<void> saveProgress(
+  Future<HistoryItem> saveProgress(
     MultimediaItem item,
     int position,
     int duration, {
@@ -250,5 +250,10 @@ class _NoHistory extends HistoryRepository {
     int? episode,
     String? episodeTitle,
     String? episodePosterUrl,
-  }) async {}
+  }) async => HistoryItem(
+    item: item,
+    position: position,
+    duration: duration,
+    timestamp: DateTime.now().millisecondsSinceEpoch,
+  );
 }

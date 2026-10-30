@@ -139,6 +139,17 @@ internal object Mappers {
             "referer" to link.referer,
             "headers" to link.headers,
         )
+        // The sound of a link that carries it in a file of its own: a YouTube download gives the
+        // video and the audio apart, and the app plays the two together.
+        val audio = link.audioTracks.orEmpty()
+        if (audio.isNotEmpty()) {
+            out["audioTracks"] = audio.map { track ->
+                mapOf(
+                    "url" to track.url,
+                    "headers" to track.headers,
+                )
+            }
+        }
         if (link is DrmExtractorLink) {
             out["drm"] = mapOf(
                 "kid" to link.kid,

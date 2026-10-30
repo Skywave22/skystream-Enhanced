@@ -132,6 +132,12 @@ class SettingsRepository {
     return _storageService.isWatchHistoryEnabled();
   }
 
+  /// The size the app's text is drawn at, as a multiple of the system's own size.
+  double getFontScale() => _storageService.getFontScale();
+
+  Future<void> setFontScale(double scale) =>
+      _storageService.setFontScale(scale);
+
   Future<void> setSearchHistory(List<String> queries) async {
     await _storageService.setSearchHistory(queries);
   }

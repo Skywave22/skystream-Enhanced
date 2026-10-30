@@ -70,7 +70,7 @@ class WatchHistory extends _$WatchHistory {
     final finalDuration = isLivestream ? 0 : duration;
 
     final repository = ref.read(historyRepositoryProvider);
-    await repository.saveProgress(
+    final saved = await repository.saveProgress(
       item,
       finalPosition,
       finalDuration,
@@ -81,6 +81,18 @@ class WatchHistory extends _$WatchHistory {
       episodeTitle: episodeTitle,
       episodePosterUrl: episodePosterUrl,
     );
-    refresh();
+    // The one row that changed is put into the list in place. Reading the
+    // whole history back and rebuilding it made every progress write cost
+    // more the longer the history was, and a television box running out of
+    // memory is what the app was killed for.
+    if (!ref.mounted) return;
+    final list = List<HistoryItem>.of(state);
+    final index = list.indexWhere((entry) => entry.item.url == saved.item.url);
+    if (index >= 0) {
+      list[index] = saved;
+    } else {
+      list.insert(0, saved);
+    }
+    state = list;
   }
 }

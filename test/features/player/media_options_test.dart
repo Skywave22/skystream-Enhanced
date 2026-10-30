@@ -104,6 +104,23 @@ void main() {
       expect(auto.where((o) => o.startsWith(':adaptive-logic')), isEmpty);
     });
 
+    test('a sound in a file of its own rides with the video', () {
+      final options = playbackMediaOptions(
+        live: false,
+        plan: plan(BufferMedia.httpFile),
+        audioSlave: 'http://127.0.0.1:8080/audio',
+      );
+      expect(options, contains(':input-slave=http://127.0.0.1:8080/audio'));
+      expect(
+        playbackMediaOptions(
+          live: false,
+          plan: plan(BufferMedia.httpFile),
+        ).where((o) => o.startsWith(':input-slave')),
+        isEmpty,
+        reason: 'a stream with its own sound names no second input',
+      );
+    });
+
     test(
       'software decoding asks for every codec, and the language rides last',
       () {

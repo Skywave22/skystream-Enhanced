@@ -508,6 +508,12 @@ class _MyAppState extends ConsumerState<MyApp> {
     final appRouter = ref.watch(appRouterProvider);
     final locale = ref.watch(localeProvider);
     final profileAsync = ref.watch(deviceProfileProvider);
+    // The size of the app's text, as the person set it in the settings. It
+    // multiplies the system's own size, so a person who already reads large
+    // text gets larger text still.
+    final fontScale = ref.watch(
+      generalSettingsProvider.select((s) => s.fontScale),
+    );
 
     // Mirror the resolved device profile into TmdbConfig's static cache so
     // pure-utility URL builders (AppImageFallbacks, TmdbDetails ctor) pick
@@ -516,7 +522,18 @@ class _MyAppState extends ConsumerState<MyApp> {
     // frames may use w1280 backdrops on TV before snapping to original.
     ref.listen<AsyncValue<DeviceProfile>>(deviceProfileProvider, (prev, next) {
       final value = next.value;
-      if (value != null) TmdbConfig.setProfile(value);
+      if (value == null) return;
+      TmdbConfig.setProfile(value);
+      // A cheap stick or an old television box has little memory for decoded
+      // pictures, and the system kills an app that asks for too much of it.
+      // The cache holds the posters of every screen the person has seen, so
+      // it is capped smaller there: the pictures are fetched again rather
+      // than the app being killed while a stream plays.
+      if (value.tier == DeviceTier.low) {
+        PaintingBinding.instance.imageCache
+          ..maximumSize = 60
+          ..maximumSizeBytes = 12 * 1024 * 1024; // 12 MB
+      }
     });
 
     return DynamicColorBuilder(
@@ -548,6 +565,21 @@ class _MyAppState extends ConsumerState<MyApp> {
           supportedLocales: AppLocalizations.supportedLocales,
           builder: (context, child) {
             Widget result = child!;
+
+            // The size of the text, as the person set it in the settings: it
+            // multiplies the system's own size, so a person who already reads
+            // large text gets larger text still. Every screen reads the scale
+            // from the MediaQuery below.
+            if (fontScale != 1.0) {
+              final media = MediaQuery.of(context);
+              final systemScale = media.textScaler.scale(1);
+              result = MediaQuery(
+                data: media.copyWith(
+                  textScaler: TextScaler.linear(systemScale * fontScale),
+                ),
+                child: result,
+              );
+            }
 
             // A television reports about 960 dp of width whatever its panel
             // is, so the same layout that breathes on a laptop is drawn at

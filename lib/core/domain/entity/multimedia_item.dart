@@ -766,6 +766,14 @@ class StreamResult {
   final String? drmKey;
   final String? licenseUrl;
 
+  /// The sound of this stream, when it is in a file of its own: a CloudStream extension can
+  /// give the video and the audio apart (a YouTube download does), and the player then plays
+  /// the two together. Null when the stream carries its own sound.
+  final String? audioUrl;
+
+  /// The headers the [audioUrl] needs, when it needs any.
+  final Map<String, String>? audioHeaders;
+
   const StreamResult({
     required this.url,
     required this.source,
@@ -776,6 +784,8 @@ class StreamResult {
     this.drmKid,
     this.drmKey,
     this.licenseUrl,
+    this.audioUrl,
+    this.audioHeaders,
   });
 
   String get displaySource =>
@@ -791,6 +801,8 @@ class StreamResult {
     String? drmKid,
     String? drmKey,
     String? licenseUrl,
+    String? audioUrl,
+    Map<String, String>? audioHeaders,
   }) {
     return StreamResult(
       url: url ?? this.url,
@@ -802,6 +814,8 @@ class StreamResult {
       drmKid: drmKid ?? this.drmKid,
       drmKey: drmKey ?? this.drmKey,
       licenseUrl: licenseUrl ?? this.licenseUrl,
+      audioUrl: audioUrl ?? this.audioUrl,
+      audioHeaders: audioHeaders ?? this.audioHeaders,
     );
   }
 
