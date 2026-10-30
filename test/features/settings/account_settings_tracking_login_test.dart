@@ -273,6 +273,12 @@ class QuietSettings extends SettingsRepository {
 
   @override
   bool isIntroDbIntegrationEnabled() => false;
+
+  // The test's StorageService never opens its Hive box, so the real
+  // getFontScale would throw on the late _settingsBox. The tracking-login
+  // screen does not care about font scale - answer the system default.
+  @override
+  double getFontScale() => 1.0;
 }
 
 /// The four tiles read their connected state from here; nothing in these tests
