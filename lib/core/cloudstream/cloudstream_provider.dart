@@ -46,7 +46,12 @@ class CloudStreamProvider extends SkyStreamProvider {
   final Future<void> Function()? _prepareLinks;
 
   /// Home page sections fetched at once; each is a network call in the plugin.
-  static const int _homeConcurrency = 4;
+  static const int _homeConcurrency = 8;
+
+  /// How long a links call may run before the engine gives up and answers with the links it has.
+  /// CloudStream's own limit for a provider is a few minutes; two minutes is enough for the
+  /// slowest extractor while not leaving a person staring at a blank player.
+  static const int linksTimeoutMs = 60000;
 
   @override
   String get packageName => idFor(pluginKey, info.name);
@@ -88,7 +93,7 @@ class CloudStreamProvider extends SkyStreamProvider {
   Future<List<MultimediaItem>> search(String query, {CancelToken? cancelToken}) async {
     try {
       final result = await _call((e) => e.search(name, query, plugin: _pluginPath), kind: 'search');
-      return [for (final item in _list(result['items'])) _item(item)];
+      return _searchItems(_list(result['items']), provider: packageName);
     } catch (error) {
       talker.warning('[CloudStream] $name search failed: $error');
       return const [];
@@ -98,9 +103,13 @@ class CloudStreamProvider extends SkyStreamProvider {
   @override
   Future<Map<String, List<MultimediaItem>>> getHome() async {
     if (!info.hasMainPage) return const {};
+    // The sections the extension offers now, not the ones recorded when it was installed: one of
+    // them has been renamed or another added since, and a section asked for by an old name
+    // answers nothing, which left the home page of such an extension empty.
+    final sections = (await _sectionNames()).toSet().toList();
     // One call per section, a few at a time: the engine walks a provider's sections one after
-    // another when asked for all of them.
-    final names = info.sections.isEmpty ? const <String?>[null] : info.sections.cast<String?>();
+    // another when asked for all of them. A section named twice is asked once.
+    final names = sections.isEmpty ? const <String?>[null] : sections.cast<String?>();
     final pages = List<Map<String, List<MultimediaItem>>>.filled(names.length, const {});
     Object? failure;
     var next = 0;
@@ -117,9 +126,8 @@ class CloudStreamProvider extends SkyStreamProvider {
               if (section['error'] == null && _list(section['items']).isNotEmpty)
                 // Home items carry no provider, like SkyStream plugins' (the carousel would print the
                 // id); details falls back to the active provider, whose home this is.
-                (section['name'] as String? ?? name): [
-                  for (final item in _list(section['items'])) _item(item, stampProvider: false),
-                ],
+                (_text(section['name']) ?? name):
+                    _searchItems(_list(section['items'])),
           };
         } catch (error) {
           failure = error;
@@ -133,6 +141,23 @@ class CloudStreamProvider extends SkyStreamProvider {
     // Nothing at all, and a failure: the home screen's error state (with retry), not a blank page.
     if (home.isEmpty && failure != null) throw failure!;
     return home;
+  }
+
+  /// The sections the extension's provider offers now, as the engine says: the ones recorded
+  /// when it was installed may have been renamed since, and a section asked for by an old name
+  /// answers nothing. The recorded ones when the engine cannot say.
+  Future<List<String>> _sectionNames() async {
+    final answer = await _host.registration(_pluginPath, pluginUrl: plugin.info.url);
+    final sections = <String>{};
+    for (final provider in _list(answer?['providers'])) {
+      if (provider['name'] != name) continue;
+      for (final section in (provider['sections'] as List?) ?? const <Object?>[]) {
+        if (section is! String) continue;
+        final text = section.trim();
+        if (text.isNotEmpty) sections.add(text);
+      }
+    }
+    return sections.isEmpty ? info.sections : sections.toList();
   }
 
   @override
@@ -172,7 +197,9 @@ class CloudStreamProvider extends SkyStreamProvider {
     } else {
       final raw = _list(result['episodes']);
       for (var i = 0; i < raw.length; i++) {
-        episodes.add(_episode(raw[i], i));
+        // An episode that does not read (no data to play) is left out, not the whole page.
+        final episode = _episode(raw[i], i);
+        if (episode != null) episodes.add(episode);
       }
     }
 
@@ -210,10 +237,10 @@ class CloudStreamProvider extends SkyStreamProvider {
           if (_text(trailer['url']) != null) _trailer(trailer),
       ],
       // CloudStream lists a title's recommendations from its own extension only, and a tap opens them with it.
-      recommendations: [
+      recommendations: _searchItems([
         for (final rec in _list(result['recommendations']))
-          if (rec['apiName'] == providerName && rec['url'] is String) _searchItem(rec, provider: packageName),
-      ],
+          if (rec['apiName'] == providerName) rec,
+      ], provider: packageName),
       syncData: syncIds.isEmpty ? null : syncIds,
       tmdbId: int.tryParse(syncIds['tmdb'] ?? ''),
       imdbId: imdb != null && RegExp(r'^tt\d{6,}$').hasMatch(imdb) ? imdb : null,
@@ -227,7 +254,11 @@ class CloudStreamProvider extends SkyStreamProvider {
     );
   }
 
-  static Episode _episode(Map<String, dynamic> ep, int index) {
+  /// The episode [ep] holds, or null when it does not read: without data there is nothing to
+  /// play, and one such episode must not lose the page it is on.
+  static Episode? _episode(Map<String, dynamic> ep, int index) {
+    final data = ep['data'];
+    if (data is! String || data.isEmpty) return null;
     final number = (ep['episode'] as num?)?.toInt() ?? index + 1;
     final name = (ep['name'] as String?)?.trim();
     final millis = (ep['date'] as num?)?.toInt();
@@ -235,7 +266,7 @@ class CloudStreamProvider extends SkyStreamProvider {
         millis == null || millis.abs() > _maxDateMs ? null : DateTime.fromMillisecondsSinceEpoch(millis, isUtc: true);
     return Episode(
       name: name != null && name.isNotEmpty ? _unescape.convert(name) : 'Episode $number',
-      url: _token(ep['data'] as String),
+      url: _token(data),
       season: (ep['season'] as num?)?.toInt() ?? 1,
       episode: number,
       description: _decode(ep['description'] as String?),
@@ -305,14 +336,25 @@ class CloudStreamProvider extends SkyStreamProvider {
     if (torrent) return [StreamResult(url: data, source: 'Torrent', providerName: name)];
 
     await _prepareLinks?.call();
-    final result = await _call((e) => e.loadLinks(name, data, plugin: _pluginPath), kind: 'loadLinks');
+    final result = await _call(
+      (e) => e.loadLinks(name, data, timeoutMs: linksTimeoutMs, plugin: _pluginPath),
+      kind: 'loadLinks',
+    );
     // Its full-screen window (a game) took the Play, and left no links: nothing to play, and nothing went wrong.
-    if (_list(result['links']).isEmpty && result['fullScreen'] == true) throw const ExtensionScreenEnded();
+    final links = _list(result['links']);
+    if (links.isEmpty && result['fullScreen'] == true) throw const ExtensionScreenEnded();
     final subtitles = await _subtitles(_list(result['subtitles']));
-    return [
-      for (final link in _list(result['links']))
+    final streams = <StreamResult>[];
+    for (final link in links) {
+      // A link without an address is not one: the others still are.
+      final target = link['url'];
+      if (target is! String || target.isEmpty) continue;
+      // The sound of a link that carries it in a file of its own: a YouTube download gives the
+      // video and the audio apart, and the player plays the two together.
+      final audio = _audioTrack(link);
+      streams.add(
         StreamResult(
-          url: link['url'] as String,
+          url: target,
           source: _label(link),
           providerName: name,
           quality: _adaptiveQuality(link),
@@ -321,22 +363,75 @@ class CloudStreamProvider extends SkyStreamProvider {
           drmKid: (link['drm'] as Map?)?['kid'] as String?,
           drmKey: (link['drm'] as Map?)?['key'] as String?,
           licenseUrl: (link['drm'] as Map?)?['licenseUrl'] as String?,
+          audioUrl: audio?.url,
+          audioHeaders: audio?.headers,
         ),
-    ];
+      );
+    }
+    return streams;
   }
 
-  MultimediaItem _item(Map<String, dynamic> item, {bool stampProvider = true}) =>
-      _searchItem(item, provider: stampProvider ? packageName : null);
+  /// The sound of [link] in a file of its own, with the headers that file needs.
+  @visibleForTesting
+  static ({String url, Map<String, String>? headers})? audioTrack(
+    Map<String, dynamic> link,
+  ) => _audioTrack(link);
 
-  static MultimediaItem _searchItem(Map<String, dynamic> item, {String? provider}) => MultimediaItem(
-    title: item['name'] as String? ?? '',
-    url: item['url'] as String,
-    posterUrl: item['posterUrl'] as String? ?? '',
-    contentType: _contentType(item['type'] as String?),
-    provider: provider,
-    year: (item['year'] as num?)?.toInt(),
-    headers: (item['posterHeaders'] as Map?)?.cast<String, String>(),
-  );
+  /// The sound of [link] in a file of its own: the first of the audio files it names, with the
+  /// headers that file needs. Null when the link carries its own sound.
+  static ({String url, Map<String, String>? headers})? _audioTrack(
+    Map<String, dynamic> link,
+  ) {
+    final tracks = link['audioTracks'];
+    if (tracks is! List) return null;
+    for (final track in tracks) {
+      if (track is! Map) continue;
+      final url = track['url'];
+      if (url is! String || url.isEmpty) continue;
+      final headers = track['headers'];
+      return (
+        url: url,
+        headers: headers is Map
+            ? {
+                for (final entry in headers.entries)
+                  if (entry.key is String && entry.value is String)
+                    entry.key as String: entry.value as String,
+              }
+            : null,
+      );
+    }
+    return null;
+  }
+
+  /// The items [raw] holds: one that does not read (an extension that left out the address the
+  /// app needs) is left out, not the rest of them.
+  static List<MultimediaItem> _searchItems(List<Map<String, dynamic>> raw, {String? provider}) {
+    final items = <MultimediaItem>[];
+    for (final entry in raw) {
+      final item = _searchItem(entry, provider: provider);
+      if (item != null) items.add(item);
+    }
+    return items;
+  }
+
+  /// The item [entry] holds, or null when it does not read: without an address there is nothing
+  /// to open, and one such entry must not lose the others.
+  static MultimediaItem? _searchItem(Map<String, dynamic> entry, {String? provider}) {
+    final url = entry['url'];
+    if (url is! String || url.isEmpty) return null;
+    final name = entry['name'];
+    final poster = entry['posterUrl'];
+    final type = entry['type'];
+    return MultimediaItem(
+      title: name is String ? name : '',
+      url: url,
+      posterUrl: poster is String ? poster : '',
+      contentType: _contentType(type is String ? type : null),
+      provider: provider,
+      year: (entry['year'] as num?)?.toInt(),
+      headers: _stringMap(entry['posterHeaders']),
+    );
+  }
 
   /// CloudStream episode data can be anything (a path, JSON...), and the player treats some
   /// strings (`/...`, `magnet:`) as playable already, so it travels wrapped.
@@ -364,11 +459,14 @@ class CloudStreamProvider extends SkyStreamProvider {
 
   /// "Server · 1080p". SkyStream reads the quality back from this label.
   static String _label(Map<String, dynamic> link) {
-    final name = (link['name'] as String?)?.trim().isNotEmpty == true ? link['name'] as String : link['source'] as String? ?? 'Link';
-    final quality = (link['quality'] as num?)?.toInt() ?? 0;
+    final raw = link['name'];
+    final source = link['source'];
+    final name = raw is String && raw.trim().isNotEmpty ? raw : (source is String ? source : 'Link');
+    final quality = link['quality'];
+    final height = quality is num ? quality.toInt() : 0;
     // CloudStream's Qualities.Unknown is 400, and 0 or less means none.
-    final known = quality > 0 && quality != 400 && !name.contains('${quality}p');
-    return known ? '$name · ${quality}p' : name;
+    final known = height > 0 && height != 400 && !name.contains('${height}p');
+    return known ? '$name · ${height}p' : name;
   }
 
   /// `0` - adaptive - for an HLS link with no quality of its own: CloudStream marks a master
@@ -376,8 +474,9 @@ class CloudStreamProvider extends SkyStreamProvider {
   /// qualities. Null for anything else: a known quality is in the label, and so is one the
   /// link's name states ("… 360p", "… HD"), which it is ranked by as before.
   static int? _adaptiveQuality(Map<String, dynamic> link) {
-    final quality = (link['quality'] as num?)?.toInt() ?? 0;
-    final known = quality > 0 && quality != 400;
+    final quality = link['quality'];
+    final height = quality is num ? quality.toInt() : 0;
+    final known = height > 0 && height != 400;
     return !known && link['type'] == 'M3U8' && !labelStatesQuality(_label(link))
         ? 0
         : null;
@@ -396,13 +495,16 @@ class CloudStreamProvider extends SkyStreamProvider {
   static Future<List<SubtitleFile>> _subtitles(List<Map<String, dynamic>> raw) async {
     final files = <SubtitleFile>[];
     for (final sub in raw) {
-      var url = sub['url'] as String;
+      // A subtitle without an address is not one: the others still are.
+      final address = sub['url'];
+      if (address is! String || address.isEmpty) continue;
+      var url = address;
       final headers = (sub['headers'] as Map?)?.map((k, v) => MapEntry('$k', '$v'));
       if (headers != null && headers.isNotEmpty) {
         await LocalProxyService.instance.startServer();
         url = LocalProxyService.instance.getProxyUrl(url, headers: headers);
       }
-      final lang = sub['lang'] as String? ?? 'Unknown';
+      final lang = _text(sub['lang']) ?? 'Unknown';
       files.add(SubtitleFile(url: url, label: lang, lang: lang));
     }
     return files;
@@ -417,7 +519,8 @@ class CloudStreamProvider extends SkyStreamProvider {
     'TvSeries' || 'Cartoon' || 'AsianDrama' || 'Documentary' => MultimediaContentType.series,
     'Anime' || 'OVA' => MultimediaContentType.anime,
     'Live' => MultimediaContentType.livestream,
-    'Movie' || 'AnimeMovie' || 'Torrent' || 'NSFW' => MultimediaContentType.movie,
+    // CloudStream counts a video as a film, as its own `isMovieType` does.
+    'Movie' || 'AnimeMovie' || 'Torrent' || 'NSFW' || 'Video' => MultimediaContentType.movie,
     _ => MultimediaContentType.other,
   };
 

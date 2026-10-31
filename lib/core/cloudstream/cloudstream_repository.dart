@@ -115,7 +115,7 @@ class CloudStreamRepository extends _$CloudStreamRepository {
   static const String _legacyReposKey = 'cloudstream_repos_v1';
 
   /// Repository manifests fetched at once.
-  static const int _fetchConcurrency = 4;
+  static const int _fetchConcurrency = 8;
 
   /// Plugins add repositories one after another (MegaRepo's reads each manifest in turn); the ones
   /// added are announced once none has come for this long. Each shows in the list as it comes;
@@ -240,9 +240,15 @@ class CloudStreamRepository extends _$CloudStreamRepository {
 
   Future<List<CsInstalledPlugin>> _readInstalled() async {
     final root = (await CloudStreamPaths.root()).path;
+    final read = _each(await _installedFile.read(), (json) => CsInstalledPlugin.fromJson(json, root));
     final installed = <CsInstalledPlugin>[];
-    for (final plugin in _each(await _installedFile.read(), (json) => CsInstalledPlugin.fromJson(json, root))) {
+    for (final plugin in read) {
       if (await File(plugin.filePath).exists()) installed.add(plugin);
+    }
+    // A plugin whose file is gone (deleted outside the app) is not installed: the list is
+    // written without it, so it does not come back at every launch.
+    if (installed.length != read.length) {
+      await _installedFile.write(() => [for (final p in installed) p.toJson(root)]);
     }
     return installed;
   }
@@ -276,16 +282,22 @@ class CloudStreamRepository extends _$CloudStreamRepository {
       for (final plugin in state.installed) {
         final key = keyOf(plugin.info);
         for (final info in plugin.providers) {
-          final id = '$key|${plugin.info.version}|${plugin.filePath}|${info.name}';
+          // The key names the plugin, its version and the provider it registered.
+          final id = '$key|${plugin.info.version}|${info.name}';
+          // The one published before is kept while the plugin is unchanged: a new instance for
+          // the active provider would make Home load again. A plugin whose file moved (an app
+          // update on iOS) is a new one: it loads from where it is now.
+          final cached = _providers[id];
           next[id] =
-              _providers[id] ??
-              CloudStreamProvider(
-                plugin: plugin,
-                pluginKey: key,
-                info: info,
-                host: _host,
-                prepareLinks: _loadExtractorPlugins,
-              );
+              (cached != null && cached.plugin.filePath == plugin.filePath)
+              ? cached
+              : CloudStreamProvider(
+                  plugin: plugin,
+                  pluginKey: key,
+                  info: info,
+                  host: _host,
+                  prepareLinks: _loadExtractorPlugins,
+                );
         }
       }
     }
@@ -346,19 +358,28 @@ class CloudStreamRepository extends _$CloudStreamRepository {
     if (text.isEmpty) throw Exception('Enter a repository URL or shortcode');
     final link = RegExp(r'^(cloudstreamrepo://|https://cs\.repo/\??)').firstMatch(text);
     if (link != null) {
-      final url = text.substring(link.end);
-      return _secure(url.startsWith(RegExp('https?://')) ? url : 'https://$url');
+      final rest = text.substring(link.end).trim();
+      // What follows such a link is a code when it is one (CloudStream's own short links) and
+      // an address otherwise.
+      if (_isCode(rest)) return _shortcode(rest);
+      return _secure(rest.startsWith(RegExp('https?://')) ? rest : 'https://$rest');
     }
-    if (RegExp(r'^[a-zA-Z0-9!_-]+$').hasMatch(text)) {
-      // As typed, then in lower case: codes are case-sensitive, and a television keyboard or a
-      // phone's may capitalise the first letter.
-      String shortLink(String code) => code.startsWith('!') ? 'https://py.md/${code.substring(1)}' : 'https://cutt.ly/$code';
-      final lower = text.toLowerCase();
-      return _secure(
-        await ref.read(repositoryServiceProvider).resolveShortcode([shortLink(text), if (lower != text) shortLink(lower)]),
-      );
-    }
+    if (_isCode(text)) return _shortcode(text);
     return _secure(text.contains('://') ? text : 'https://$text');
+  }
+
+  /// Whether [text] is a shortcode rather than an address: a word, with no dot or slash in it.
+  static bool _isCode(String text) => text.isNotEmpty && RegExp(r'^[a-zA-Z0-9!_-]+$').hasMatch(text);
+
+  /// Where the shortcode [code] leads, at the shorteners CloudStream looks them up at. The code
+  /// as typed is tried first, then in lower case: codes are case-sensitive, and a television
+  /// keyboard or a phone's may capitalise the first letter.
+  Future<String> _shortcode(String code) async {
+    String shortLink(String c) => c.startsWith('!') ? 'https://py.md/${c.substring(1)}' : 'https://cutt.ly/$c';
+    final lower = code.toLowerCase();
+    return _secure(
+      await ref.read(repositoryServiceProvider).resolveShortcode([shortLink(code), if (lower != code) shortLink(lower)]),
+    );
   }
 
   /// Repositories, plugin lists and plugins are fetched over HTTPS only: a plugin is code the
@@ -555,10 +576,16 @@ class CloudStreamRepository extends _$CloudStreamRepository {
       ).create(recursive: true);
       final file = File('${dir.path}/${plugin.internalName.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_')}.cs3');
       final part = File('${file.path}.part');
-      await _dio.download(_secure(plugin.url).replaceAll(' ', '%20'), part.path);
+      try {
+        await _dio.download(_secure(plugin.url).replaceAll(' ', '%20'), part.path);
+      } catch (error) {
+        // A half-downloaded file is not a plugin: it goes, so the next install starts clean.
+        await _deleteQuietly(part);
+        rethrow;
+      }
       if (!state.enabled) {
         // Switched off while it downloaded: the version installed, if any, stays as it was.
-        await part.delete();
+        await _deleteQuietly(part);
         throw const CloudStreamSwitchedOff();
       }
       if (await file.exists()) {
@@ -567,7 +594,13 @@ class CloudStreamRepository extends _$CloudStreamRepository {
         await _host.unload(file.path, uninstalling: false);
         await file.delete();
       }
-      await part.rename(file.path);
+      try {
+        await part.rename(file.path);
+      } catch (error) {
+        // The download is of no use without its file: it goes, so the next install starts clean.
+        await _deleteQuietly(part);
+        rethrow;
+      }
 
       final CsInstalledPlugin installed;
       try {
@@ -575,7 +608,7 @@ class CloudStreamRepository extends _$CloudStreamRepository {
       } on CloudStreamSwitchedOff {
         // Switched off that very moment: a new install leaves nothing behind, and an update keeps the version
         // installed (its file holds the new one now, which the next update pass installs again).
-        if (!state.installed.any((p) => p.filePath == file.path)) await file.delete();
+        if (!state.installed.any((p) => p.filePath == file.path)) await _deleteQuietly(file);
         rethrow;
       }
       await _saveInstalled([
@@ -589,6 +622,37 @@ class CloudStreamRepository extends _$CloudStreamRepository {
     }
   }
 
+  /// Installs every extension of [repo] that is not installed yet, one after another: a
+  /// repository holds dozens, and installing them one by one is a tap each.
+  ///
+  /// Returns the names of those installed, and those that failed: one that downloads but does
+  /// not load counts as failed, and says so where it is listed.
+  Future<({List<String> installed, List<String> failed})> installAll(CsRepository repo) async {
+    await _loaded;
+    final wanted = [
+      for (final plugin in repo.plugins)
+        if (state.installedFor(plugin) == null) plugin,
+    ];
+    final installed = <String>[];
+    final failed = <String>[];
+    for (final plugin in wanted) {
+      try {
+        final result = await install(plugin);
+        if (result.loadError == null) {
+          installed.add(plugin.name);
+        } else {
+          failed.add(plugin.name);
+        }
+      } catch (error) {
+        talker.warning('[CloudStream] installing ${plugin.name} failed: $error');
+        failed.add(plugin.name);
+        // The switch is off: every one after this would fail the same way.
+        if (error is CloudStreamSwitchedOff) break;
+      }
+    }
+    return (installed: installed, failed: failed);
+  }
+
   Future<void> uninstall(CsInstalledPlugin plugin) async {
     await _loaded;
     final key = keyOf(plugin.info);
@@ -600,7 +664,7 @@ class CloudStreamRepository extends _$CloudStreamRepository {
         talker.warning('[CloudStream] unload ${plugin.info.name}: $error');
       }
       final file = File(plugin.filePath);
-      if (await file.exists()) await file.delete();
+      await _deleteQuietly(file);
       await _saveInstalled([
         for (final p in state.installed)
           if (keyOf(p.info) != key) p,
@@ -668,17 +732,25 @@ class CloudStreamRepository extends _$CloudStreamRepository {
   static bool _isUtility(CsInstalledPlugin plugin) =>
       plugin.providers.isEmpty && plugin.extractors == 0 && plugin.loadError == null;
 
-  /// Plugins that only register link extractors serve other plugins' links. CloudStream has every
-  /// plugin loaded; here they are loaded before links are first fetched.
+  /// Plugins that register link extractors serve other plugins' links: the extractor is looked up
+  /// in the plugins that are loaded, so one that is not loaded is not found and the links that
+  /// need it fail. CloudStream has every plugin loaded; here they are loaded before links are
+  /// first fetched. A plugin that registers a provider as well is one of them: its extractors
+  /// serve the others too, and it is not loaded until its provider is used.
+  /// Loads every extractor plugin at once instead of one after another: the
+  /// engine is started once and every plugin's load runs concurrently, so
+  /// fetching links on Play does not wait for each plugin in turn.
   Future<void> _loadExtractorPlugins() async {
+    final futures = <Future<void>>[];
     for (final plugin in state.installed) {
-      if (plugin.providers.isNotEmpty || plugin.extractors == 0 || plugin.loadError != null) continue;
-      try {
-        await _host.ensureLoaded(plugin.filePath, pluginUrl: plugin.info.url);
-      } catch (error) {
-        talker.warning('[CloudStream] ${plugin.info.name} failed to load: $error');
-      }
+      if (plugin.extractors == 0 || plugin.loadError != null) continue;
+      futures.add(
+        _host.ensureLoaded(plugin.filePath, pluginUrl: plugin.info.url).catchError(
+          (error) => talker.warning('[CloudStream] ${plugin.info.name} failed to load: $error'),
+        ),
+      );
     }
+    await Future.wait(futures);
   }
 
   /// What a load said about an installed plugin's settings screen, kept with it.
@@ -882,6 +954,16 @@ class CloudStreamRepository extends _$CloudStreamRepository {
 
   void _setBusy(String key, bool busy) {
     state = state.copyWith(busy: busy ? {...state.busy, key} : ({...state.busy}..remove(key)));
+  }
+
+  /// Deletes [file] when it is there, and says nothing when it is not: a file that cannot be
+  /// deleted now (the engine holds it) is not worth failing an install over.
+  static Future<void> _deleteQuietly(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (error) {
+      talker.warning('[CloudStream] could not delete ${file.path}: $error');
+    }
   }
 
   Future<void> _saveInstalled(List<CsInstalledPlugin> installed) async {
