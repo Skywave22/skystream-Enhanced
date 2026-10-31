@@ -74,7 +74,7 @@ class HistoryRepository {
 
   HistoryRepository(this._storageService);
 
-  Future<void> saveProgress(
+  Future<HistoryItem> saveProgress(
     MultimediaItem item,
     int position,
     int duration, {
@@ -85,7 +85,7 @@ class HistoryRepository {
     String? episodeTitle,
     String? episodePosterUrl,
   }) async {
-    await _storageService.saveProgress(
+    final entry = await _storageService.saveProgress(
       item,
       position,
       duration,
@@ -96,6 +96,7 @@ class HistoryRepository {
       episodeTitle: episodeTitle,
       episodePosterUrl: episodePosterUrl,
     );
+    return HistoryItem.fromMap(entry);
   }
 
   Future<void> removeFromHistory(String url) async {

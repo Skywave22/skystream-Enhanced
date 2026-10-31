@@ -50,14 +50,74 @@ void main() {
     });
   });
 
+  group('a link whose sound is in a file of its own', () {
+    test('is read, with the headers that file needs', () {
+      final audio = CloudStreamProvider.audioTrack({
+        'url': 'https://cdn.test/video.mp4',
+        'audioTracks': [
+          {
+            'url': 'https://cdn.test/audio.m4a',
+            'headers': {'Referer': 'https://x.test/'},
+          },
+        ],
+      });
+      expect(audio?.url, 'https://cdn.test/audio.m4a');
+      expect(audio?.headers, {'Referer': 'https://x.test/'});
+    });
+
+    test('is left out when there is none', () {
+      expect(
+        CloudStreamProvider.audioTrack({'url': 'https://cdn.test/video.mp4'}),
+        isNull,
+      );
+      expect(
+        CloudStreamProvider.audioTrack({'audioTracks': <Object>[]}),
+        isNull,
+      );
+      final audio2 = CloudStreamProvider.audioTrack({
+        'audioTracks': [
+          {'url': ''},
+          {'url': 'https://cdn.test/audio.m4a'},
+        ],
+      });
+      expect(audio2?.url, 'https://cdn.test/audio.m4a');
+      expect(audio2?.headers, isNull);
+    });
+  });
+
+  test('a links call waits as long as CloudStream lets one', () async {
+    final engine = _LinksEngine();
+    final links = await CloudStreamProvider(
+      plugin: const CsInstalledPlugin(
+        info: CsPluginInfo(internalName: 'Alpha', name: 'Alpha', url: '', repositoryUrl: ''),
+        filePath: '/plugins/Alpha.cs3',
+      ),
+      pluginKey: 'repo/Alpha',
+      info: const CsProviderInfo(name: 'Alpha'),
+      host: _EngineHost(engine),
+    ).loadStreams(CloudStreamProvider.token('/watch/1'));
+
+    expect(links.single.url, 'https://cdn.test/a.m3u8');
+    expect(engine.timeout, greaterThanOrEqualTo(60000), reason: 'the engine gave up after 30 s');
+  });
+
   test('CloudStream types map to SkyStream content types', () {
     expect(CloudStreamProvider.contentType('TvSeries'), MultimediaContentType.series);
     expect(CloudStreamProvider.contentType('AsianDrama'), MultimediaContentType.series);
     expect(CloudStreamProvider.contentType('Anime'), MultimediaContentType.anime);
     expect(CloudStreamProvider.contentType('Live'), MultimediaContentType.livestream);
     expect(CloudStreamProvider.contentType('AnimeMovie'), MultimediaContentType.movie);
+    expect(CloudStreamProvider.contentType('Video'), MultimediaContentType.movie);
     expect(CloudStreamProvider.contentType('Others'), MultimediaContentType.other);
     expect(CloudStreamProvider.contentType(null), MultimediaContentType.other);
+  });
+
+  test('a links call may run for as long as CloudStream lets one', () {
+    expect(
+      CloudStreamProvider.linksTimeoutMs,
+      greaterThanOrEqualTo(60000),
+      reason: 'the engine gave up after 30 s, which cut off the extensions that need longer',
+    );
   });
 
   test('provider ids name the plugin, repository included, and are recognised', () {
@@ -136,6 +196,137 @@ void main() {
         ['Upcloud HD', 'Server · 720p', 'Vidplay 360p'],
         reason: 'not adaptive: a 360p playlist does not jump ahead of 720p',
       );
+    });
+  });
+
+  group('one entry that does not read', () {
+    CloudStreamProvider provider(Map<String, dynamic> answer) => CloudStreamProvider(
+      plugin: const CsInstalledPlugin(
+        info: CsPluginInfo(internalName: 'Alpha', name: 'Alpha', url: '', repositoryUrl: ''),
+        filePath: '/plugins/Alpha.cs3',
+      ),
+      pluginKey: 'repo/Alpha',
+      info: const CsProviderInfo(name: 'Alpha'),
+      host: _AnsweringHost(answer),
+    );
+
+    test('leaves one search result out, not all of them', () async {
+      final items = await provider({
+        'items': [
+          {'name': 'Good', 'url': 'https://ext.test/good', 'type': 'Movie'},
+          {'name': 'No address'},
+          {'name': 'Also good', 'url': 'https://ext.test/also', 'type': 'TvSeries'},
+        ],
+      }).search('x');
+      expect(items.map((i) => i.title), ['Good', 'Also good']);
+      expect(items.first.provider, 'cs3:repo/Alpha/Alpha');
+      expect(items.last.contentType, MultimediaContentType.series);
+    });
+
+    test('leaves one link out, not all of them', () async {
+      final links = await provider({
+        'links': [
+          {'url': 'https://cdn.test/a.m3u8', 'name': 'A'},
+          {'name': 'No address'},
+          {'url': '', 'name': 'No address either'},
+          {'url': 'https://cdn.test/b.m3u8', 'name': 'B'},
+        ],
+      }).loadStreams(CloudStreamProvider.token('x'));
+      expect(links.map((l) => l.url), ['https://cdn.test/a.m3u8', 'https://cdn.test/b.m3u8']);
+    });
+
+    test('leaves one subtitle out, not all of them', () async {
+      final links = await provider({
+        'links': [
+          {'url': 'https://cdn.test/a.m3u8', 'name': 'A'},
+        ],
+        'subtitles': [
+          {'lang': 'en'},
+          {'lang': 'es', 'url': 'https://cdn.test/es.srt'},
+        ],
+      }).loadStreams(CloudStreamProvider.token('x'));
+      expect(links.single.subtitles!.map((s) => s.lang), ['es']);
+    });
+
+    test('leaves one episode out, not the page', () {
+      final item = CloudStreamProvider.details(
+        {
+          'name': 'Show',
+          'type': 'TvSeries',
+          'episodes': [
+            {'name': 'One', 'season': 1, 'episode': 1, 'data': '/ep/1'},
+            {'name': 'Two', 'season': 1, 'episode': 2},
+            {'name': 'Three', 'season': 1, 'episode': 3, 'data': '/ep/3'},
+          ],
+        },
+        url: 'https://ext.test/show',
+        packageName: 'cs3:repo/Alpha/Alpha',
+        providerName: 'Alpha',
+      );
+      expect(item.episodes!.map((e) => e.name), ['One', 'Three']);
+    });
+  });
+
+  group('the home page', () {
+    const answer = {
+      'sections': [
+        {
+          'name': 'Now',
+          'items': [
+            {'name': 'A film', 'url': 'https://ext.test/a'},
+          ],
+        },
+      ],
+    };
+
+    test('asks for the sections the extension has now, not the ones it had', () async {
+      final host = _AnsweringHost(answer, registrationAnswer: {
+        'providers': [
+          {'name': 'Alpha', 'sections': ['Now']},
+        ],
+      });
+      final home = await CloudStreamProvider(
+        plugin: const CsInstalledPlugin(
+          info: CsPluginInfo(internalName: 'Alpha', name: 'Alpha', url: '', repositoryUrl: ''),
+          filePath: '/plugins/Alpha.cs3',
+        ),
+        pluginKey: 'repo/Alpha',
+        info: const CsProviderInfo(name: 'Alpha', sections: ['Then'], hasMainPage: true),
+        host: host,
+      ).getHome();
+      expect(host.calls, 1);
+      expect(home.keys, ['Now']);
+      expect(home['Now']!.single.title, 'A film');
+    });
+
+    test('asks for the recorded sections when the engine cannot say', () async {
+      final host = _AnsweringHost(answer);
+      final home = await CloudStreamProvider(
+        plugin: const CsInstalledPlugin(
+          info: CsPluginInfo(internalName: 'Alpha', name: 'Alpha', url: '', repositoryUrl: ''),
+          filePath: '/plugins/Alpha.cs3',
+        ),
+        pluginKey: 'repo/Alpha',
+        info: const CsProviderInfo(name: 'Alpha', sections: ['Then', 'Later'], hasMainPage: true),
+        host: host,
+      ).getHome();
+      expect(host.calls, 2);
+      expect(home.keys, ['Now']);
+    });
+
+    test('is empty for a provider without a home page', () async {
+      final host = _AnsweringHost(answer);
+      final home = await CloudStreamProvider(
+        plugin: const CsInstalledPlugin(
+          info: CsPluginInfo(internalName: 'Alpha', name: 'Alpha', url: '', repositoryUrl: ''),
+          filePath: '/plugins/Alpha.cs3',
+        ),
+        pluginKey: 'repo/Alpha',
+        info: const CsProviderInfo(name: 'Alpha', sections: ['Now']),
+        host: host,
+      ).getHome();
+      expect(home, isEmpty);
+      expect(host.calls, 0);
     });
   });
 
@@ -304,11 +495,55 @@ void main() {
   });
 }
 
+/// An engine that notes how long a links call was given.
+class _LinksEngine implements Cs3Engine {
+  /// The time the call was given, in milliseconds.
+  int? timeout;
+
+  @override
+  bool get isRunning => true;
+
+  @override
+  Future<Map<String, dynamic>> loadPlugin(String path, {String? url}) async => {'providers': <Object>[]};
+
+  @override
+  Future<Map<String, dynamic>> loadLinks(String provider, String data, {int timeoutMs = 30000, String? plugin}) async {
+    timeout = timeoutMs;
+    return {
+      'links': [
+        {'url': 'https://cdn.test/a.m3u8', 'name': 'A'},
+      ],
+    };
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// A host that runs its calls on the engine it is given.
+class _EngineHost extends CloudStreamEngineHost {
+  _EngineHost(this.running);
+
+  final Cs3Engine running;
+
+  @override
+  Future<Cs3Engine> engine() async => running;
+}
+
 /// An engine host whose every call answers [answer].
 class _AnsweringHost extends CloudStreamEngineHost {
-  _AnsweringHost(this.answer);
+  _AnsweringHost(this.answer, {this.registrationAnswer});
 
   final Map<String, dynamic> answer;
+
+  /// What the plugin registered, as the engine says. Null when it cannot say.
+  final Map<String, dynamic>? registrationAnswer;
+
+  /// How many calls the provider made to the engine.
+  int calls = 0;
+
+  @override
+  Future<Map<String, dynamic>?> registration(String path, {String? pluginUrl}) async => registrationAnswer;
 
   @override
   Future<T> run<T>(
@@ -318,5 +553,8 @@ class _AnsweringHost extends CloudStreamEngineHost {
     String? provider,
     String mainUrl = '',
     String? pluginUrl,
-  }) async => answer as T;
+  }) async {
+    calls++;
+    return answer as T;
+  }
 }

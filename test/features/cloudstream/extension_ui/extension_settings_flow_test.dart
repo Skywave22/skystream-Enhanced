@@ -71,7 +71,7 @@ class _FakeHost extends CloudStreamEngineHost {
   }
 
   @override
-  Future<int> openPopups(String path) async {
+  Future<int> openPopups(String path, {String? pluginUrl}) async {
     _events.add({
       'event': 'ui',
       'session': 4,

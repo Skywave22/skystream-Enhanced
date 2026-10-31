@@ -1741,6 +1741,11 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     _lastStreamUrl = stream.url;
     _isLive = isLiveSource(widget.item, stream.url);
     final languageOption = _audioLanguageOption();
+    // The sound of a link that carries it in a file of its own: a CloudStream
+    // extension can give the video and the audio apart (a YouTube download
+    // does), and the media then plays the two together.
+    final audioSlave = await _audioSlaveUri(stream);
+    if (_disposed || generation != _generation) return;
     // How far ahead this media reads (spec 1.2): from its bitrate, the
     // network, and the memory free now.
     final plan =
@@ -1780,6 +1785,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
                         .hardwareDecoding,
               ),
           languageOption: languageOption,
+          audioSlave: audioSlave?.toString(),
           liveDelayMs: liveDelayMs,
         ),
         // So the controller places a live HLS window itself: libVLC counts
@@ -4933,6 +4939,23 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     }
     final uri = Uri.tryParse(value);
     return (uri != null && uri.hasScheme) ? uri : null;
+  }
+
+  /// The address of the sound that goes with [stream], when it is in a file of
+  /// its own: libVLC plays it with the video when the media names it as its
+  /// second input. Null when the stream carries its own sound.
+  Future<Uri?> _audioSlaveUri(StreamResult stream) async {
+    final url = stream.audioUrl;
+    if (url == null || url.isEmpty) return null;
+    try {
+      final uri = Uri.parse(url);
+      final headers = stream.audioHeaders;
+      if (headers == null || headers.isEmpty) return uri;
+      return await _proxied(uri, headers);
+    } on Object {
+      // An address that cannot be read is no address: the video plays on its own.
+      return null;
+    }
   }
 
   /// Returns a URL libVLC can open while still presenting [headers].

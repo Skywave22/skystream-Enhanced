@@ -59,13 +59,15 @@ class TmdbConfig {
     _profile = profile;
   }
 
-  /// High-res sources on a TV (4K panels upscale `w1280` ~3× and look soft)
-  /// and on a desktop OS (retina displays at large hero sizes hit the same
-  /// wall). Tablet stays on mobile sizes: iPad-class screens render posters at
-  /// ~200 dp wide, where `w500` is already adequate at 2× DPR.
-  static bool get _needsHighRes => _profile.isTv || _profile.isDesktopOS;
+  /// High-res sources: only TVs need `original` (4K panels upscale `w1280`
+  /// ~3× and look soft). A desktop/laptop panel is 1080p-ish at most, so
+  /// `w1280` backdrops and `w500` posters decode at less than half the GPU
+  /// memory of `original`/`w780` and look identical on the screen. Tablet
+  /// stays on mobile sizes: iPad-class screens render posters at ~200 dp wide,
+  /// where `w500` is already adequate at 2× DPR.
+  static bool get _needsHighRes => _profile.isTv;
 
-  /// TV and desktop get `original`, TMDB's max, typically ≥ 1920 px wide.
+  /// Desktop and phones get `w1280` backdrops; TV gets `original`.
   static String get backdropSizeUrl =>
       '$_imageRoot/${_needsHighRes ? 'original' : 'w1280'}';
 

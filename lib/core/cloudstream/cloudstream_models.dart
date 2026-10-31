@@ -4,6 +4,28 @@
 /// array of plugins, each a `.cs3` file (DEX code) that the CS3 engine loads.
 library;
 
+/// The text [value] holds, or null when it holds none: a repository that writes a field as
+/// something else does not make the whole entry unreadable.
+String? _text(Object? value) => value is String && value.isNotEmpty ? value : null;
+
+/// The whole number [value] holds: a repository that writes it as text ("2") is read as well.
+int? _number(Object? value) {
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value.trim());
+  return null;
+}
+
+/// The name of the file [url] points at, without its extension: what a plugin that names itself
+/// after its file is called.
+String _fileName(String url) {
+  final path = Uri.tryParse(url)?.path ?? '';
+  final last = path.split('/').where((part) => part.isNotEmpty).toList();
+  if (last.isEmpty) return '';
+  final name = last.last;
+  final dot = name.lastIndexOf('.');
+  return dot > 0 ? name.substring(0, dot) : name;
+}
+
 /// A repository the user added.
 class CsRepository {
   const CsRepository({
@@ -38,16 +60,34 @@ class CsRepository {
     'plugins': [for (final p in plugins) p.toJson()],
   };
 
-  factory CsRepository.fromJson(Map<String, dynamic> json) => CsRepository(
-    url: json['url'] as String,
-    name: json['name'] as String? ?? json['url'] as String,
-    description: json['description'] as String?,
-    iconUrl: json['iconUrl'] as String?,
-    plugins: [
-      for (final p in (json['plugins'] as List?) ?? const [])
-        if (p is Map) CsPluginInfo.fromJson(Map<String, dynamic>.from(p), json['url'] as String),
-    ],
-  );
+  factory CsRepository.fromJson(Map<String, dynamic> json) {
+    final url = json['url'];
+    if (url is! String || url.isEmpty) throw const FormatException('A repository needs its address');
+    final host = Uri.tryParse(url)?.host ?? '';
+    return CsRepository(
+      url: url,
+      name: _text(json['name']) ?? (host.isEmpty ? url : host),
+      description: _text(json['description']),
+      iconUrl: _text(json['iconUrl']),
+      plugins: _plugins(json['plugins'], url),
+    );
+  }
+
+  /// The plugins [raw] holds: one that does not read is left out, not the repository with it -
+  /// a repository is lost whole when one of its entries throws.
+  static List<CsPluginInfo> _plugins(Object? raw, String repositoryUrl) {
+    final out = <CsPluginInfo>[];
+    if (raw is! List) return out;
+    for (final entry in raw) {
+      if (entry is! Map) continue;
+      try {
+        out.add(CsPluginInfo.fromJson(Map<String, dynamic>.from(entry), repositoryUrl));
+      } on FormatException {
+        // A plugin entry that does not read is left out, not the repository with it.
+      }
+    }
+    return out;
+  }
 }
 
 /// One entry of a plugin list.
@@ -105,20 +145,27 @@ class CsPluginInfo {
     'fileSize': fileSize,
   };
 
-  factory CsPluginInfo.fromJson(Map<String, dynamic> json, String repositoryUrl) => CsPluginInfo(
-    internalName: json['internalName'] as String? ?? json['name'] as String,
-    name: json['name'] as String? ?? json['internalName'] as String,
-    url: json['url'] as String,
-    repositoryUrl: repositoryUrl,
-    version: (json['version'] as num?)?.toInt() ?? 0,
-    status: (json['status'] as num?)?.toInt() ?? 1,
-    authors: [...?(json['authors'] as List?)?.whereType<String>()],
-    description: json['description'] as String?,
-    tvTypes: [...?(json['tvTypes'] as List?)?.whereType<String>()],
-    language: json['language'] as String?,
-    iconUrl: (json['iconUrl'] as String?)?.replaceAll('%size%', '128'),
-    fileSize: (json['fileSize'] as num?)?.toInt(),
-  );
+  factory CsPluginInfo.fromJson(Map<String, dynamic> json, String repositoryUrl) {
+    final url = json['url'];
+    if (url is! String || url.isEmpty) throw const FormatException('A plugin needs its address');
+    // A plugin names itself; a list that names it only one way still reads.
+    final name = _text(json['name']);
+    final internalName = _text(json['internalName']) ?? name ?? _fileName(url);
+    return CsPluginInfo(
+      internalName: internalName,
+      name: name ?? internalName,
+      url: url,
+      repositoryUrl: repositoryUrl,
+      version: _number(json['version']) ?? 0,
+      status: _number(json['status']) ?? 1,
+      authors: [...?(json['authors'] as List?)?.whereType<String>()],
+      description: _text(json['description']),
+      tvTypes: [...?(json['tvTypes'] as List?)?.whereType<String>()],
+      language: _text(json['language']),
+      iconUrl: _text(json['iconUrl'])?.replaceAll('%size%', '128'),
+      fileSize: _number(json['fileSize']),
+    );
+  }
 }
 
 /// A provider (CloudStream's `MainAPI`) that a plugin registers when loaded.
@@ -153,11 +200,11 @@ class CsProviderInfo {
   };
 
   factory CsProviderInfo.fromJson(Map<String, dynamic> json) => CsProviderInfo(
-    name: json['name'] as String,
-    mainUrl: json['mainUrl'] as String? ?? '',
-    lang: json['lang'] as String?,
+    name: _text(json['name']) ?? 'CloudStream',
+    mainUrl: _text(json['mainUrl']) ?? '',
+    lang: _text(json['lang']),
     types: [...?(json['types'] as List?)?.whereType<String>()],
-    hasMainPage: json['hasMainPage'] as bool? ?? false,
+    hasMainPage: json['hasMainPage'] == true,
     sections: [...?(json['sections'] as List?)?.whereType<String>()],
   );
 }
@@ -217,15 +264,18 @@ class CsInstalledPlugin {
   };
 
   factory CsInstalledPlugin.fromJson(Map<String, dynamic> json, String root) => CsInstalledPlugin(
-    info: CsPluginInfo.fromJson(Map<String, dynamic>.from(json['info'] as Map), json['repositoryUrl'] as String),
+    info: CsPluginInfo.fromJson(
+      Map<String, dynamic>.from(json['info'] as Map),
+      _text(json['repositoryUrl']) ?? '',
+    ),
     filePath: _resolve(json, root),
     providers: [
       for (final p in (json['providers'] as List?) ?? const [])
         if (p is Map) CsProviderInfo.fromJson(Map<String, dynamic>.from(p)),
     ],
-    extractors: (json['extractors'] as num?)?.toInt() ?? 0,
-    loadError: json['loadError'] as String?,
-    loadErrorVersion: json['loadErrorVersion'] as String?,
+    extractors: _number(json['extractors']) ?? 0,
+    loadError: _text(json['loadError']),
+    loadErrorVersion: _text(json['loadErrorVersion']),
     hasSettings: json['hasSettings'] as bool?,
   );
 
@@ -236,10 +286,10 @@ class CsInstalledPlugin {
   }
 
   static String _resolve(Map<String, dynamic> json, String root) {
-    final file = json['file'] as String?;
+    final file = _text(json['file']);
     if (file != null) return file.startsWith('/') || file.contains(':') ? file : '$root/$file';
     // Recorded as an absolute path before: keep the part inside CloudStream's folder.
-    final legacy = (json['filePath'] as String).replaceAll('\\', '/');
+    final legacy = (_text(json['filePath']) ?? '').replaceAll('\\', '/');
     const marker = '/extensions/cloudstream/';
     final at = legacy.indexOf(marker);
     return at < 0 ? legacy : '$root/${legacy.substring(at + marker.length)}';

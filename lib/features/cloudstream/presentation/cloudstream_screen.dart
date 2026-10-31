@@ -7,6 +7,7 @@ import '../../../core/cloudstream/cloudstream_engine.dart';
 import '../../../core/cloudstream/cloudstream_models.dart';
 import '../../../core/cloudstream/cloudstream_repository.dart';
 import '../../../core/logger/app_logger.dart';
+import '../../../core/models/extension_update_report.dart' show toastNames;
 import '../../../core/router/app_router.dart';
 import '../../../core/utils/layout_constants.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -78,6 +79,7 @@ class _Header extends ConsumerStatefulWidget {
 class _HeaderState extends ConsumerState<_Header> {
   bool _adding = false;
   bool _refreshing = false;
+  bool _updating = false;
 
   Future<void> _addRepository() async {
     final messenger = ScaffoldMessenger.of(context);
@@ -126,6 +128,34 @@ class _HeaderState extends ConsumerState<_Header> {
       );
     } finally {
       if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  /// Brings every installed extension up to date in one go: the repositories are checked again and
+  /// each extension with a newer version is installed over the old one.
+  Future<void> _updateAll() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    setState(() => _updating = true);
+    try {
+      final report = await ref.read(cloudStreamRepositoryProvider.notifier).autoUpdate();
+      final updated = report.updated;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            [
+              if (updated.isEmpty) l10n.cloudStreamUpToDate else l10n.extensionsUpdated(updated.length),
+              if (updated.isNotEmpty) toastNames(updated),
+            ].join(' · '),
+          ),
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.cloudStreamFailed(CloudStreamRepository.errorMessage(error)))),
+      );
+    } finally {
+      if (mounted) setState(() => _updating = false);
     }
   }
 
@@ -208,6 +238,17 @@ class _HeaderState extends ConsumerState<_Header> {
                         text: _refreshing
                             ? l10n.cloudStreamChecking
                             : (updates > 0 ? l10n.cloudStreamCheckUpdatesCount(updates) : l10n.cloudStreamCheckUpdates),
+                      ),
+                    ),
+                  // Updates every installed extension at once, not one extension at a time.
+                  if (state.installed.isNotEmpty)
+                    CustomButton(
+                      isOutlined: true,
+                      onPressed: _updating ? null : () => unawaited(_updateAll()),
+                      child: _ButtonLabel(
+                        busy: _updating,
+                        icon: Icons.system_update_alt_rounded,
+                        text: _updating ? l10n.cloudStreamUpdatingAll : l10n.cloudStreamUpdateAll,
                       ),
                     ),
                   CustomButton(
@@ -349,12 +390,35 @@ class _RepositoryCard extends ConsumerWidget {
     }
   }
 
+  /// Installs every extension of this repository that is not installed yet: a repository lists
+  /// dozens, and installing them one by one is a tap each.
+  Future<void> _installAll(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      final result = await ref.read(cloudStreamRepositoryProvider.notifier).installAll(repo);
+      final message = [
+        if (result.installed.isNotEmpty) l10n.cloudStreamInstalledAll(result.installed.length),
+        if (result.failed.isNotEmpty) l10n.cloudStreamCouldNotInstallAll(result.failed.join(', ')),
+      ].join(' · ');
+      if (message.isNotEmpty) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.cloudStreamFailed(CloudStreamRepository.errorMessage(error)))),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(cloudStreamRepositoryProvider);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final installedCount = repo.plugins.where((p) => state.installedFor(p) != null).length;
+    final missing = repo.plugins.length - installedCount;
+    final busy = repo.plugins.any((p) => state.busy.contains(CloudStreamRepository.keyOf(p)));
     final l10n = AppLocalizations.of(context)!;
 
     return Card(
@@ -394,6 +458,13 @@ class _RepositoryCard extends ConsumerWidget {
                   icon: const Icon(Icons.refresh_rounded),
                   onPressed: () => unawaited(_refresh(context, ref)),
                 ),
+                // Installs every extension this repository lists that is not installed yet.
+                if (missing > 0)
+                  IconButton(
+                    tooltip: l10n.cloudStreamInstallAll,
+                    icon: const Icon(Icons.download_for_offline_outlined),
+                    onPressed: busy ? null : () => unawaited(_installAll(context, ref)),
+                  ),
                 IconButton(
                   tooltip: l10n.removeRepository,
                   icon: Icon(Icons.delete_outline, color: cs.error),

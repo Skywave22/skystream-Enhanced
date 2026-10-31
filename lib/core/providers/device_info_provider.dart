@@ -129,8 +129,12 @@ Future<DeviceProfile> deviceProfile(Ref ref) async {
 
     if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
       isDesktopOS = true;
-      // Desktops are not the constrained case this tier exists to protect.
-      tier = DeviceTier.high;
+      // A desktop's tier follows its actual RAM: a 4 GB laptop is not the same
+      // as a 32 GB workstation. Read memory the same way Android does so a
+      // constrained desktop gets the smaller caches instead of `high`.
+      final memory = await readDeviceMemory();
+      physicalRamMb = memory.totalMb;
+      tier = _tierFromRam(memory.totalMb ?? 0);
     }
   }
 

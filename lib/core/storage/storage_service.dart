@@ -487,6 +487,49 @@ class StorageService {
     return _settingsBox.get(key) as String?;
   }
 
+  /// The names a person gave their providers, by the provider's package name.
+  ///
+  /// The name an extension gives a provider is its own, and the list of them
+  /// reads as a row of half-names ("JTV+", "Cricfy"): a name of the person's
+  /// own is kept here and shown in its place.
+  Map<String, String> getProviderAliases() => parseProviderAliases(getString(_kProviderAliases));
+
+  /// The names read out of [raw], the map as it was stored. A stored name that
+  /// cannot be read is no name at all: the provider's own name stands.
+  @visibleForTesting
+  static Map<String, String> parseProviderAliases(String? raw) {
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return {
+          for (final entry in decoded.entries)
+            if (entry.key is String && entry.value is String)
+              entry.key as String: entry.value as String,
+        };
+      }
+    } catch (_) {
+      // A stored map that cannot be read is no map at all.
+    }
+    return const {};
+  }
+
+  /// The name [packageName]'s provider goes by, or null for the one it came with.
+  String? getProviderAlias(String packageName) => getProviderAliases()[packageName];
+
+  /// Remembers the name a person gave [packageName]'s provider; null puts the
+  /// extension's own name back.
+  Future<void> setProviderAlias(String packageName, String? alias) async {
+    final aliases = Map<String, String>.of(getProviderAliases());
+    final name = alias?.trim();
+    if (name == null || name.isEmpty) {
+      aliases.remove(packageName);
+    } else {
+      aliases[packageName] = name;
+    }
+    await setString(_kProviderAliases, jsonEncode(aliases));
+  }
+
   Future<void> remove(String key) async {
     await _settingsBox.delete(key);
   }
@@ -494,6 +537,10 @@ class StorageService {
   // --- Watch History ---
 
   static const String kHistoryBox = 'history_box';
+  // Cap the in-memory copy of history so a very long watch history cannot
+  // keep growing without bound. The box itself keeps everything the user has
+  // watched; only the cache copy is truncated.
+  static const int kMaxCachedHistory = 500;
   // Box late initialization is handled in init()
   List<Map<String, dynamic>>? _cachedHistory;
   bool _historyCacheDirty = true;
@@ -502,7 +549,7 @@ class StorageService {
     _historyBox = await _safeOpenBox(kHistoryBox);
   }
 
-  Future<void> saveProgress(
+  Future<Map<String, dynamic>> saveProgress(
     MultimediaItem item,
     int positionMillis,
     int durationMillis, {
@@ -552,7 +599,44 @@ class StorageService {
       await _historyBox.put(episodeKey, entry);
     }
 
-    _historyCacheDirty = true;
+    // The cache is updated in place rather than thrown away: re-reading the
+    // whole box on every write made a long watch history cost more the
+    // longer it got, and on a television box the app was killed for it.
+    _updateCachedHistoryEntry(item.url, entry);
+    // The entry as it was written, so the caller can put that one row into
+    // its own list instead of reading the whole history back.
+    return entry;
+  }
+
+  /// Puts [entry] into the cached history under [url], keeping the cache's
+  /// order (newest first) without reading the box again.
+  ///
+  /// The cache is only touched when it is already in step with the box: a
+  /// cache that was never read, or one that another change left stale, is
+  /// left alone and read again on the next ask.
+  void _updateCachedHistoryEntry(String url, Map<String, dynamic> entry) {
+    final cached = _cachedHistory;
+    if (cached == null || _historyCacheDirty) {
+      _historyCacheDirty = true;
+      return;
+    }
+    for (var i = 0; i < cached.length; i++) {
+      if (cached[i]['url'] == url) {
+        cached[i] = entry;
+        // The entry is the newest thing written, so it belongs at the front.
+        if (i > 0) {
+          cached.removeAt(i);
+          cached.insert(0, entry);
+        }
+        return;
+      }
+    }
+    cached.insert(0, entry);
+    // Keep the in-memory copy bounded so a long watch history does not eat
+    // RAM forever: drop the oldest entries once the cap is exceeded.
+    while (cached.length > kMaxCachedHistory) {
+      cached.removeLast();
+    }
   }
 
   Future<void> removeFromHistory(String url) async {
@@ -575,7 +659,13 @@ class StorageService {
       await _historyBox.delete(k);
     }
 
-    _historyCacheDirty = true;
+    // The entry is gone from the box; it is gone from the cache too.
+    final cached = _cachedHistory;
+    if (cached != null && !_historyCacheDirty) {
+      cached.removeWhere((entry) => entry['url'] == url);
+    } else {
+      _historyCacheDirty = true;
+    }
   }
 
   Future<void> updateHistoryItemTimestampAndPosition(
@@ -602,7 +692,9 @@ class StorageService {
           await _historyBox.put(episodeKey, updatedEpEntry);
         }
       }
-      _historyCacheDirty = true;
+      // The entry that changed is the one in the cache; the rest of the
+      // history is untouched, so it does not have to be read again.
+      _updateCachedHistoryEntry(url, updatedEntry);
     }
   }
 
@@ -735,6 +827,25 @@ class StorageService {
   }
 
   static const String _kExtensionRepoUrls = 'extension_repo_urls';
+
+  /// The names a person gave their providers, by the provider's package name.
+  static const String _kProviderAliases = 'provider_aliases';
+
+  /// How much bigger (or smaller) the app's text is drawn, as a multiple of the system's own
+  /// size. 1 is the system's size.
+  static const String _kFontScale = 'font_scale';
+
+  /// The size the app's text is drawn at, as a multiple of the system's own size.
+  double getFontScale() {
+    final value = _settingsBox.get(_kFontScale);
+    if (value is num && value > 0.5 && value <= 2.0) return value.toDouble();
+    return 1.0;
+  }
+
+  Future<void> setFontScale(double scale) async {
+    final value = scale.clamp(0.8, 1.6).toDouble();
+    await _settingsBox.put(_kFontScale, value);
+  }
 
   /// String-valued extension keys a reset that keeps the repositories keeps
   /// too: the collections the user follows, and what each repository has

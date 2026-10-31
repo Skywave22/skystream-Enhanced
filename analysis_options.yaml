@@ -22,8 +22,22 @@ include: package:flutter_lints/flutter.yaml
 # Pinned exactly, not floated: the analysis server resolves this in its own
 # plugin workspace, outside pubspec.lock, so a caret here means a future 3.x
 # release can silently change which rules run with no commit in this repo.
+#
+# The plugin workspace resolves its packages from pub.dev independently of
+# pubspec.lock. When analysis_server_plugin is resolved to a newer release
+# than the one the bundled Dart SDK was built against (0.3.26 wants analyzer
+# 14.7.0, Flutter 3.47.7 ships analyzer 14.5.0), the plugin's AOT snapshot is
+# compiled against a different analyzer than the one loading it, and the
+# analysis server crashes with exit code 4 - the linter never runs and the
+# gate fails with nothing to read. Pin the plugin packages to the locked
+# versions so the workspace resolves deterministically.
 plugins:
   riverpod_lint: 3.1.9
+
+dependency_overrides:
+  analysis_server_plugin: 0.3.24
+  analyzer_plugin: 0.14.18
+  analyzer: 14.5.0
 
 analyzer:
   language:

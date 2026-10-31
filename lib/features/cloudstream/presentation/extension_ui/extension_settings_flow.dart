@@ -61,16 +61,20 @@ Future<void> _openExtensionSettings(BuildContext context, WidgetRef ref, CsInsta
   if (crash != null) {
     messenger.showSnackBar(SnackBar(content: Text(l10n.cloudStreamSettingsStopped(plugin.info.name, crash))));
   }
-  if (!changed) return;
-  try {
-    await ref.read(cloudStreamRepositoryProvider.notifier).applySettings(plugin);
-    messenger.showSnackBar(SnackBar(content: Text(l10n.cloudStreamSettingsApplied(plugin.info.name))));
-  } catch (error) {
+  // Reload the extension only when something actually changed: an extension that keeps its
+  // settings in memory asks for a restart to apply them, and the app does not restart, so it
+  // only applies them when its code runs again. When nothing changed there is nothing to apply.
+  if (changed) {
+    try {
+      await ref.read(cloudStreamRepositoryProvider.notifier).applySettings(plugin);
+      messenger.showSnackBar(SnackBar(content: Text(l10n.cloudStreamSettingsApplied(plugin.info.name))));
+    } catch (error) {
     messenger.showSnackBar(
       SnackBar(
         content: Text(l10n.cloudStreamSettingsApplyFailed(plugin.info.name, CloudStreamRepository.errorMessage(error))),
       ),
     );
+  }
   }
 }
 
@@ -86,7 +90,7 @@ Future<void> openExtensionPopups(BuildContext context, WidgetRef ref, CsInstalle
     final tv = ref.read(deviceProfileProvider).value?.isTv ?? false;
     final ExtensionUiSession session;
     try {
-      session = await ExtensionUiSession.openPopups(HostUiApi(host), plugin.filePath);
+      session = await ExtensionUiSession.openPopups(HostUiApi(host, pluginUrl: plugin.info.url), plugin.filePath);
     } catch (error) {
       messenger.showSnackBar(
         SnackBar(

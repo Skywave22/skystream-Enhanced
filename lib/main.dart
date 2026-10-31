@@ -79,10 +79,12 @@ void main() async {
 
   // Cap Flutter's image cache. Default is 1000 entries / 100 MB which is too
   // generous for low-RAM TVs and even most phones — decoded TMDB posters fill
-  // it quickly. Tighter limits force earlier eviction and keep raster smooth.
+  // it quickly. The safe base below is tightened once the device profile
+  // resolves (low / standard / high tier below); decoded pictures are evicted
+  // earlier so a playing stream keeps its memory budget.
   PaintingBinding.instance.imageCache
-    ..maximumSize = 200
-    ..maximumSizeBytes = 50 * 1024 * 1024; // 50 MB
+    ..maximumSize = 100
+    ..maximumSizeBytes = 25 * 1024 * 1024; // 25 MB
 
   // Before any image is asked for: posters from a site behind a bot check go
   // with the clearance its plugin earned - see clearance_images.dart.
@@ -508,6 +510,12 @@ class _MyAppState extends ConsumerState<MyApp> {
     final appRouter = ref.watch(appRouterProvider);
     final locale = ref.watch(localeProvider);
     final profileAsync = ref.watch(deviceProfileProvider);
+    // The size of the app's text, as the person set it in the settings. It
+    // multiplies the system's own size, so a person who already reads large
+    // text gets larger text still.
+    final fontScale = ref.watch(
+      generalSettingsProvider.select((s) => s.fontScale),
+    );
 
     // Mirror the resolved device profile into TmdbConfig's static cache so
     // pure-utility URL builders (AppImageFallbacks, TmdbDetails ctor) pick
@@ -516,7 +524,33 @@ class _MyAppState extends ConsumerState<MyApp> {
     // frames may use w1280 backdrops on TV before snapping to original.
     ref.listen<AsyncValue<DeviceProfile>>(deviceProfileProvider, (prev, next) {
       final value = next.value;
-      if (value != null) TmdbConfig.setProfile(value);
+      if (value == null) return;
+      TmdbConfig.setProfile(value);
+      // A cheap stick or an old television box has little memory for decoded
+      // pictures, and the system kills an app that asks for too much of it.
+      // The cache holds the posters of every screen the person has seen, so
+      // it is capped smaller there: the pictures are fetched again rather
+      // than the app being killed while a stream plays.
+      switch (value.tier) {
+        case DeviceTier.low:
+          // Cheap stick or old television box: decoded pictures cost RAM the
+          // system will kill the app for.
+          PaintingBinding.instance.imageCache
+            ..maximumSize = 60
+            ..maximumSizeBytes = 12 * 1024 * 1024; // 12 MB
+        case DeviceTier.standard:
+          // Phone or laptop-class device: keep a modest working set of
+          // decoded posters so scrolling stays smooth without hoarding RAM.
+          PaintingBinding.instance.imageCache
+            ..maximumSize = 100
+            ..maximumSizeBytes = 30 * 1024 * 1024; // 30 MB
+        case DeviceTier.high:
+          // Workstation-class desktop: plenty of headroom, but still capped
+          // so an overnight browse session cannot grow the cache without end.
+          PaintingBinding.instance.imageCache
+            ..maximumSize = 150
+            ..maximumSizeBytes = 40 * 1024 * 1024; // 40 MB
+      }
     });
 
     return DynamicColorBuilder(
@@ -548,6 +582,21 @@ class _MyAppState extends ConsumerState<MyApp> {
           supportedLocales: AppLocalizations.supportedLocales,
           builder: (context, child) {
             Widget result = child!;
+
+            // The size of the text, as the person set it in the settings: it
+            // multiplies the system's own size, so a person who already reads
+            // large text gets larger text still. Every screen reads the scale
+            // from the MediaQuery below.
+            if (fontScale != 1.0) {
+              final media = MediaQuery.of(context);
+              final systemScale = media.textScaler.scale(1);
+              result = MediaQuery(
+                data: media.copyWith(
+                  textScaler: TextScaler.linear(systemScale * fontScale),
+                ),
+                child: result,
+              );
+            }
 
             // A television reports about 960 dp of width whatever its panel
             // is, so the same layout that breathes on a laptop is drawn at

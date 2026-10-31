@@ -15,6 +15,10 @@ class GeneralSettings {
   final int downloadConcurrency;
   final int downloadChunks;
 
+  /// How much bigger (or smaller) the app's text is drawn, as a multiple of the system's own
+  /// size. 1 is the system's size.
+  final double fontScale;
+
   /// User-supplied TMDB API key. Empty means "fall back to the build-time
   /// `--dart-define=TMDB_API_KEY` value" (which may itself be empty).
   final String tmdbApiKey;
@@ -28,6 +32,7 @@ class GeneralSettings {
     this.downloadDirectory,
     this.downloadConcurrency = 3,
     this.downloadChunks = 1,
+    this.fontScale = 1.0,
     this.tmdbApiKey = '',
   });
 
@@ -40,6 +45,7 @@ class GeneralSettings {
     String? downloadDirectory,
     int? downloadConcurrency,
     int? downloadChunks,
+    double? fontScale,
     String? tmdbApiKey,
   }) {
     return GeneralSettings(
@@ -51,6 +57,7 @@ class GeneralSettings {
       downloadDirectory: downloadDirectory ?? this.downloadDirectory,
       downloadConcurrency: downloadConcurrency ?? this.downloadConcurrency,
       downloadChunks: downloadChunks ?? this.downloadChunks,
+      fontScale: fontScale ?? this.fontScale,
       tmdbApiKey: tmdbApiKey ?? this.tmdbApiKey,
     );
   }
@@ -70,6 +77,7 @@ class GeneralSettingsNotifier extends _$GeneralSettingsNotifier {
       downloadDirectory: repository.getDownloadDirectory(),
       downloadConcurrency: repository.getDownloadConcurrency(),
       downloadChunks: repository.getDownloadChunks(),
+      fontScale: repository.getFontScale(),
       tmdbApiKey: repository.getTmdbApiKey(),
     );
   }
@@ -131,5 +139,12 @@ class GeneralSettingsNotifier extends _$GeneralSettingsNotifier {
     final repository = ref.read(settingsRepositoryProvider);
     await repository.setDownloadChunks(value);
     state = state.copyWith(downloadChunks: value);
+  }
+
+  /// The size the app's text is drawn at, as a multiple of the system's own size.
+  Future<void> setFontScale(double scale) async {
+    final repository = ref.read(settingsRepositoryProvider);
+    await repository.setFontScale(scale);
+    state = state.copyWith(fontScale: scale);
   }
 }

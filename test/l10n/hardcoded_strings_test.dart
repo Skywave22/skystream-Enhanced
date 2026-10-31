@@ -148,7 +148,7 @@ bool _isProse(String literal) {
 }
 
 /// Ceiling for the whole of `lib/`, recorded when this gate landed.
-const int _totalBudget = 143;
+const int _totalBudget = 134;
 
 /// Per-file counts as of the ARB migration. Lower them as strings move into
 /// app_en.arb; never raise one.
@@ -158,16 +158,14 @@ const Map<String, int> _budget = <String, int>{
   'lib/features/addons/presentation/addon_catalog_screen.dart': 1,
   'lib/features/addons/presentation/addon_detail_screen.dart': 2,
   'lib/features/addons/presentation/addon_sources_sheet.dart': 12,
-  'lib/features/addons/presentation/addons_screen.dart': 6,
+  'lib/features/addons/presentation/addons_screen.dart': 5,
   'lib/features/addons/presentation/widgets/addon_manage_view.dart': 19,
   'lib/features/details/presentation/details_screen.dart': 4,
   'lib/features/explore/presentation/anilist_explore_screen.dart': 1,
   'lib/features/explore/presentation/explore_screen.dart': 1,
   'lib/features/explore/presentation/widgets/explore_mode_selector_dialog.dart': 2,
   'lib/features/extensions/screens/extensions_screen.dart': 1,
-  'lib/features/extensions/screens/plugin_settings_dialog.dart': 4,
-  'lib/features/home/presentation/delegates/home_search_delegate.dart': 1,
-  'lib/features/home/presentation/home_screen.dart': 1,
+  'lib/features/extensions/screens/plugin_settings_dialog.dart': 3,
   'lib/features/library/presentation/widgets/downloads_tab.dart': 7,
   'lib/features/nuvio/presentation/nuvio_plugins_screen.dart': 1,
   'lib/features/nuvio/presentation/nuvio_plugins_view.dart': 13,

@@ -44,6 +44,17 @@ class Cs3EnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         }
         // Events come from plugin threads; the channel is used on the main thread.
         HostHooks.event = { event -> Handler(Looper.getMainLooper()).post { channel.invokeMethod("event", event) } }
+        // An extension asked to restart the app: its code is stopped where it asked, and the app
+        // is told, so the extension is loaded again - which is what the restart would have done,
+        // and what makes the settings the extension saved apply.
+        HostHooks.restartRequested = { error ->
+            val plugin = engine?.pluginFileIn(error)?.absolutePath ?: ""
+            runCatching {
+                Json.mapper.writeValueAsString(
+                    mapOf("event" to "restartRequested", "plugin" to plugin)
+                )
+            }.onSuccess { event -> HostHooks.event(event) }
+        }
         // The WebView's own agent, as CloudStream's resolver read it from the WebView it made.
         HostHooks.browserAgent = { browserAgent(appContext) }
     }

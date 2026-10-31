@@ -157,7 +157,7 @@ class NoHistory extends HistoryRepository {
   }) => 0;
 
   @override
-  Future<void> saveProgress(
+  Future<HistoryItem> saveProgress(
     MultimediaItem item,
     int position,
     int duration, {
@@ -167,7 +167,12 @@ class NoHistory extends HistoryRepository {
     int? episode,
     String? episodeTitle,
     String? episodePosterUrl,
-  }) async {}
+  }) async => HistoryItem(
+    item: item,
+    position: position,
+    duration: duration,
+    timestamp: DateTime.now().millisecondsSinceEpoch,
+  );
 }
 
 /// Advancing an episode and recording a livestream both write Continue

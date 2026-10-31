@@ -6,6 +6,7 @@ import 'package:skystream/core/domain/entity/multimedia_item.dart';
 import 'package:skystream/core/extensions/base_provider.dart';
 import 'package:skystream/core/extensions/extension_manager.dart';
 import 'package:skystream/core/providers/device_info_provider.dart';
+import 'package:skystream/core/storage/storage_service.dart';
 import 'package:skystream/features/extensions/providers/extensions_controller.dart';
 import 'package:skystream/features/home/presentation/home_provider.dart';
 import 'package:skystream/features/home/presentation/home_screen.dart';
@@ -88,6 +89,29 @@ class _FakeExtensionsController extends ExtensionsController {
   Future<void> ensureInitialized() async {}
 }
 
+/// The real storage service is Hive-backed and throws until `init` has run,
+/// which it never has in a widget test. The dialog only asks it for the names
+/// people gave their providers, so that is all this one answers.
+class _FakeStorageService extends StorageService {
+  final Map<String, String> aliases = <String, String>{};
+
+  @override
+  Map<String, String> getProviderAliases() => Map<String, String>.of(aliases);
+
+  @override
+  String? getProviderAlias(String packageName) => aliases[packageName];
+
+  @override
+  Future<void> setProviderAlias(String packageName, String? alias) async {
+    final name = alias?.trim();
+    if (name == null || name.isEmpty) {
+      aliases.remove(packageName);
+    } else {
+      aliases[packageName] = name;
+    }
+  }
+}
+
 class _Host extends StatelessWidget {
   final VoidCallback onClosed;
   const _Host({required this.onClosed});
@@ -123,6 +147,7 @@ Future<ProviderContainer> _pumpHost(
       deviceProfileProvider.overrideWithValue(
         const AsyncValue.data(DeviceProfile()),
       ),
+      storageServiceProvider.overrideWithValue(_FakeStorageService()),
     ],
   );
   addTearDown(container.dispose);

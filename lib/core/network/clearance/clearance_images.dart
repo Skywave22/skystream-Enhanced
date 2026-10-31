@@ -51,6 +51,11 @@ class ClearanceImageCacheManager extends CacheManager with ImageCacheManager {
     : super(
         Config(
           DefaultCacheManager.key,
+          // Cap the on-disk image cache so browsing dozens of posters and
+          // backdrops cannot grow it without bound. `stalePeriod` (default 7
+          // days) evicts old entries; `maxNrOfCacheObjects` caps the number
+          // of cached artworks so disk use stays bounded too.
+          maxNrOfCacheObjects: 500,
           fileService: ClearanceImageFileService(),
         ),
       );
