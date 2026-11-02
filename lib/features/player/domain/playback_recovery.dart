@@ -451,7 +451,8 @@ class FirstFrameWatch {
           ? FirstFrameVerdict.giveUp
           : FirstFrameVerdict.wait;
     }
-    if (open >= _cap || now.difference(_progressAt) >= _deadline) {
+    if (open >= kFirstFrameCap ||
+        now.difference(_progressAt) >= kFirstFrameDeadline) {
       return FirstFrameVerdict.giveUp;
     }
     return FirstFrameVerdict.wait;

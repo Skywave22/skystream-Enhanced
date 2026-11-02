@@ -1040,21 +1040,6 @@ void main() {
       expect(watch.verdict, FirstFrameVerdict.giveUp);
     });
 
-    timed('a television waits longer than a phone before giving up', () {
-      // A TV's launcher, Wi-Fi and SoC start more slowly: a slow open is not
-      // a dead source, so it gets a 45 s no-progress deadline (30 s by
-      // default) and a 90 s cap (60 s by default).
-      final watch = FirstFrameWatch(
-        deadline: const Duration(seconds: 45),
-        cap: const Duration(seconds: 90),
-      )
-        ..sample(const OpeningSample(state: VlcPlaybackState.opening));
-      pass(44);
-      expect(watch.verdict, FirstFrameVerdict.wait);
-      pass(1);
-      expect(watch.verdict, FirstFrameVerdict.giveUp);
-    });
-
     timed('a restart counts from now', () {
       final watch = FirstFrameWatch();
       pass(29);

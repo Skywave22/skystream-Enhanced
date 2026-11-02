@@ -2789,16 +2789,7 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
   /// stuck in any of those said "Opening…" for minutes.
   void _watchFirstFrame(int generation, {required bool torrent}) {
     _firstFrameGeneration = generation;
-    final profile = ref.read(deviceProfileProvider).asData?.value;
-    final isTv = playerFormFactorOf(profile) == PlayerFormFactor.tv;
-    _firstFrame = FirstFrameWatch(
-      torrent: torrent,
-      // A television starts more slowly than a phone: its launcher, Wi-Fi and
-      // SoC all take longer, so a slow open is not a dead source. Give a TV
-      // open more time to show its first picture before it is abandoned.
-      deadline: isTv ? const Duration(seconds: 45) : kFirstFrameDeadline,
-      cap: isTv ? const Duration(seconds: 90) : kFirstFrameCap,
-    );
+    _firstFrame = FirstFrameWatch(torrent: torrent);
   }
 
   /// One tick of the first-frame watch.
@@ -2993,18 +2984,13 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     final afterSeek =
         seekAt != null &&
         _attemptAge - _stalledFor - seekAt <= _kAfterSeekSlack;
-    final profile = ref.read(deviceProfileProvider).asData?.value;
-    final tier = profile?.tier ?? DeviceTier.standard;
-    final recoverAfter = _attemptIsTorrent
-        ? kTorrentStallRecoverAfter
-        : tier == DeviceTier.low
-            ? const Duration(seconds: 40)
-            : kStallRecoverAfter;
     final action = stallActionFor(
       stalledFor: _stalledFor,
       hadFrames: _sawFrames,
       lastAction: _lastStallAction,
-      recoverAfter: recoverAfter,
+      recoverAfter: _attemptIsTorrent
+          ? kTorrentStallRecoverAfter
+          : kStallRecoverAfter,
       arriving: _bytesArriving,
       afterSeek: afterSeek,
       // HLS and DASH get no nudge (plan note 3).
