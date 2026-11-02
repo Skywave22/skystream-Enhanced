@@ -391,11 +391,24 @@ enum FirstFrameVerdict { wait, giveUp }
 /// up to [kFirstFrameCap]. Torrents keep [kTorrentStallRecoverAfter] from
 /// the open: their progress is pieces arriving, which the engine can't see.
 class FirstFrameWatch {
-  FirstFrameWatch({this.torrent = false}) {
+  FirstFrameWatch({
+    this.torrent = false,
+    Duration? deadline,
+    Duration? cap,
+  })  : _deadline = deadline ?? kFirstFrameDeadline,
+        _cap = cap ?? kFirstFrameCap {
     restart();
   }
 
   final bool torrent;
+
+  /// How long with no sign of progress before giving up: longer for a
+  /// television, whose leanback launcher, Wi-Fi and SoC all start more
+  /// slowly than a phone's, so a slow open is not treated as a dead one.
+  final Duration _deadline;
+
+  /// How long from the open before giving up, progress or not.
+  final Duration _cap;
 
   late DateTime _openedAt;
   late DateTime _progressAt;
@@ -438,8 +451,7 @@ class FirstFrameWatch {
           ? FirstFrameVerdict.giveUp
           : FirstFrameVerdict.wait;
     }
-    if (open >= kFirstFrameCap ||
-        now.difference(_progressAt) >= kFirstFrameDeadline) {
+    if (open >= _cap || now.difference(_progressAt) >= _deadline) {
       return FirstFrameVerdict.giveUp;
     }
     return FirstFrameVerdict.wait;
