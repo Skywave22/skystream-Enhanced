@@ -2984,18 +2984,13 @@ class _VlcPlayerScreenState extends ConsumerState<VlcPlayerScreen>
     final afterSeek =
         seekAt != null &&
         _attemptAge - _stalledFor - seekAt <= _kAfterSeekSlack;
-    final profile = ref.read(deviceProfileProvider).asData?.value;
-    final tier = profile?.tier ?? DeviceTier.standard;
-    final recoverAfter = _attemptIsTorrent
-        ? kTorrentStallRecoverAfter
-        : tier == DeviceTier.low
-            ? const Duration(seconds: 12)
-            : kStallRecoverAfter;
     final action = stallActionFor(
       stalledFor: _stalledFor,
       hadFrames: _sawFrames,
       lastAction: _lastStallAction,
-      recoverAfter: recoverAfter,
+      recoverAfter: _attemptIsTorrent
+          ? kTorrentStallRecoverAfter
+          : kStallRecoverAfter,
       arriving: _bytesArriving,
       afterSeek: afterSeek,
       // HLS and DASH get no nudge (plan note 3).

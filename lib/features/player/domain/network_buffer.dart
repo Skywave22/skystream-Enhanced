@@ -68,10 +68,8 @@ const int kRingFloorMb = 16;
 const int kTorrentCacheFloorMb = 64;
 
 /// The smallest HLS/DASH buffer, in seconds: under this a slow patch empties
-/// it. Kept low so playback starts sooner on slow connections (TV sticks on
-/// Wi-Fi especially) and rebuffers less often because the refill target is
-/// modest rather than ambitious.
-const int kAdaptiveFloorSeconds = 10;
+/// it.
+const int kAdaptiveFloorSeconds = 20;
 
 /// What kind of media a plan is for (spec 1.2's table).
 enum BufferMedia {
